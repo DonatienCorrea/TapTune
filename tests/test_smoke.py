@@ -15,6 +15,14 @@ class SmokeTests(unittest.TestCase):
         self.database_path = str(Path(self.temporary_directory.name) / "taptune.db")
         self.original_database_path = config.settings.DATABASE_PATH
         config.settings.DATABASE_PATH = self.database_path
+        spotify_credentials = patch.multiple(
+            config.settings,
+            SPOTIFY_CLIENT_ID="",
+            SPOTIFY_CLIENT_SECRET="",
+            SPOTIFY_REFRESH_TOKEN="",
+        )
+        spotify_credentials.start()
+        self.addCleanup(spotify_credentials.stop)
         spotify_service._fake_spotify_client = None
         clear_all_tags()
         self.app = create_app()
