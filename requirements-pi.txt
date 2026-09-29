@@ -1,3 +1,2 @@
--r requirements.txt
-mfrc522==0.0.7
+rpi-lgpio==0.6
 spidev==3.6

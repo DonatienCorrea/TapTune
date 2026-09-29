@@ -140,11 +140,12 @@ cd TapTune
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python -m pip install -r requirements-pi.txt
+./systemd/install-pi-dependencies.sh
 cp .env.example .env
 chmod 600 .env
 ```
+
+The dependency script replaces the `RPi.GPIO` package pulled in by `mfrc522` with the compatible `rpi-lgpio` backend required by Raspberry Pi 5. It is safe to rerun in an existing virtual environment when upgrading.
 
 Edit `.env` with `nano .env`. Keep `DATABASE_PATH=./data/raspi_spotify_nfc.db` unless you deliberately want another location. Enable SPI with `sudo raspi-config` → **Interface Options** → **SPI**, then reboot if Raspberry Pi OS requests it. Connect the RC522 according to the board's pin labels and Pi documentation; do not power a 3.3 V RC522 from 5 V.
 
@@ -223,7 +224,8 @@ sqlite3 data/raspi_spotify_nfc.db \
 | Spotify returns an auth error | Recheck client ID/secret, refresh-token scopes, and an exact redirect URI match. |
 | Spotify returns no active device/playback error | Open Spotify on a Connect-capable device and confirm the account can control playback. |
 | Tag is “unknown” | Assign the exact UID shown by the reader; UID case and extra spaces matter to the current lookup. |
-| RC522 import fails | Activate the Pi virtual environment and install `requirements-pi.txt`; verify SPI is enabled. |
+| RC522 import fails | Activate the Pi virtual environment, run `./systemd/install-pi-dependencies.sh`, and verify SPI is enabled. |
+| `Cannot determine SOC peripheral base address` on Raspberry Pi 5 | Pull the latest changes and run `./systemd/install-pi-dependencies.sh` to replace `RPi.GPIO` with `rpi-lgpio`. |
 | Physical taps do nothing | Expected with the current scaffold: `app.main` does not poll `RC522Reader` yet. Use `app.simulate` or `/dispatch`. |
 | A tag cannot be written | Expected: tag writing is explicitly not implemented in v1. |
 
