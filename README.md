@@ -153,13 +153,16 @@ curl http://<pi-ip>:5000/health
 
 ## Install and operate the service
 
-The checked-in unit assumes the checkout is `/home/pi/TapTune`, the virtual environment is `.venv`, and `.env` exists there. Install it from the repository root:
+The checked-in unit file has `/home/pi/TapTune` as a placeholder path. If your checkout lives anywhere else (a different username or directory), installing it as-is makes `systemctl enable --now` fail with a generic "unavailable resources or another system error", because `ExecStart`/`WorkingDirectory`/`EnvironmentFile` point at a path that doesn't exist. `systemd/install-service.sh` rewrites those three paths to match your actual checkout before installing. Run it from the repository root after `.venv` and `.env` exist:
 
 ```bash
-sudo install -m 644 systemd/raspi-spotify-nfc.service \
-  /etc/systemd/system/raspi-spotify-nfc.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now raspi-spotify-nfc.service
+sudo ./systemd/install-service.sh
+```
+
+To preview the generated unit without installing or requiring root, add `--dry-run`:
+
+```bash
+./systemd/install-service.sh --dry-run
 ```
 
 Check status and the local endpoint:
@@ -203,7 +206,8 @@ sqlite3 data/raspi_spotify_nfc.db \
 | Symptom | Check |
 | --- | --- |
 | `curl` cannot connect | Confirm `systemctl status`, port `5000`, `APP_HOST`, and the Pi IP. |
-| Service exits immediately | Confirm `/home/pi/TapTune/.env` exists, the unit paths match the checkout, and `journalctl` shows the Python error. |
+| `systemctl enable --now` fails with "unavailable resources or another system error" | The unit paths don't match your checkout. Reinstall with `sudo ./systemd/install-service.sh`, which rewrites `WorkingDirectory`/`ExecStart`/`EnvironmentFile` to your actual path. |
+| Service exits immediately | Confirm `.env` exists in the checkout, the unit paths match it, and `journalctl` shows the Python error. |
 | Fake mode is unexpected | All three live Spotify variables must be non-empty; remove stale placeholder values and restart the service. |
 | Spotify returns an auth error | Recheck client ID/secret, refresh-token scopes, and an exact redirect URI match. |
 | Spotify returns no active device/playback error | Open Spotify on a Connect-capable device and confirm the account can control playback. |
@@ -228,9 +232,7 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 python -m pip install -r requirements-pi.txt
 python -m unittest discover -s tests -v
-sudo install -m 644 systemd/raspi-spotify-nfc.service \
-  /etc/systemd/system/raspi-spotify-nfc.service
-sudo systemctl daemon-reload
+sudo ./systemd/install-service.sh
 sudo systemctl start raspi-spotify-nfc.service
 sudo systemctl status raspi-spotify-nfc.service --no-pager
 curl http://127.0.0.1:5000/health
