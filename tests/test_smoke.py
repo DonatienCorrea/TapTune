@@ -115,6 +115,26 @@ class SmokeTests(unittest.TestCase):
         self.assertIsNotNone(event)
         self.assertEqual(event.payload, "action:next")
 
+    def test_read_uid_from_hardware_polls_until_a_tag_is_present(self):
+        class FakeHardwareReader:
+            def __init__(self):
+                self.calls = 0
+
+            def read_once(self):
+                self.calls += 1
+                if self.calls < 3:
+                    return None
+                return nfc_reader.NFCEvent(uid="04A7B2F1", payload="04A7B2F1")
+
+        fake_reader = FakeHardwareReader()
+        with patch.object(nfc_reader, "RC522Reader", return_value=fake_reader):
+            with patch.object(nfc_reader.time, "sleep") as mock_sleep:
+                uid = nfc_reader.read_uid_from_hardware()
+
+        self.assertEqual(uid, "04A7B2F1")
+        self.assertEqual(fake_reader.calls, 3)
+        self.assertEqual(mock_sleep.call_count, 2)
+
     def test_missing_schema_fails_at_connection_setup(self):
         with tempfile.TemporaryDirectory() as temp_directory:
             missing_schema = Path(temp_directory) / "schema.sql"

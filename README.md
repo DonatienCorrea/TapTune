@@ -94,12 +94,23 @@ The simulator upserts each mapping, records an event, dispatches it, and prints 
 
 > The simulator runs as its own command and does not send a request to the Flask server. The health request verifies the server; the simulator verifies the mapping and dispatch path. Both should succeed before configuring live Spotify or installing the service.
 
+## Read a tag's UID
+
+Before assigning a tag in the UI, you need its UID. On the Pi, with the RC522 wired up, SPI enabled, and `requirements-pi.txt` installed:
+
+```bash
+source .venv/bin/activate
+python -m app.nfc_reader --read
+```
+
+The command polls the reader, prints `Hold a tag near the reader...`, and once you present a tag prints its UID as uppercase hexadecimal, for example `uid=04A7B2F1`. Press `Ctrl-C` to cancel if no tag is presented.
+
 ## First tag assignment
 
 The assignment UI is the supported way to associate a UID with playback:
 
 1. Start TapTune and open `http://127.0.0.1:5000/` locally, or `http://<pi-ip>:5000/` from another device on the same network.
-2. Enter the UID exactly as read by the reader (the RC522 implementation formats it as uppercase hexadecimal, for example `04A7B2F1`).
+2. Enter the UID from the previous step exactly as printed (the RC522 implementation formats it as uppercase hexadecimal, for example `04A7B2F1`).
 3. Enter one supported value:
    - `spotify:track:<id>`
    - `spotify:playlist:<id>`
