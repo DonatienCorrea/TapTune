@@ -100,6 +100,9 @@ class SmokeTests(unittest.TestCase):
             MI_OK = 0
             PICC_REQIDL = 0
 
+            def __init__(self, pin_mode, pin_rst):
+                nfc_reader.GPIO.setup(pin_rst, nfc_reader.GPIO.OUT)
+
             def MFRC522_Request(self, request):
                 return self.MI_OK, None
 
@@ -127,11 +130,12 @@ class SmokeTests(unittest.TestCase):
         dispatch_simulated_value("04A7B2F1", "action:next")
         gpio = FakeGPIO()
         with patch.object(nfc_reader, "GPIO", gpio):
-            with patch.object(nfc_reader, "MFRC522", return_value=FakeReader()) as reader_class:
+            original_setup = gpio.setup
+            with patch.object(nfc_reader, "MFRC522", FakeReader):
                 event = nfc_reader.RC522Reader().read_once()
 
-        reader_class.assert_called_once_with(pin_mode=gpio.BOARD, pin_rst=22)
         self.assertEqual(gpio.setup_calls, [(22, gpio.OUT, gpio.HIGH)])
+        self.assertEqual(gpio.setup, original_setup)
         self.assertIsNotNone(event)
         self.assertEqual(event.uid, "04A7B2F1")
         self.assertEqual(event.payload, "action:next")

@@ -54,8 +54,19 @@ class RC522Reader(ReaderBase):
             pin_mode = GPIO.BOARD
             GPIO.setmode(pin_mode)
         reset_pin = 22 if pin_mode == GPIO.BOARD else 25
-        GPIO.setup(reset_pin, GPIO.OUT, initial=GPIO.HIGH)
-        self.reader = MFRC522(pin_mode=pin_mode, pin_rst=reset_pin)
+
+        original_setup = GPIO.setup
+
+        def setup_with_initial(channel, direction, *args, **kwargs):
+            if channel == reset_pin and direction == GPIO.OUT and "initial" not in kwargs:
+                kwargs["initial"] = GPIO.HIGH
+            return original_setup(channel, direction, *args, **kwargs)
+
+        GPIO.setup = setup_with_initial
+        try:
+            self.reader = MFRC522(pin_mode=pin_mode, pin_rst=reset_pin)
+        finally:
+            GPIO.setup = original_setup
 
     def read_once(self) -> Optional[NFCEvent]:
         status, tag_type = self.reader.MFRC522_Request(self.reader.PICC_REQIDL)
