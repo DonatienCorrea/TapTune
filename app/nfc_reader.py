@@ -1,4 +1,5 @@
 import argparse
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -70,11 +71,39 @@ def parse_tag_value(value: str) -> str:
     return value.strip()
 
 
+def read_uid_from_hardware(poll_interval_seconds: float = 0.2) -> str:
+    """Poll the connected RC522 reader until a tag is present and return its UID.
+
+    Requires the MFRC522 library and SPI to be enabled; intended for use on a
+    Raspberry Pi with the reader wired up, not for local development.
+    """
+    reader = RC522Reader()
+    while True:
+        event = reader.read_once()
+        if event is not None:
+            return event.uid
+        time.sleep(poll_interval_seconds)
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Simulate an NFC tag scan")
-    parser.add_argument("--uid", required=True)
-    parser.add_argument("--payload", required=True)
+    parser = argparse.ArgumentParser(description="Simulate an NFC tag scan or read a real tag's UID")
+    parser.add_argument(
+        "--read",
+        action="store_true",
+        help="Poll the connected RC522 reader and print the UID of the next tag presented, then exit.",
+    )
+    parser.add_argument("--uid", help="Simulated UID (ignored with --read)")
+    parser.add_argument("--payload", help="Simulated payload (ignored with --read)")
     args = parser.parse_args()
+
+    if args.read:
+        print("Hold a tag near the reader...")
+        uid = read_uid_from_hardware()
+        print(f"uid={uid}")
+        return
+
+    if not args.uid or not args.payload:
+        parser.error("--uid and --payload are required unless --read is given")
 
     reader = SimulatedReader({args.uid: parse_tag_value(args.payload)})
     event = reader.read_once()
