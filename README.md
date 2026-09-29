@@ -103,7 +103,7 @@ source .venv/bin/activate
 python -m app.nfc_reader --read
 ```
 
-The command polls the reader, prints `Hold a tag near the reader...`, and once you present a tag prints its UID as uppercase hexadecimal, for example `uid=04A7B2F1`. Press `Ctrl-C` to cancel if no tag is presented.
+The command polls the reader, prints `Hold a tag near the reader...`, and once you present a tag prints its four-byte UID as uppercase hexadecimal (without the reader's check byte), for example `uid=04A7B2F1`. Press `Ctrl-C` to cancel if no tag is presented.
 
 ## First tag assignment
 
