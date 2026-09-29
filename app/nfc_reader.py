@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 try:
-    import MFRC522
+    from mfrc522 import MFRC522
 except ImportError:  # pragma: no cover - hardware-specific library not installed in dev
     MFRC522 = None  # type: ignore
 
@@ -42,8 +42,8 @@ class SimulatedReader(ReaderBase):
 class RC522Reader(ReaderBase):
     def __init__(self):
         if MFRC522 is None:
-            raise RuntimeError("MFRC522 library not available; use SimulatedReader for local development.")
-        self.reader = MFRC522.MFRC522()
+            raise RuntimeError("mfrc522 library not available; install requirements-pi.txt on the Pi.")
+        self.reader = MFRC522()
 
     def read_once(self) -> Optional[NFCEvent]:
         status, tag_type = self.reader.MFRC522_Request(self.reader.PICC_REQIDL)
@@ -54,7 +54,7 @@ class RC522Reader(ReaderBase):
         if status != self.reader.MI_OK:
             return None
 
-        uid_hex = "".join(f"{byte:02X}" for byte in uid)
+        uid_hex = "".join(f"{byte:02X}" for byte in uid[:4])
         from .db import get_tag_by_uid
 
         tag = get_tag_by_uid(uid_hex)

@@ -104,15 +104,15 @@ class SmokeTests(unittest.TestCase):
                 return self.MI_OK, None
 
             def MFRC522_Anticoll(self):
-                return self.MI_OK, [4, 167, 178, 241]
+                return self.MI_OK, [4, 167, 178, 241, 224]
 
         dispatch_simulated_value("04A7B2F1", "action:next")
-        reader = object.__new__(nfc_reader.RC522Reader)
-        reader.reader = FakeReader()
+        with patch.object(nfc_reader, "MFRC522", return_value=FakeReader()) as reader_class:
+            event = nfc_reader.RC522Reader().read_once()
 
-        event = reader.read_once()
-
+        reader_class.assert_called_once_with()
         self.assertIsNotNone(event)
+        self.assertEqual(event.uid, "04A7B2F1")
         self.assertEqual(event.payload, "action:next")
 
     def test_read_uid_from_hardware_polls_until_a_tag_is_present(self):
