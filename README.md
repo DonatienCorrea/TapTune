@@ -60,8 +60,8 @@ Live mode is enabled only when `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, and
 
 1. Sign in to the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
 2. Create or select an app and copy its client ID and client secret.
-3. Add the exact value of `SPOTIFY_REDIRECT_URI` to the app's Redirect URIs. The example uses `http://localhost:8888/callback`; a URI mismatch prevents OAuth.
-4. Obtain a Spotify refresh token with the scopes `user-modify-playback-state user-read-playback-state`. TapTune consumes an existing refresh token; this repository does not include an OAuth callback/token-issuance tool.
+3. Add the exact value of `SPOTIFY_REDIRECT_URI` to the app's Redirect URIs. The example uses `http://127.0.0.1:8888/callback`; a URI mismatch prevents OAuth.
+4. Follow the [Spotify authorization guide](docs/spotify-authorization.md) to obtain a refresh token with the scopes `user-modify-playback-state user-read-playback-state`.
 5. Put the three values in `.env` on the machine running TapTune. Do not commit `.env` or paste the secret into logs.
 
 Spotify playback also requires an available Spotify Connect device. A valid token alone does not guarantee that `start_playback` succeeds.
