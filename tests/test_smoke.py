@@ -106,11 +106,32 @@ class SmokeTests(unittest.TestCase):
             def MFRC522_Anticoll(self):
                 return self.MI_OK, [4, 167, 178, 241, 224]
 
-        dispatch_simulated_value("04A7B2F1", "action:next")
-        with patch.object(nfc_reader, "MFRC522", return_value=FakeReader()) as reader_class:
-            event = nfc_reader.RC522Reader().read_once()
+        class FakeGPIO:
+            BOARD = 10
+            OUT = 0
+            HIGH = 1
 
-        reader_class.assert_called_once_with()
+            def __init__(self):
+                self.mode = None
+                self.setup_calls = []
+
+            def getmode(self):
+                return self.mode
+
+            def setmode(self, mode):
+                self.mode = mode
+
+            def setup(self, pin, direction, initial):
+                self.setup_calls.append((pin, direction, initial))
+
+        dispatch_simulated_value("04A7B2F1", "action:next")
+        gpio = FakeGPIO()
+        with patch.object(nfc_reader, "GPIO", gpio):
+            with patch.object(nfc_reader, "MFRC522", return_value=FakeReader()) as reader_class:
+                event = nfc_reader.RC522Reader().read_once()
+
+        reader_class.assert_called_once_with(pin_mode=gpio.BOARD, pin_rst=22)
+        self.assertEqual(gpio.setup_calls, [(22, gpio.OUT, gpio.HIGH)])
         self.assertIsNotNone(event)
         self.assertEqual(event.uid, "04A7B2F1")
         self.assertEqual(event.payload, "action:next")

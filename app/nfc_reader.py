@@ -8,6 +8,11 @@ try:
 except ImportError:  # pragma: no cover - hardware-specific library not installed in dev
     MFRC522 = None  # type: ignore
 
+try:
+    import RPi.GPIO as GPIO
+except ImportError:  # pragma: no cover - hardware-specific library not installed in dev
+    GPIO = None  # type: ignore
+
 
 @dataclass
 class NFCEvent:
@@ -41,9 +46,16 @@ class SimulatedReader(ReaderBase):
 
 class RC522Reader(ReaderBase):
     def __init__(self):
-        if MFRC522 is None:
+        if MFRC522 is None or GPIO is None:
             raise RuntimeError("mfrc522 library not available; install requirements-pi.txt on the Pi.")
-        self.reader = MFRC522()
+
+        pin_mode = GPIO.getmode()
+        if pin_mode is None:
+            pin_mode = GPIO.BOARD
+            GPIO.setmode(pin_mode)
+        reset_pin = 22 if pin_mode == GPIO.BOARD else 25
+        GPIO.setup(reset_pin, GPIO.OUT, initial=GPIO.HIGH)
+        self.reader = MFRC522(pin_mode=pin_mode, pin_rst=reset_pin)
 
     def read_once(self) -> Optional[NFCEvent]:
         status, tag_type = self.reader.MFRC522_Request(self.reader.PICC_REQIDL)
