@@ -105,6 +105,18 @@ python -m app.nfc_reader --read
 
 The command polls the reader, prints `Hold a tag near the reader...`, and once you present a tag prints its four-byte UID as uppercase hexadecimal (without the reader's check byte), for example `uid=04A7B2F1`. Press `Ctrl-C` to cancel if no tag is presented.
 
+If the command waits without detecting a tag, run the low-level diagnostic:
+
+```bash
+python -m app.rc522_diag --seconds 30
+```
+
+The diagnostic bypasses the `mfrc522` package. It checks both SPI chip-select
+lines at several speeds, accepts only known RC522 version values, verifies
+register writes and antenna control, checks the reset line, and sends a direct
+REQA command. Stop any other reader process first so it does not keep the reset
+GPIO busy. Use `--no-rst` only to isolate a reset-line problem.
+
 ## First tag assignment
 
 The assignment UI is the supported way to associate a UID with playback:
@@ -226,6 +238,7 @@ sqlite3 data/raspi_spotify_nfc.db \
 | Tag is “unknown” | Assign the exact UID shown by the reader; UID case and extra spaces matter to the current lookup. |
 | RC522 import fails | Activate the Pi virtual environment, run `./systemd/install-pi-dependencies.sh`, and verify SPI is enabled. |
 | `Cannot determine SOC peripheral base address` on Raspberry Pi 5 | Pull the latest changes and run `./systemd/install-pi-dependencies.sh` to replace `RPi.GPIO` with `rpi-lgpio`. |
+| Reader waits or reports `0x00`/`0xFF` | Stop other reader jobs and run `python -m app.rc522_diag --seconds 30`; its final output distinguishes SPI, reset, antenna, and tag-response failures. |
 | Physical taps do nothing | Expected with the current scaffold: `app.main` does not poll `RC522Reader` yet. Use `app.simulate` or `/dispatch`. |
 | A tag cannot be written | Expected: tag writing is explicitly not implemented in v1. |
 
