@@ -117,6 +117,40 @@ register writes and antenna control, checks the reset line, and sends a direct
 REQA command. Stop any other reader process first so it does not keep the reset
 GPIO busy. Use `--no-rst` only to isolate a reset-line problem.
 
+### Test the Raspberry Pi SPI pins
+
+If the diagnostic reports no RC522 response, first inspect the SPI pin routing:
+
+```bash
+python -m app.rc522_diag --pin-config
+```
+
+Then perform a safe SPI loopback:
+
+1. Shut down the Pi with `sudo poweroff` and disconnect power.
+2. Disconnect **all** RC522 wires from the Pi.
+3. Bridge physical pin 19 (MOSI) directly to physical pin 21 (MISO) with one
+   jumper. Connect nothing else.
+4. Power the Pi, activate the project virtual environment, and run:
+
+   ```bash
+   python -m app.rc522_diag --loopback --confirm-disconnected
+   ```
+
+5. Shut down and disconnect power before removing the bridge or reconnecting
+   the RC522.
+
+A passing loopback proves the SPI controller, driver, MOSI pin, MISO pin, and
+the bridge connection. It does not electrically prove SCK or CE0 without an
+oscilloscope, logic analyzer, or responding SPI peripheral.
+
+With all power disconnected, use a multimeter in continuity mode to test each
+jumper separately from Pi-end connector to RC522-end connector. Do not use the
+proposed "walk" method of driving every connected signal as an output: MISO is
+normally driven by the RC522, so forcing both ends can cause electrical
+contention. Finally, with the wiring restored and the Pi powered, carefully
+measure about 3.3 V directly between the RC522 3.3V and GND pins.
+
 ## First tag assignment
 
 The assignment UI is the supported way to associate a UID with playback:
