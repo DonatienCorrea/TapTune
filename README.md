@@ -285,6 +285,7 @@ sqlite3 data/raspi_spotify_nfc.db \
 | RC522 import fails | Activate the Pi virtual environment, run `./systemd/install-pi-dependencies.sh`, and verify SPI is enabled. |
 | `Cannot determine SOC peripheral base address` on Raspberry Pi 5 | Pull the latest changes and run `./systemd/install-pi-dependencies.sh` to replace `RPi.GPIO` with `rpi-lgpio`. |
 | Reader waits or reports `0x00`/`0xFF` | Stop other reader jobs and run `python -m app.rc522_diag --seconds 30`; its final output distinguishes SPI, reset, antenna, and tag-response failures. |
+| `0x00` persists after every SPI test passes | Suspect wiring or the module. Keep SPI jumpers under 15 cm — long or thin dupont wires degrade signal integrity. Then reflow the RC522 header joints and try another module. |
 | Physical taps do nothing | Expected with the current scaffold: `app.main` does not poll `RC522Reader` yet. Use `app.simulate` or `/dispatch`. |
 | A tag cannot be written | Expected: tag writing is explicitly not implemented in v1. |
 
