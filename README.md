@@ -156,6 +156,24 @@ proves pin 23 emits a real clock. An all-zero result is only a hint, not proof,
 because the sample can land on the low phase of the clock; re-seat the jumper
 and retry before suspecting the Pi.
 
+### Bypass the SPI peripheral entirely
+
+With the RC522 wired up normally, read its version by toggling the SPI pins as
+plain GPIO instead of using the kernel SPI driver:
+
+```bash
+python -m app.rc522_diag --bitbang
+```
+
+This ignores `/dev/spidev` and the Pi 5 RP1 SPI peripheral, including its
+GPIO-driven chip select, and clocks the bus slowly by hand. It separates the two
+remaining possibilities:
+
+| Result | Meaning |
+| --- | --- |
+| A recognised version such as `0x92` | The module works; the hardware SPI path is at fault. |
+| `0x00` again | Software and the SPI peripheral are both excluded; the module, its solder joints, or the jumper wires are at fault. |
+
 With all power disconnected, use a multimeter in continuity mode to test each
 jumper separately from Pi-end connector to RC522-end connector. Do not use the
 proposed "walk" method of driving every connected signal as an output: MISO is
@@ -285,6 +303,7 @@ sqlite3 data/raspi_spotify_nfc.db \
 | RC522 import fails | Activate the Pi virtual environment, run `./systemd/install-pi-dependencies.sh`, and verify SPI is enabled. |
 | `Cannot determine SOC peripheral base address` on Raspberry Pi 5 | Pull the latest changes and run `./systemd/install-pi-dependencies.sh` to replace `RPi.GPIO` with `rpi-lgpio`. |
 | Reader waits or reports `0x00`/`0xFF` | Stop other reader jobs and run `python -m app.rc522_diag --seconds 30`; its final output distinguishes SPI, reset, antenna, and tag-response failures. |
+| `0x00` persists after every SPI test passes | Suspect wiring or the module. Keep SPI jumpers under 15 cm — long or thin dupont wires degrade signal integrity. Then reflow the RC522 header joints and try another module. |
 | Physical taps do nothing | Expected with the current scaffold: `app.main` does not poll `RC522Reader` yet. Use `app.simulate` or `/dispatch`. |
 | A tag cannot be written | Expected: tag writing is explicitly not implemented in v1. |
 

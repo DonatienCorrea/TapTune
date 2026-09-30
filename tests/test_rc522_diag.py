@@ -47,6 +47,56 @@ class LoopbackSpidevModule:
         return LoopbackSpi()
 
 
+class FakeBitBangGpio:
+    """Simulates an RC522 answering a bit-banged SPI read of one register."""
+
+    BCM = "BCM"
+    OUT = "OUT"
+    IN = "IN"
+    HIGH = 1
+    LOW = 0
+
+    def __init__(self, response):
+        self.response = response
+        self.levels = {}
+        self.rising_edges = 0
+        self.command = 0
+        self.cs_asserted = False
+        self.cleaned = []
+
+    def setmode(self, mode):
+        self.mode = mode
+
+    def setup(self, pin, direction, initial=None):
+        if initial is not None:
+            self.levels[pin] = initial
+
+    def cleanup(self, pin):
+        self.cleaned.append(pin)
+
+    def output(self, pin, value):
+        if pin == 8:
+            self.cs_asserted = value == self.LOW
+        if pin == 11 and value == self.HIGH:
+            self.rising_edges += 1
+            if self.rising_edges <= 8:
+                self.command = (self.command << 1) | self.levels.get(10, 0)
+        self.levels[pin] = value
+
+    def input(self, pin):
+        if pin != 9 or not self.cs_asserted or self.rising_edges <= 8:
+            return self.LOW
+        index = self.rising_edges - 9
+        if index > 7:
+            return self.LOW
+        return (self.response >> (7 - index)) & 1
+
+
+class SilentBitBangGpio(FakeBitBangGpio):
+    def input(self, pin):
+        return self.LOW
+
+
 class RC522DiagnosticTests(unittest.TestCase):
     def test_scan_buses_accepts_recognized_reader_versions(self):
         connections = rc522_diag.scan_buses(FakeSpidevModule(0x92))
@@ -74,6 +124,29 @@ class RC522DiagnosticTests(unittest.TestCase):
 
     def test_clock_test_fails_when_all_bytes_are_zero(self):
         self.assertFalse(rc522_diag.interpret_clock_bytes([0x00, 0x00, 0x00, 0x00]))
+
+    def test_bitbang_sends_the_version_read_command(self):
+        gpio = FakeBitBangGpio(0x92)
+        bus = rc522_diag.BitBangBus(gpio, delay=0)
+        bus.setup()
+
+        bus.read_register(rc522_diag.VERSION_REG)
+
+        self.assertEqual(gpio.command, 0xEE)
+        self.assertEqual(gpio.levels[8], gpio.HIGH)
+
+    def test_bitbang_reads_a_recognized_version(self):
+        gpio = FakeBitBangGpio(0x92)
+        bus = rc522_diag.BitBangBus(gpio, delay=0)
+        bus.setup()
+
+        self.assertEqual(bus.read_register(rc522_diag.VERSION_REG), 0x92)
+
+    def test_bitbang_run_reports_success_for_a_responding_reader(self):
+        self.assertEqual(rc522_diag.run_bitbang(FakeBitBangGpio(0x92)), 0)
+
+    def test_bitbang_run_reports_no_response_when_miso_stays_low(self):
+        self.assertEqual(rc522_diag.run_bitbang(SilentBitBangGpio(0x92)), 2)
 
 
 if __name__ == "__main__":
