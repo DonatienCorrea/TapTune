@@ -30,6 +30,23 @@ class FakeSpidevModule:
         return FakeSpi(self.version)
 
 
+class LoopbackSpi:
+    def open(self, bus, device):
+        self.bus = bus
+        self.device = device
+
+    def close(self):
+        pass
+
+    def xfer2(self, values):
+        return values
+
+
+class LoopbackSpidevModule:
+    def SpiDev(self):
+        return LoopbackSpi()
+
+
 class RC522DiagnosticTests(unittest.TestCase):
     def test_scan_buses_accepts_recognized_reader_versions(self):
         connections = rc522_diag.scan_buses(FakeSpidevModule(0x92))
@@ -46,6 +63,11 @@ class RC522DiagnosticTests(unittest.TestCase):
         spi = FakeSpi(0x91)
 
         self.assertEqual(rc522_diag.read_reg(spi, rc522_diag.VERSION_REG), 0x91)
+
+    def test_loopback_passes_when_received_bytes_match(self):
+        result = rc522_diag.run_loopback(LoopbackSpidevModule())
+
+        self.assertEqual(result, 0)
 
 
 if __name__ == "__main__":

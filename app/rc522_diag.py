@@ -1,5 +1,7 @@
 import argparse
 import glob
+import shutil
+import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -128,6 +130,55 @@ def scan_buses(spidev) -> List[ReaderConnection]:
             print(f"  CE{device} @ {speed:7d} Hz: 0x{version:02X} ({label})")
             connections.append(ReaderConnection(device, speed, version))
     return connections
+
+
+def show_pin_configuration() -> int:
+    tool = shutil.which("pinctrl") or shutil.which("raspi-gpio")
+    if tool is None:
+        print("Neither pinctrl nor raspi-gpio is installed.")
+        print("Install raspi-utils to inspect the SPI pin multiplexing.")
+        return 1
+
+    result = subprocess.run(
+        [tool, "get", "7-11"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    output = (result.stdout + result.stderr).strip()
+    print(output or "No pin configuration output.")
+    if result.returncode != 0:
+        return 1
+
+    lowered = output.lower()
+    if "spi" not in lowered and "a0" not in lowered:
+        print("GPIO 7-11 do not appear to be routed to SPI0.")
+        return 2
+    print("GPIO 7-11 appear to be routed to SPI0.")
+    return 0
+
+
+def run_loopback(spidev) -> int:
+    pattern = [0xAA, 0x55, 0x00, 0xFF, 0x0F, 0xF0, 0x81]
+    spi = spidev.SpiDev()
+    try:
+        spi.open(0, 0)
+        spi.mode = 0
+        spi.max_speed_hz = 500_000
+        received = spi.xfer2(pattern.copy())
+    except Exception as exc:
+        print(f"SPI0 loopback failed to run: {exc}")
+        return 1
+    finally:
+        spi.close()
+
+    print("Sent:     " + " ".join(f"0x{byte:02X}" for byte in pattern))
+    print("Received: " + " ".join(f"0x{byte:02X}" for byte in received))
+    if received == pattern:
+        print("SPI0 MOSI-to-MISO loopback passed.")
+        return 0
+    print("SPI0 loopback failed. Check the physical 19-to-21 bridge and pin numbering.")
+    return 2
 
 
 def check_reset(spidev, connection: ReaderConnection, reset: ResetPin) -> None:
@@ -283,9 +334,37 @@ def main() -> None:
     parser.add_argument("--seconds", type=float, default=15)
     parser.add_argument("--rst-bcm", type=int, default=25)
     parser.add_argument("--no-rst", action="store_true")
+    parser.add_argument(
+        "--pin-config",
+        action="store_true",
+        help="show whether GPIO 7-11 are routed to SPI0, then exit",
+    )
+    parser.add_argument(
+        "--loopback",
+        action="store_true",
+        help="test SPI0 with the RC522 disconnected and physical pins 19 and 21 bridged",
+    )
+    parser.add_argument(
+        "--confirm-disconnected",
+        action="store_true",
+        help="confirm the RC522 is disconnected before running --loopback",
+    )
     args = parser.parse_args()
     if args.seconds <= 0:
         parser.error("--seconds must be greater than zero")
+    if args.pin_config:
+        raise SystemExit(show_pin_configuration())
+    if args.loopback:
+        if not args.confirm_disconnected:
+            parser.error(
+                "--loopback requires --confirm-disconnected after removing all RC522 "
+                "connections and bridging physical pins 19 and 21"
+            )
+        try:
+            import spidev
+        except ImportError:
+            parser.error("spidev is unavailable; run ./systemd/install-pi-dependencies.sh")
+        raise SystemExit(run_loopback(spidev))
     raise SystemExit(run(args.seconds, None if args.no_rst else args.rst_bcm))
 
 
