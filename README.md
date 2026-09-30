@@ -144,6 +144,18 @@ A passing loopback proves the SPI controller, driver, MOSI pin, MISO pin, and
 the bridge connection. It does not electrically prove SCK or CE0 without an
 oscilloscope, logic analyzer, or responding SPI peripheral.
 
+To test SCK specifically, repeat the procedure above but bridge physical pin 23
+(SCK) to physical pin 21 (MISO) instead, then run:
+
+```bash
+python -m app.rc522_diag --clock-test --confirm-disconnected
+```
+
+This clocks a transfer while sampling the clock line itself. Any non-zero byte
+proves pin 23 emits a real clock. An all-zero result is only a hint, not proof,
+because the sample can land on the low phase of the clock; re-seat the jumper
+and retry before suspecting the Pi.
+
 With all power disconnected, use a multimeter in continuity mode to test each
 jumper separately from Pi-end connector to RC522-end connector. Do not use the
 proposed "walk" method of driving every connected signal as an output: MISO is

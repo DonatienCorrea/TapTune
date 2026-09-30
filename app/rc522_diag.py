@@ -181,6 +181,38 @@ def run_loopback(spidev) -> int:
     return 2
 
 
+def interpret_clock_bytes(received: List[int]) -> bool:
+    return any(byte != 0x00 for byte in received)
+
+
+def run_clock_test(spidev) -> int:
+    spi = spidev.SpiDev()
+    try:
+        spi.open(0, 0)
+        spi.mode = 0
+        spi.max_speed_hz = 100_000
+        received = spi.xfer2([0x00] * 4)
+    except Exception as exc:
+        print(f"SPI0 clock test failed to run: {exc}")
+        return 1
+    finally:
+        spi.close()
+
+    print("Received: " + " ".join(f"0x{byte:02X}" for byte in received))
+    if interpret_clock_bytes(received):
+        print(
+            "SCK is toggling. Physical pin 23 drives a real clock, so the Pi side of "
+            "SCK is proven good."
+        )
+        return 0
+    print(
+        "Read back all zero bytes. This suggests physical pin 23 is not clocking, but "
+        "it is not conclusive: sampling can land on the low phase of the clock. "
+        "Re-seat the pin 23 to pin 21 jumper and retry before suspecting the Pi."
+    )
+    return 2
+
+
 def check_reset(spidev, connection: ReaderConnection, reset: ResetPin) -> None:
     if reset.gpio is None:
         return
@@ -345,26 +377,33 @@ def main() -> None:
         help="test SPI0 with the RC522 disconnected and physical pins 19 and 21 bridged",
     )
     parser.add_argument(
+        "--clock-test",
+        action="store_true",
+        help="test SCK with the RC522 disconnected and physical pins 23 and 21 bridged",
+    )
+    parser.add_argument(
         "--confirm-disconnected",
         action="store_true",
-        help="confirm the RC522 is disconnected before running --loopback",
+        help="confirm the RC522 is disconnected before running --loopback or --clock-test",
     )
     args = parser.parse_args()
     if args.seconds <= 0:
         parser.error("--seconds must be greater than zero")
     if args.pin_config:
         raise SystemExit(show_pin_configuration())
-    if args.loopback:
+    if args.loopback or args.clock_test:
         if not args.confirm_disconnected:
             parser.error(
-                "--loopback requires --confirm-disconnected after removing all RC522 "
-                "connections and bridging physical pins 19 and 21"
+                "--loopback and --clock-test require --confirm-disconnected after "
+                "removing all RC522 connections and bridging the two physical pins"
             )
         try:
             import spidev
         except ImportError:
             parser.error("spidev is unavailable; run ./systemd/install-pi-dependencies.sh")
-        raise SystemExit(run_loopback(spidev))
+        if args.loopback:
+            raise SystemExit(run_loopback(spidev))
+        raise SystemExit(run_clock_test(spidev))
     raise SystemExit(run(args.seconds, None if args.no_rst else args.rst_bcm))
 
 
