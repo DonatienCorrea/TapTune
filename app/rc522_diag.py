@@ -213,6 +213,103 @@ def run_clock_test(spidev) -> int:
     return 2
 
 
+class BitBangBus:
+    """Drive the RC522 over SPI by toggling plain GPIO lines.
+
+    This bypasses the kernel SPI driver and the Pi 5 RP1 SPI peripheral,
+    including its GPIO-driven chip select, so a reply here proves the module
+    is alive even if the hardware SPI path is at fault.
+    """
+
+    def __init__(self, gpio, sck=11, mosi=10, miso=9, cs=8, delay=0.00001):
+        self.gpio = gpio
+        self.sck = sck
+        self.mosi = mosi
+        self.miso = miso
+        self.cs = cs
+        self.delay = delay
+
+    def setup(self) -> None:
+        self.gpio.setmode(self.gpio.BCM)
+        self.gpio.setup(self.sck, self.gpio.OUT, initial=self.gpio.LOW)
+        self.gpio.setup(self.mosi, self.gpio.OUT, initial=self.gpio.LOW)
+        self.gpio.setup(self.cs, self.gpio.OUT, initial=self.gpio.HIGH)
+        self.gpio.setup(self.miso, self.gpio.IN)
+
+    def cleanup(self) -> None:
+        for pin in (self.sck, self.mosi, self.cs, self.miso):
+            try:
+                self.gpio.cleanup(pin)
+            except Exception:
+                pass
+
+    def _settle(self) -> None:
+        if self.delay:
+            time.sleep(self.delay)
+
+    def transfer_byte(self, value: int) -> int:
+        received = 0
+        for index in range(8):
+            bit = (value >> (7 - index)) & 1
+            self.gpio.output(self.mosi, self.gpio.HIGH if bit else self.gpio.LOW)
+            self._settle()
+            self.gpio.output(self.sck, self.gpio.HIGH)
+            self._settle()
+            received = (received << 1) | (1 if self.gpio.input(self.miso) else 0)
+            self.gpio.output(self.sck, self.gpio.LOW)
+            self._settle()
+        return received
+
+    def read_register(self, register: int) -> int:
+        self.gpio.output(self.cs, self.gpio.LOW)
+        self._settle()
+        try:
+            self.transfer_byte(((register << 1) & 0x7E) | 0x80)
+            return self.transfer_byte(0x00)
+        finally:
+            self.gpio.output(self.cs, self.gpio.HIGH)
+            self._settle()
+
+
+def run_bitbang(gpio) -> int:
+    print("Bit-banging SPI on GPIO 8, 9, 10 and 11 (physical 24, 21, 19, 23).")
+    print("This ignores /dev/spidev and the RP1 SPI peripheral entirely.\n")
+    bus = BitBangBus(gpio)
+    try:
+        bus.setup()
+    except Exception as exc:
+        print(f"Could not claim the SPI pins as GPIO: {exc}")
+        print("Stop any other process using the reader, then retry.")
+        return 1
+
+    try:
+        version = bus.read_register(VERSION_REG)
+    except Exception as exc:
+        print(f"Bit-banged transfer failed: {exc}")
+        return 1
+    finally:
+        bus.cleanup()
+
+    label = KNOWN_VERSIONS.get(version)
+    print(f"VersionReg: 0x{version:02X}")
+    if label is not None:
+        print(f"The RC522 answered ({label}).")
+        print(
+            "The module is alive, so the fault is in the hardware SPI path "
+            "rather than the reader."
+        )
+        return 0
+    if version in (0x00, 0xFF):
+        print("No answer, exactly as over hardware SPI.")
+        print(
+            "Software and the SPI peripheral are now both excluded: the module, "
+            "its solder joints, or the jumper wires are at fault."
+        )
+        return 2
+    print("Unrecognised value; treating it as no valid reader response.")
+    return 2
+
+
 def check_reset(spidev, connection: ReaderConnection, reset: ResetPin) -> None:
     if reset.gpio is None:
         return
@@ -382,6 +479,11 @@ def main() -> None:
         help="test SCK with the RC522 disconnected and physical pins 23 and 21 bridged",
     )
     parser.add_argument(
+        "--bitbang",
+        action="store_true",
+        help="read VersionReg by toggling the SPI pins as plain GPIO, with the RC522 connected normally",
+    )
+    parser.add_argument(
         "--confirm-disconnected",
         action="store_true",
         help="confirm the RC522 is disconnected before running --loopback or --clock-test",
@@ -391,6 +493,14 @@ def main() -> None:
         parser.error("--seconds must be greater than zero")
     if args.pin_config:
         raise SystemExit(show_pin_configuration())
+    if args.bitbang:
+        try:
+            import RPi.GPIO as GPIO
+        except ImportError:
+            parser.error(
+                "RPi.GPIO is unavailable; run ./systemd/install-pi-dependencies.sh"
+            )
+        raise SystemExit(run_bitbang(GPIO))
     if args.loopback or args.clock_test:
         if not args.confirm_disconnected:
             parser.error(

@@ -156,6 +156,24 @@ proves pin 23 emits a real clock. An all-zero result is only a hint, not proof,
 because the sample can land on the low phase of the clock; re-seat the jumper
 and retry before suspecting the Pi.
 
+### Bypass the SPI peripheral entirely
+
+With the RC522 wired up normally, read its version by toggling the SPI pins as
+plain GPIO instead of using the kernel SPI driver:
+
+```bash
+python -m app.rc522_diag --bitbang
+```
+
+This ignores `/dev/spidev` and the Pi 5 RP1 SPI peripheral, including its
+GPIO-driven chip select, and clocks the bus slowly by hand. It separates the two
+remaining possibilities:
+
+| Result | Meaning |
+| --- | --- |
+| A recognised version such as `0x92` | The module works; the hardware SPI path is at fault. |
+| `0x00` again | Software and the SPI peripheral are both excluded; the module, its solder joints, or the jumper wires are at fault. |
+
 With all power disconnected, use a multimeter in continuity mode to test each
 jumper separately from Pi-end connector to RC522-end connector. Do not use the
 proposed "walk" method of driving every connected signal as an output: MISO is
