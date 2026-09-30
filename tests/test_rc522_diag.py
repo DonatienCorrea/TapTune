@@ -69,6 +69,12 @@ class RC522DiagnosticTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
 
+    def test_clock_test_passes_when_any_byte_is_non_zero(self):
+        self.assertTrue(rc522_diag.interpret_clock_bytes([0x00, 0xFF, 0x00, 0x00]))
+
+    def test_clock_test_fails_when_all_bytes_are_zero(self):
+        self.assertFalse(rc522_diag.interpret_clock_bytes([0x00, 0x00, 0x00, 0x00]))
+
 
 if __name__ == "__main__":
     unittest.main()
