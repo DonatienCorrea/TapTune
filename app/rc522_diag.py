@@ -1,5 +1,7 @@
 import argparse
+import fcntl
 import glob
+import os
 import shutil
 import subprocess
 import sys
@@ -8,6 +10,8 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 
+I2C_SLAVE = 0x0703
+MFRC522_I2C_ADDRESS = 0x28
 COMMAND_REG = 0x01
 COM_I_EN_REG = 0x02
 COM_IRQ_REG = 0x04
@@ -130,6 +134,100 @@ def scan_buses(spidev) -> List[ReaderConnection]:
             print(f"  CE{device} @ {speed:7d} Hz: 0x{version:02X} ({label})")
             connections.append(ReaderConnection(device, speed, version))
     return connections
+
+
+class I2CBus:
+    """Minimal I2C master built on the kernel's character device.
+
+    smbus2 is not installed on the Pi, and the MFRC522 needs a plain write of
+    the register address followed by a read, which the ioctl interface gives us
+    without any extra dependency.
+    """
+
+    def __init__(self, bus=1, opener=os.open, ioctl=fcntl.ioctl):
+        self.path = f"/dev/i2c-{bus}"
+        self.opener = opener
+        self.ioctl = ioctl
+        self.fd = None
+
+    def open(self) -> None:
+        self.fd = self.opener(self.path, os.O_RDWR)
+
+    def close(self) -> None:
+        if self.fd is not None:
+            os.close(self.fd)
+            self.fd = None
+
+    def read_register(self, address: int, register: int) -> int:
+        self.ioctl(self.fd, I2C_SLAVE, address)
+        os.write(self.fd, bytes([register & 0x3F]))
+        data = os.read(self.fd, 1)
+        if not data:
+            raise OSError("the device acknowledged but returned no data")
+        return data[0]
+
+
+def interpret_i2c_version(version) -> tuple:
+    if version is None:
+        return (
+            False,
+            "Nothing answered on the I2C bus.",
+            "The chip is not in I2C mode either, or the two signal wires are "
+            "not on the I2C pins. This does not clear the module, but it does "
+            "rule out the most likely remaining explanation.",
+        )
+    label = KNOWN_VERSIONS.get(version)
+    if label is not None:
+        return (
+            True,
+            f"The RC522 answered over I2C ({label}).",
+            "The chip latched I2C mode instead of SPI, which is why it never "
+            "drives the pin the board labels MISO: in I2C mode that pin is "
+            "SCL, an open-drain line, so it floats with no pull-up. The board "
+            "ties the mode-select pins the wrong way, so no amount of SPI "
+            "wiring will ever work. Drive it over I2C instead.",
+        )
+    return (
+        False,
+        f"Something answered at 0x{version:02X}, which is not an RC522 version.",
+        "A device is present on the bus but it does not identify as an "
+        "MFRC522; check that the right two wires are on the I2C pins.",
+    )
+
+
+def run_i2c_check(bus_factory=I2CBus, address=MFRC522_I2C_ADDRESS, bus=1) -> int:
+    print("Testing whether the chip latched I2C mode instead of SPI.\n")
+    print("Move two wires first, leaving 3.3V, GND and RST where they are:")
+    print("  RC522 SDA  -> physical pin 3  (GPIO 2, I2C1 SDA)")
+    print("  RC522 MISO -> physical pin 5  (GPIO 3, I2C1 SCL)")
+    print("Disconnect RC522 SCK and MOSI entirely.")
+    print("Enable I2C with 'sudo raspi-config nonint do_i2c 0 && sudo reboot'.\n")
+
+    handle = bus_factory(bus)
+    version = None
+    try:
+        handle.open()
+    except OSError as exc:
+        print(f"Could not open /dev/i2c-{bus}: {exc}")
+        print("Enable I2C with 'sudo raspi-config nonint do_i2c 0 && sudo reboot'.")
+        return 1
+    try:
+        version = handle.read_register(address, VERSION_REG)
+    except OSError as exc:
+        print(f"No reply at 0x{address:02X}: {exc}")
+    finally:
+        try:
+            handle.close()
+        except Exception:
+            pass
+
+    if version is not None:
+        print(f"VersionReg over I2C at 0x{address:02X}: 0x{version:02X}")
+    answered, summary, detail = interpret_i2c_version(version)
+    print()
+    print(summary)
+    print(detail)
+    return 0 if answered else 2
 
 
 def read_boot_config(paths=("/boot/firmware/config.txt", "/boot/config.txt")) -> tuple:
@@ -852,6 +950,17 @@ def main() -> None:
     parser.add_argument("--rst-bcm", type=int, default=25)
     parser.add_argument("--no-rst", action="store_true")
     parser.add_argument(
+        "--i2c-check",
+        action="store_true",
+        help="test whether the chip latched I2C mode instead of SPI",
+    )
+    parser.add_argument(
+        "--i2c-address",
+        type=lambda value: int(value, 0),
+        default=MFRC522_I2C_ADDRESS,
+        help="I2C address to probe for --i2c-check (default 0x28)",
+    )
+    parser.add_argument(
         "--spi-status",
         action="store_true",
         help="report whether SPI is enabled in config.txt, in the kernel, and on the pins",
@@ -898,6 +1007,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.seconds <= 0:
         parser.error("--seconds must be greater than zero")
+    if args.i2c_check:
+        raise SystemExit(run_i2c_check(address=args.i2c_address))
     if args.spi_status:
         raise SystemExit(run_spi_status())
     if args.pin_config:

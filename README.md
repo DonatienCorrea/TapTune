@@ -94,6 +94,74 @@ The simulator upserts each mapping, records an event, dispatches it, and prints 
 
 > The simulator runs as its own command and does not send a request to the Flask server. The health request verifies the server; the simulator verifies the mapping and dispatch path. Both should succeed before configuring live Spotify or installing the service.
 
+## Wiring
+
+Both sides of this table were derived independently: the RC522 column from the
+NXP MFRC522 datasheet rev 3.9, table 3 "Pin description" and section 8.1.2, and
+the Raspberry Pi column from the official Pi 5 SPI0 pin mapping and the RP1
+device tree. They agree.
+
+| RC522 pin | Function in SPI mode | Pi physical pin | BCM | Mandatory |
+| --- | --- | --- | --- | --- |
+| 3.3V | supply, 2.5-3.6 V | 1 | - | yes |
+| GND | ground | 6 | - | yes |
+| SCK | SPI clock input | 23 | GPIO 11 | yes |
+| MOSI | host to module data | 19 | GPIO 10 | yes |
+| MISO | module to host data | 21 | GPIO 9 | yes |
+| SDA | chip select, named NSS on the chip | 24 | GPIO 8 | yes |
+| RST | reset and power-down, named NRSTPD | 22 | GPIO 25 | must sit at a defined level |
+| IRQ | interrupt output | - | - | no, leave unconnected |
+
+Notes from the datasheet that the usual wiring diagrams omit:
+
+- The module is **not** 5 V tolerant. Table 150 limits any input to the supply
+  voltage plus 0.5 V, so never feed it from physical pin 2 or 4.
+- RST must not float. The chip has an internal power-on reset, so tying RST to
+  3.3 V also works, but leaving it unconnected is undefined.
+- IRQ defaults to open-drain and three-state, so it needs a pull-up if you ever
+  connect it.
+- Peak supply current during RF transmission is up to 100 mA.
+
+### If SPI never works: check the interface mode
+
+The MFRC522 picks SPI, I2C or UART by sampling two pins at power-on or on the
+rising edge of RST, and latches the result (datasheet section 8.1.1, table 5).
+Those two pins are chip pins 1 and 32; **neither is exposed on the 8-pin
+header**, so the board wires them permanently and you cannot change the choice.
+
+This matters because of how the pins are renamed in each mode:
+
+| Header label | SPI | I2C | UART |
+| --- | --- | --- | --- |
+| SDA | NSS, chip select | SDA | RX |
+| SCK | SCK | ADR_1 | DTRQ |
+| MOSI | MOSI | ADR_0 | MX |
+| MISO | MISO | **SCL** | TX |
+
+If a board straps those pins for I2C, the pin labelled MISO is really SCL, an
+open-drain line, so with no pull-up it floats and nothing ever appears on SPI.
+That is indistinguishable from a dead module unless you test for it:
+
+```bash
+sudo raspi-config nonint do_i2c 0 && sudo reboot
+```
+
+Move two wires, leaving 3.3V, GND and RST alone, and disconnect SCK and MOSI:
+
+| RC522 pin | Pi physical pin | BCM |
+| --- | --- | --- |
+| SDA | 3 | GPIO 2, I2C1 SDA |
+| MISO | 5 | GPIO 3, I2C1 SCL |
+
+```bash
+python -m app.rc522_diag --i2c-check
+```
+
+The default address is `0x28`, which is what the datasheet's reserved prefix
+`0101` plus three grounded address pins produces. Use `--i2c-address` to try
+another. A reply here proves the chip is alive and merely latched the wrong
+interface.
+
 ## Read a tag's UID
 
 Before assigning a tag in the UI, you need its UID. On the Pi, with the RC522 wired up, SPI enabled, and `requirements-pi.txt` installed:
