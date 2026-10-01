@@ -97,6 +97,17 @@ class SilentBitBangGpio(FakeBitBangGpio):
         return self.LOW
 
 
+class FailingClaimGpio(FakeBitBangGpio):
+    def __init__(self, failing_pin):
+        super().__init__(0x92)
+        self.failing_pin = failing_pin
+
+    def setup(self, pin, direction, initial=None):
+        if pin == self.failing_pin:
+            raise OSError("Invalid argument")
+        super().setup(pin, direction, initial=initial)
+
+
 class RC522DiagnosticTests(unittest.TestCase):
     def test_scan_buses_accepts_recognized_reader_versions(self):
         connections = rc522_diag.scan_buses(FakeSpidevModule(0x92))
@@ -147,6 +158,35 @@ class RC522DiagnosticTests(unittest.TestCase):
 
     def test_bitbang_run_reports_no_response_when_miso_stays_low(self):
         self.assertEqual(rc522_diag.run_bitbang(SilentBitBangGpio(0x92)), 2)
+
+    def test_bitbang_reports_which_pin_could_not_be_claimed(self):
+        gpio = FailingClaimGpio(11)
+        bus = rc522_diag.BitBangBus(gpio, delay=0)
+
+        with self.assertRaises(rc522_diag.PinClaimError) as caught:
+            bus.setup()
+
+        self.assertEqual(caught.exception.pin, 11)
+        self.assertEqual(caught.exception.label, "SCK")
+
+    def test_bitbang_run_fails_cleanly_when_pins_are_unavailable(self):
+        self.assertEqual(rc522_diag.run_bitbang(FailingClaimGpio(8)), 1)
+
+    def test_bitbang_accepts_custom_pins(self):
+        self.assertEqual(rc522_diag.parse_bitbang_pins("5,6,13,19"), (5, 6, 13, 19))
+
+    def test_bitbang_pins_reject_duplicates_and_bad_counts(self):
+        for value in ("5,6,13", "5,5,13,19", "5,6,13,99", "a,b,c,d"):
+            with self.assertRaises(ValueError):
+                rc522_diag.parse_bitbang_pins(value)
+
+    def test_bitbang_uses_the_custom_pins_it_is_given(self):
+        gpio = FakeBitBangGpio(0x92)
+        bus = rc522_diag.BitBangBus(gpio, sck=5, mosi=6, miso=13, cs=19, delay=0)
+        bus.setup()
+        bus.cleanup()
+
+        self.assertEqual(sorted(gpio.cleaned), [5, 6, 13, 19])
 
 
 if __name__ == "__main__":
