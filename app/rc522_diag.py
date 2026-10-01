@@ -227,6 +227,23 @@ def describe_pin(bcm: int) -> str:
     return f"GPIO {bcm}" + (f" (physical {physical})" if physical else "")
 
 
+DEFAULT_RST_BCM = 25
+
+
+def release_power_down(gpio, rst_bcm: int) -> None:
+    """Take NRSTPD low then high to leave hard power-down.
+
+    The MFRC522 holds its whole digital core, including the SPI interface, in
+    reset while NRSTPD is low. The breakout boards have no pull-up on that pin,
+    so an undriven RST floats and the chip can stay powered down and silent.
+    """
+    gpio.setmode(gpio.BCM)
+    gpio.setup(rst_bcm, gpio.OUT, initial=gpio.LOW)
+    time.sleep(0.01)
+    gpio.output(rst_bcm, gpio.HIGH)
+    time.sleep(0.05)
+
+
 def probe_line(gpio, pin: int, cs: int) -> tuple:
     """Read a line with the internal pull-up and then the pull-down applied.
 
@@ -251,9 +268,10 @@ def interpret_line(readings: tuple) -> tuple:
         level = "high" if pulled_up else "low"
         return (
             True,
-            f"MISO is actively driven {level}; it overrides both internal resistors.",
-            "Something is driving the line, so the wire and the module's MISO pad "
-            "are connected.",
+            f"MISO sits {level} regardless of the internal resistors.",
+            "The line is held by the module, so the MISO wire and its pad are "
+            "connected. Note that a chip in hard power-down also freezes this "
+            "output, so this does not by itself prove the chip is running.",
         )
     return (
         False,
@@ -264,17 +282,23 @@ def interpret_line(readings: tuple) -> tuple:
     )
 
 
-def run_line_check(gpio, pins=DEFAULT_BITBANG_PINS) -> int:
+def run_line_check(gpio, pins=DEFAULT_BITBANG_PINS, rst_bcm=DEFAULT_RST_BCM) -> int:
     _, _, miso, cs = pins
-    print(f"Probing {describe_pin(miso)} (MISO) with chip select asserted.\n")
+    print(f"Probing {describe_pin(miso)} (MISO) with chip select asserted.")
+    claimed = [miso, cs]
     try:
+        if rst_bcm is not None:
+            print(f"Releasing power-down on {describe_pin(rst_bcm)} (RST) first.")
+            release_power_down(gpio, rst_bcm)
+            claimed.append(rst_bcm)
+        print()
         readings = probe_line(gpio, miso, cs)
     except Exception as exc:
         print(f"Could not probe the MISO line: {exc}")
         print("Disable SPI first with 'sudo raspi-config nonint do_spi 1 && sudo reboot'.")
         return 1
     finally:
-        for pin in (miso, cs):
+        for pin in claimed:
             try:
                 gpio.cleanup(pin)
             except Exception:
@@ -379,13 +403,22 @@ def parse_bitbang_pins(text: str):
     return pins
 
 
-def run_bitbang(gpio, pins=DEFAULT_BITBANG_PINS) -> int:
+def run_bitbang(gpio, pins=DEFAULT_BITBANG_PINS, rst_bcm=DEFAULT_RST_BCM) -> int:
     sck, mosi, miso, cs = pins
     print("Bit-banging SPI on:")
     for label, bcm in (("SCK", sck), ("MOSI", mosi), ("MISO", miso), ("CS", cs)):
         print(f"  {label:<4} {describe_pin(bcm)}")
+    if rst_bcm is not None:
+        print(f"  RST  {describe_pin(rst_bcm)} (released from power-down first)")
     print("This ignores /dev/spidev and the RP1 SPI peripheral entirely.\n")
     bus = BitBangBus(gpio, sck=sck, mosi=mosi, miso=miso, cs=cs)
+    if rst_bcm is not None:
+        try:
+            release_power_down(gpio, rst_bcm)
+        except Exception as exc:
+            print(f"Could not release power-down on {describe_pin(rst_bcm)}: {exc}")
+            print("Retry with --no-rst if RST is wired elsewhere or left unconnected.")
+            return 1
     try:
         bus.setup()
     except PinClaimError as exc:
@@ -422,6 +455,11 @@ def run_bitbang(gpio, pins=DEFAULT_BITBANG_PINS) -> int:
         return 1
     finally:
         bus.cleanup()
+        if rst_bcm is not None:
+            try:
+                gpio.cleanup(rst_bcm)
+            except Exception:
+                pass
 
     label = KNOWN_VERSIONS.get(version)
     print(f"VersionReg: 0x{version:02X}")
@@ -434,6 +472,11 @@ def run_bitbang(gpio, pins=DEFAULT_BITBANG_PINS) -> int:
         return 0
     if version in (0x00, 0xFF):
         print("No answer, exactly as over hardware SPI.")
+        if rst_bcm is not None:
+            print(
+                "RST was pulsed low then high first, so the chip was taken out of "
+                "hard power-down before this read."
+            )
         print(
             "Software and the SPI peripheral are now both excluded: the module, "
             "its solder joints, or the jumper wires are at fault."
@@ -642,6 +685,7 @@ def main() -> None:
                 pins = parse_bitbang_pins(args.bitbang_pins)
             except ValueError as exc:
                 parser.error(str(exc))
+        rst_bcm = None if args.no_rst else args.rst_bcm
         try:
             import RPi.GPIO as GPIO
         except ImportError:
@@ -649,8 +693,8 @@ def main() -> None:
                 "RPi.GPIO is unavailable; run ./systemd/install-pi-dependencies.sh"
             )
         if args.line_check:
-            raise SystemExit(run_line_check(GPIO, pins))
-        raise SystemExit(run_bitbang(GPIO, pins))
+            raise SystemExit(run_line_check(GPIO, pins, rst_bcm))
+        raise SystemExit(run_bitbang(GPIO, pins, rst_bcm))
     if args.loopback or args.clock_test:
         if not args.confirm_disconnected:
             parser.error(
