@@ -184,6 +184,33 @@ class ResetEffectGpio(FakeBitBangGpio):
         return self.HIGH if self.levels.get(25) == self.HIGH else self.LOW
 
 
+class FakeI2CBus:
+    """Simulates an I2C device that answers, stays silent, or is absent."""
+
+    def __init__(self, version=None, openable=True):
+        self.version = version
+        self.openable = openable
+        self.closed = False
+        self.probed = None
+
+    def __call__(self, bus):
+        self.bus = bus
+        return self
+
+    def open(self):
+        if not self.openable:
+            raise OSError("No such file or directory")
+
+    def close(self):
+        self.closed = True
+
+    def read_register(self, address, register):
+        self.probed = (address, register)
+        if self.version is None:
+            raise OSError("Remote I/O error")
+        return self.version
+
+
 class RC522DiagnosticTests(unittest.TestCase):
     def test_scan_buses_accepts_recognized_reader_versions(self):
         connections = rc522_diag.scan_buses(FakeSpidevModule(0x92))
@@ -416,6 +443,34 @@ class RC522DiagnosticTests(unittest.TestCase):
             "enables it.",
             notes,
         )
+
+    def test_i2c_check_identifies_a_chip_that_latched_i2c_mode(self):
+        bus = FakeI2CBus(version=0x92)
+
+        self.assertEqual(rc522_diag.run_i2c_check(bus), 0)
+        self.assertEqual(bus.probed, (0x28, rc522_diag.VERSION_REG))
+        self.assertTrue(bus.closed)
+
+    def test_i2c_check_reports_silence(self):
+        bus = FakeI2CBus(version=None)
+
+        self.assertEqual(rc522_diag.run_i2c_check(bus), 2)
+        self.assertTrue(bus.closed)
+
+    def test_i2c_check_rejects_a_foreign_device(self):
+        answered, summary, _ = rc522_diag.interpret_i2c_version(0x50)
+
+        self.assertFalse(answered)
+        self.assertIn("0x50", summary)
+
+    def test_i2c_check_reports_a_disabled_bus(self):
+        self.assertEqual(rc522_diag.run_i2c_check(FakeI2CBus(openable=False)), 1)
+
+    def test_i2c_check_accepts_an_alternate_address(self):
+        bus = FakeI2CBus(version=0x91)
+
+        self.assertEqual(rc522_diag.run_i2c_check(bus, address=0x2A), 0)
+        self.assertEqual(bus.probed, (0x2A, rc522_diag.VERSION_REG))
 
 
 if __name__ == "__main__":
