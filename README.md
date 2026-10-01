@@ -190,6 +190,23 @@ name them as `SCK,MOSI,MISO,CS` in BCM numbering:
 python -m app.rc522_diag --bitbang --bitbang-pins 5,6,13,19
 ```
 
+### Check whether anything drives MISO
+
+When even the bit-banged read returns `0x00`, probe the MISO line itself:
+
+```bash
+python -m app.rc522_diag --line-check
+```
+
+This asserts chip select, then reads MISO with the Pi's internal pull-up and
+again with its pull-down. It needs SPI disabled, or a `--bitbang-pins` set, for
+the same reason as `--bitbang`.
+
+| Result | Meaning |
+| --- | --- |
+| The same level both times | The module drives MISO and overrides both resistors, so that wire and pad are connected. |
+| The level follows the resistor | Nothing drives MISO. The wire, its header joint, or the module's output is open. |
+
 With all power disconnected, use a multimeter in continuity mode to test each
 jumper separately from Pi-end connector to RC522-end connector. Do not use the
 proposed "walk" method of driving every connected signal as an output: MISO is

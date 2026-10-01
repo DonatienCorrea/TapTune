@@ -213,6 +213,81 @@ def run_clock_test(spidev) -> int:
     return 2
 
 
+PHYSICAL_PINS = {
+    4: 7, 5: 29, 6: 31, 7: 26, 8: 24, 9: 21, 10: 19, 11: 23,
+    12: 32, 13: 33, 16: 36, 17: 11, 18: 12, 19: 35, 20: 38,
+    21: 40, 22: 15, 23: 16, 24: 18, 25: 22, 26: 37, 27: 13,
+}
+
+DEFAULT_BITBANG_PINS = (11, 10, 9, 8)
+
+
+def describe_pin(bcm: int) -> str:
+    physical = PHYSICAL_PINS.get(bcm)
+    return f"GPIO {bcm}" + (f" (physical {physical})" if physical else "")
+
+
+def probe_line(gpio, pin: int, cs: int) -> tuple:
+    """Read a line with the internal pull-up and then the pull-down applied.
+
+    With chip select asserted the RC522 drives MISO actively, so a live module
+    overrides both internal resistors and returns the same level twice. A line
+    that simply follows whichever resistor is applied is being driven by nothing
+    at all.
+    """
+    gpio.setmode(gpio.BCM)
+    gpio.setup(cs, gpio.OUT, initial=gpio.LOW)
+    readings = []
+    for pull in (gpio.PUD_UP, gpio.PUD_DOWN):
+        gpio.setup(pin, gpio.IN, pull_up_down=pull)
+        time.sleep(0.01)
+        readings.append(1 if gpio.input(pin) else 0)
+    return tuple(readings)
+
+
+def interpret_line(readings: tuple) -> tuple:
+    pulled_up, pulled_down = readings
+    if pulled_up == pulled_down:
+        level = "high" if pulled_up else "low"
+        return (
+            True,
+            f"MISO is actively driven {level}; it overrides both internal resistors.",
+            "Something is driving the line, so the wire and the module's MISO pad "
+            "are connected.",
+        )
+    return (
+        False,
+        "MISO simply follows whichever internal resistor is applied.",
+        "Nothing is driving it. With chip select asserted a working RC522 would "
+        "hold this line itself, so the MISO wire, its header joint, or the "
+        "module's output is open.",
+    )
+
+
+def run_line_check(gpio, pins=DEFAULT_BITBANG_PINS) -> int:
+    _, _, miso, cs = pins
+    print(f"Probing {describe_pin(miso)} (MISO) with chip select asserted.\n")
+    try:
+        readings = probe_line(gpio, miso, cs)
+    except Exception as exc:
+        print(f"Could not probe the MISO line: {exc}")
+        print("Disable SPI first with 'sudo raspi-config nonint do_spi 1 && sudo reboot'.")
+        return 1
+    finally:
+        for pin in (miso, cs):
+            try:
+                gpio.cleanup(pin)
+            except Exception:
+                pass
+
+    print(f"With internal pull-up:   {readings[0]}")
+    print(f"With internal pull-down: {readings[1]}\n")
+    driven, summary, detail = interpret_line(readings)
+    print(summary)
+    print(detail)
+    return 0 if driven else 2
+
+
 class PinClaimError(Exception):
     def __init__(self, pin: int, label: str, cause: Exception):
         super().__init__(f"GPIO {pin} ({label}) could not be claimed: {cause}")
@@ -287,20 +362,6 @@ class BitBangBus:
         finally:
             self.gpio.output(self.cs, self.gpio.HIGH)
             self._settle()
-
-
-PHYSICAL_PINS = {
-    4: 7, 5: 29, 6: 31, 7: 26, 8: 24, 9: 21, 10: 19, 11: 23,
-    12: 32, 13: 33, 16: 36, 17: 11, 18: 12, 19: 35, 20: 38,
-    21: 40, 22: 15, 23: 16, 24: 18, 25: 22, 26: 37, 27: 13,
-}
-
-DEFAULT_BITBANG_PINS = (11, 10, 9, 8)
-
-
-def describe_pin(bcm: int) -> str:
-    physical = PHYSICAL_PINS.get(bcm)
-    return f"GPIO {bcm}" + (f" (physical {physical})" if physical else "")
 
 
 def parse_bitbang_pins(text: str):
@@ -556,6 +617,11 @@ def main() -> None:
         help="read VersionReg by toggling the SPI pins as plain GPIO, with the RC522 connected normally",
     )
     parser.add_argument(
+        "--line-check",
+        action="store_true",
+        help="probe MISO with the internal pull-up and pull-down to see whether anything drives it",
+    )
+    parser.add_argument(
         "--bitbang-pins",
         help="BCM pins for --bitbang as SCK,MOSI,MISO,CS (default 11,10,9,8)",
     )
@@ -569,7 +635,7 @@ def main() -> None:
         parser.error("--seconds must be greater than zero")
     if args.pin_config:
         raise SystemExit(show_pin_configuration())
-    if args.bitbang:
+    if args.bitbang or args.line_check:
         pins = DEFAULT_BITBANG_PINS
         if args.bitbang_pins:
             try:
@@ -582,6 +648,8 @@ def main() -> None:
             parser.error(
                 "RPi.GPIO is unavailable; run ./systemd/install-pi-dependencies.sh"
             )
+        if args.line_check:
+            raise SystemExit(run_line_check(GPIO, pins))
         raise SystemExit(run_bitbang(GPIO, pins))
     if args.loopback or args.clock_test:
         if not args.confirm_disconnected:
