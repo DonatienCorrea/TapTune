@@ -344,6 +344,79 @@ class RC522DiagnosticTests(unittest.TestCase):
             rc522_diag.run_reset_effect(ResetEffectGpio("reacts"), rst_bcm=None), 1
         )
 
+    def test_spi_params_ignore_comments_and_keep_file_order(self):
+        text = (
+            "# dtparam=spi=on\n"
+            "dtparam=spi=on\n"
+            "dtparam=i2c_arm=on\n"
+            "dtoverlay=spi0-1cs\n"
+            "dtparam=spi=off\n"
+        )
+
+        self.assertEqual(
+            rc522_diag.parse_spi_params(text),
+            ["dtparam=spi=on", "dtoverlay=spi0-1cs", "dtparam=spi=off"],
+        )
+
+    def test_spi_status_is_enabled_when_the_bus_and_pins_agree(self):
+        enabled, notes = rc522_diag.summarise_spi_status(
+            "/boot/firmware/config.txt",
+            ["dtparam=spi=on"],
+            ["/dev/spidev0.0", "/dev/spidev0.1", "/dev/spidev10.0"],
+            "spidev spi_dw",
+            "7: a0 spi0\n9: a0 spi0",
+        )
+
+        self.assertTrue(enabled)
+        self.assertIn("GPIO 7-11 are muxed to SPI0.", notes)
+
+    def test_spi_status_ignores_the_boot_eeprom_bus(self):
+        enabled, notes = rc522_diag.summarise_spi_status(
+            "/boot/firmware/config.txt", [], ["/dev/spidev10.0"], "", "9: ip none"
+        )
+
+        self.assertFalse(enabled)
+        self.assertIn(
+            "Only the boot EEPROM bus is present; nothing is bound to the "
+            "40-pin header.",
+            notes,
+        )
+
+    def test_spi_status_flags_a_last_line_that_overrides_an_earlier_one(self):
+        _, notes = rc522_diag.summarise_spi_status(
+            "/boot/firmware/config.txt",
+            ["dtparam=spi=on", "dtparam=spi=off"],
+            ["/dev/spidev0.0"],
+            "spidev",
+            "9: a0 spi0",
+        )
+
+        self.assertIn("config.txt requests SPI off (/boot/firmware/config.txt).", notes)
+        self.assertIn(
+            "SPI is live but config.txt turns it off at the next boot.", notes
+        )
+
+    def test_spi_status_flags_a_pending_reboot(self):
+        enabled, notes = rc522_diag.summarise_spi_status(
+            "/boot/firmware/config.txt", ["dtparam=spi=on"], [], "", "9: ip none"
+        )
+
+        self.assertFalse(enabled)
+        self.assertIn(
+            "config.txt and the running kernel disagree; reboot to apply it.", notes
+        )
+
+    def test_spi_status_notes_a_missing_dtparam(self):
+        _, notes = rc522_diag.summarise_spi_status(
+            "/boot/firmware/config.txt", [], [], "", ""
+        )
+
+        self.assertIn(
+            "No 'dtparam=spi=' line in config.txt; SPI is off unless an overlay "
+            "enables it.",
+            notes,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
