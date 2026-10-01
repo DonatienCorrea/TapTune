@@ -231,6 +231,51 @@ This samples MISO with RST held low, then again after releasing it.
 | MISO changes | The reset reaches the chip, so the RST wiring is good. |
 | MISO is identical | Toggling RST changes nothing. The RST jumper or its header joint is open, or the chip is dead. |
 
+### Cross-check the pins with `pinctrl`
+
+`pinctrl` replaces `raspi-gpio` on the Raspberry Pi 5. It talks to the RP1
+registers directly and bypasses the kernel drivers, so it is an independent
+second opinion on everything the Python diagnostics report:
+
+```bash
+sudo pinctrl -p get 19,21,22,23,24
+```
+
+Read each line as `GPIO<n>: <direction> <function> <pull> | <level>`. With SPI
+enabled and nothing else configured, expect GPIO 9, 10 and 11 to show function
+`spi0` and no pull, because the Pi 5 device tree applies `bias-disable` to the
+SPI0 data pins.
+
+The RP1 pad control register has an input-enable bit that the earlier
+Broadcom chips did not have, and it resets to disabled (RP1 Peripherals
+datasheet, table 21). A pad with that bit clear reads 0 no matter what is on
+the wire. The kernel's `pinctrl-rp1` driver sets it on every function change,
+so it should never be the culprit, but you can force the question:
+
+```bash
+sudo pinctrl set 9 ip pu && sudo pinctrl get 9
+sudo pinctrl set 9 ip pd && sudo pinctrl get 9
+```
+
+If the level follows the pull, the pad reads the outside world correctly and
+nothing is driving MISO. If it stays `lo` under both, something holds the line
+down. You can also watch the line live while power-cycling the module:
+
+```bash
+sudo pinctrl poll 9
+```
+
+Finally, confirm that no overlay has claimed the SPI pins for something else:
+
+```bash
+dtoverlay -l
+```
+
+No function on a stock Raspberry Pi 5 uses GPIO 7 to 11. The fan runs on an
+internal RP1 PWM channel, the HAT EEPROM uses GPIO 0 and 1, and the activity
+LED uses the separate always-on GPIO controller, which is a different block
+from the header's GPIO 9 despite sharing the number.
+
 With all power disconnected, use a multimeter in continuity mode to test each
 jumper separately from Pi-end connector to RC522-end connector. Do not use the
 proposed "walk" method of driving every connected signal as an output: MISO is
