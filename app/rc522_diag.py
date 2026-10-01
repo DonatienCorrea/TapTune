@@ -250,21 +250,44 @@ def probe_miso_across_reset(gpio, miso: int, cs: int, rst_bcm: int) -> tuple:
     Section 8.6.1 freezes the output pins while NRSTPD is low, and section 8.1.1
     has the chip re-detect its host interface on the rising edge. A chip that
     receives the reset should therefore not look identical in both states.
+
+    Each state is sampled with the internal pull-up and then the pull-down, so a
+    line that nobody drives is reported as floating instead of being mistaken
+    for a frozen output.
     """
     gpio.setmode(gpio.BCM)
     gpio.setup(cs, gpio.OUT, initial=gpio.LOW)
-    gpio.setup(miso, gpio.IN, pull_up_down=gpio.PUD_UP)
     gpio.setup(rst_bcm, gpio.OUT, initial=gpio.LOW)
     time.sleep(0.05)
-    held_low = 1 if gpio.input(miso) else 0
+    held_low = probe_pulls(gpio, miso)
     gpio.output(rst_bcm, gpio.HIGH)
     time.sleep(0.05)
-    released = 1 if gpio.input(miso) else 0
+    released = probe_pulls(gpio, miso)
     return (held_low, released)
+
+
+def probe_pulls(gpio, pin: int) -> tuple:
+    readings = []
+    for pull in (gpio.PUD_UP, gpio.PUD_DOWN):
+        gpio.setup(pin, gpio.IN, pull_up_down=pull)
+        time.sleep(0.01)
+        readings.append(1 if gpio.input(pin) else 0)
+        gpio.cleanup(pin)
+    return tuple(readings)
 
 
 def interpret_reset_effect(readings: tuple) -> tuple:
     in_power_down, released = readings
+    floating = (1, 0)
+    if in_power_down == floating and released == floating:
+        return (
+            False,
+            "MISO follows the internal resistors in both states, so nothing "
+            "drives it.",
+            "The line is floating whether RST is held low or released. The "
+            "RC522 never drives MISO at all, so check the MISO jumper and its "
+            "solder joint at the module before suspecting the chip.",
+        )
     if in_power_down != released:
         return (
             True,
@@ -302,8 +325,9 @@ def run_reset_effect(gpio, pins=DEFAULT_BITBANG_PINS, rst_bcm=DEFAULT_RST_BCM) -
             except Exception:
                 pass
 
-    print(f"MISO with RST low (power-down): {readings[0]}")
-    print(f"MISO with RST high (running):   {readings[1]}\n")
+    for label, pair in (("RST low (power-down)", readings[0]), ("RST high (running)", readings[1])):
+        print(f"MISO with {label}: pull-up {pair[0]}, pull-down {pair[1]}")
+    print()
     changed, summary, detail = interpret_reset_effect(readings)
     print(summary)
     print(detail)
@@ -317,6 +341,10 @@ def probe_line(gpio, pin: int, cs: int) -> tuple:
     overrides both internal resistors and returns the same level twice. A line
     that simply follows whichever resistor is applied is being driven by nothing
     at all.
+
+    The pin is released between the two readings because the underlying driver
+    only applies a pull while claiming a line, so re-running setup on a pin it
+    already holds silently keeps the first pull in place.
     """
     gpio.setmode(gpio.BCM)
     gpio.setup(cs, gpio.OUT, initial=gpio.LOW)
@@ -325,6 +353,7 @@ def probe_line(gpio, pin: int, cs: int) -> tuple:
         gpio.setup(pin, gpio.IN, pull_up_down=pull)
         time.sleep(0.01)
         readings.append(1 if gpio.input(pin) else 0)
+        gpio.cleanup(pin)
     return tuple(readings)
 
 

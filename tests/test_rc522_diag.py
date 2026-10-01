@@ -109,7 +109,11 @@ class FailingClaimGpio(FakeBitBangGpio):
 
 
 class PullProbeGpio(FakeBitBangGpio):
-    """Simulates reading a line that either floats or is actively driven."""
+    """Simulates reading a line that either floats or is actively driven.
+
+    Like the real driver, a pull is only applied while claiming a released pin,
+    so a setup call on a pin that is still held leaves the previous pull alone.
+    """
 
     PUD_UP = "UP"
     PUD_DOWN = "DOWN"
@@ -118,11 +122,16 @@ class PullProbeGpio(FakeBitBangGpio):
         super().__init__(0x92)
         self.driven_level = driven_level
         self.pull = None
+        self.held = set()
 
     def setup(self, pin, direction, initial=None, pull_up_down=None):
-        if pull_up_down is not None:
+        if pull_up_down is not None and pin not in self.held:
             self.pull = pull_up_down
+        self.held.add(pin)
         super().setup(pin, direction, initial=initial)
+
+    def cleanup(self, pin=None):
+        self.held.discard(pin)
 
     def input(self, pin):
         if self.driven_level is not None:
@@ -147,20 +156,30 @@ class ResetTrackingGpio(FakeBitBangGpio):
 
 
 class ResetEffectGpio(FakeBitBangGpio):
-    """Simulates MISO either reacting to the reset edge or ignoring it."""
+    """Simulates MISO reacting to the reset edge, ignoring it, or floating."""
 
     PUD_UP = "UP"
     PUD_DOWN = "DOWN"
 
-    def __init__(self, reacts):
+    def __init__(self, behaviour):
         super().__init__(0x92)
-        self.reacts = reacts
+        self.behaviour = behaviour
+        self.pull = None
+        self.held = set()
 
     def setup(self, pin, direction, initial=None, pull_up_down=None):
+        if pull_up_down is not None and pin not in self.held:
+            self.pull = pull_up_down
+        self.held.add(pin)
         super().setup(pin, direction, initial=initial)
 
+    def cleanup(self, pin=None):
+        self.held.discard(pin)
+
     def input(self, pin):
-        if not self.reacts:
+        if self.behaviour == "floating":
+            return self.HIGH if self.pull == self.PUD_UP else self.LOW
+        if self.behaviour == "frozen":
             return self.LOW
         return self.HIGH if self.levels.get(25) == self.HIGH else self.LOW
 
@@ -288,27 +307,42 @@ class RC522DiagnosticTests(unittest.TestCase):
         self.assertEqual(gpio.rst_sequence, [])
 
     def test_reset_effect_detects_a_chip_that_reacts(self):
-        changed, _, _ = rc522_diag.interpret_reset_effect((0, 1))
+        changed, _, _ = rc522_diag.interpret_reset_effect(((0, 0), (1, 1)))
 
         self.assertTrue(changed)
-        self.assertEqual(rc522_diag.run_reset_effect(ResetEffectGpio(True)), 0)
+        self.assertEqual(rc522_diag.run_reset_effect(ResetEffectGpio("reacts")), 0)
 
     def test_reset_effect_detects_an_unreachable_reset(self):
-        changed, _, _ = rc522_diag.interpret_reset_effect((0, 0))
+        changed, _, _ = rc522_diag.interpret_reset_effect(((0, 0), (0, 0)))
 
         self.assertFalse(changed)
-        self.assertEqual(rc522_diag.run_reset_effect(ResetEffectGpio(False)), 2)
+        self.assertEqual(rc522_diag.run_reset_effect(ResetEffectGpio("frozen")), 2)
 
-    def test_reset_effect_samples_before_and_after_release(self):
-        gpio = ResetEffectGpio(True)
+    def test_reset_effect_reports_a_floating_line_rather_than_a_dead_reset(self):
+        changed, summary, detail = rc522_diag.interpret_reset_effect(((1, 0), (1, 0)))
+
+        self.assertFalse(changed)
+        self.assertIn("nothing", summary)
+        self.assertIn("MISO jumper", detail)
+        self.assertEqual(rc522_diag.run_reset_effect(ResetEffectGpio("floating")), 2)
+
+    def test_reset_effect_samples_both_pulls_in_each_state(self):
+        gpio = ResetEffectGpio("reacts")
 
         readings = rc522_diag.probe_miso_across_reset(gpio, 9, 8, 25)
 
-        self.assertEqual(readings, (0, 1))
+        self.assertEqual(readings, ((0, 0), (1, 1)))
         self.assertEqual(gpio.levels[8], gpio.LOW)
 
+    def test_line_check_releases_the_pin_between_pulls(self):
+        gpio = PullProbeGpio()
+
+        self.assertEqual(rc522_diag.probe_line(gpio, 9, 8), (1, 0))
+
     def test_reset_effect_requires_a_reset_pin(self):
-        self.assertEqual(rc522_diag.run_reset_effect(ResetEffectGpio(True), rst_bcm=None), 1)
+        self.assertEqual(
+            rc522_diag.run_reset_effect(ResetEffectGpio("reacts"), rst_bcm=None), 1
+        )
 
 
 if __name__ == "__main__":
