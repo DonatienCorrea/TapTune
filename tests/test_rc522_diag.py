@@ -184,6 +184,41 @@ class ResetEffectGpio(FakeBitBangGpio):
         return self.HIGH if self.levels.get(25) == self.HIGH else self.LOW
 
 
+class ChipSelectGpio(FakeBitBangGpio):
+    """Simulates MISO driven only while selected, never driven, or always held."""
+
+    PUD_UP = "UP"
+    PUD_DOWN = "DOWN"
+
+    def __init__(self, behaviour):
+        super().__init__(0x92)
+        self.behaviour = behaviour
+        self.pull = None
+        self.held = set()
+        self.cs_states = []
+
+    def setup(self, pin, direction, initial=None, pull_up_down=None):
+        if pull_up_down is not None and pin not in self.held:
+            self.pull = pull_up_down
+        self.held.add(pin)
+        super().setup(pin, direction, initial=initial)
+
+    def cleanup(self, pin=None):
+        self.held.discard(pin)
+
+    def _floating(self):
+        return self.HIGH if self.pull == self.PUD_UP else self.LOW
+
+    def input(self, pin):
+        selected = self.levels.get(8) == self.LOW
+        self.cs_states.append(selected)
+        if self.behaviour == "always_driven":
+            return self.LOW
+        if self.behaviour == "selected_only" and selected:
+            return self.LOW
+        return self._floating()
+
+
 class FakeI2CBus:
     """Simulates an I2C device that answers, stays silent, or is absent."""
 
@@ -370,6 +405,57 @@ class RC522DiagnosticTests(unittest.TestCase):
         self.assertEqual(
             rc522_diag.run_reset_effect(ResetEffectGpio("reacts"), rst_bcm=None), 1
         )
+
+    def test_chip_select_effect_recognises_a_slave_that_drives_only_when_selected(self):
+        gpio = ChipSelectGpio("selected_only")
+
+        readings = rc522_diag.probe_chip_select_effect(gpio, 9, 8)
+        driven, summary, detail = rc522_diag.interpret_chip_select_effect(readings)
+
+        self.assertEqual(readings, ((1, 0), (0, 0)))
+        self.assertTrue(driven)
+        self.assertIn("floats while deselected", summary)
+        self.assertIn("output buffer", detail)
+        self.assertEqual(rc522_diag.run_chip_select_effect(gpio), 0)
+
+    def test_chip_select_effect_probes_both_selection_states(self):
+        gpio = ChipSelectGpio("selected_only")
+
+        rc522_diag.probe_chip_select_effect(gpio, 9, 8)
+
+        self.assertEqual(gpio.cs_states, [False, False, True, True])
+
+    def test_chip_select_effect_reports_a_line_nothing_drives_when_selected(self):
+        gpio = ChipSelectGpio("floating")
+
+        readings = rc522_diag.probe_chip_select_effect(gpio, 9, 8)
+        driven, summary, detail = rc522_diag.interpret_chip_select_effect(readings)
+
+        self.assertEqual(readings, ((1, 0), (1, 0)))
+        self.assertFalse(driven)
+        self.assertIn("whether chip select is high or low", summary)
+        self.assertIn("3.3 V line", detail)
+        self.assertEqual(rc522_diag.run_chip_select_effect(gpio), 2)
+
+    def test_chip_select_effect_flags_a_line_held_even_when_deselected(self):
+        gpio = ChipSelectGpio("always_driven")
+
+        readings = rc522_diag.probe_chip_select_effect(gpio, 9, 8)
+        driven, summary, detail = rc522_diag.interpret_chip_select_effect(readings)
+
+        self.assertEqual(readings, ((0, 0), (0, 0)))
+        self.assertTrue(driven)
+        self.assertIn("both chip select states", summary)
+        self.assertIn("short", detail)
+
+    def test_chip_select_effect_reports_unstable_readings(self):
+        driven, summary, _ = rc522_diag.interpret_chip_select_effect(((0, 0), (1, 0)))
+
+        self.assertFalse(driven)
+        self.assertIn("unstable", summary)
+
+    def test_chip_select_effect_reports_a_failed_claim(self):
+        self.assertEqual(rc522_diag.run_chip_select_effect(FailingClaimGpio(9)), 1)
 
     def test_spi_params_ignore_comments_and_keep_file_order(self):
         text = (
