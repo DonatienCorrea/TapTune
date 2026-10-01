@@ -146,6 +146,25 @@ class ResetTrackingGpio(FakeBitBangGpio):
         super().output(pin, value)
 
 
+class ResetEffectGpio(FakeBitBangGpio):
+    """Simulates MISO either reacting to the reset edge or ignoring it."""
+
+    PUD_UP = "UP"
+    PUD_DOWN = "DOWN"
+
+    def __init__(self, reacts):
+        super().__init__(0x92)
+        self.reacts = reacts
+
+    def setup(self, pin, direction, initial=None, pull_up_down=None):
+        super().setup(pin, direction, initial=initial)
+
+    def input(self, pin):
+        if not self.reacts:
+            return self.LOW
+        return self.HIGH if self.levels.get(25) == self.HIGH else self.LOW
+
+
 class RC522DiagnosticTests(unittest.TestCase):
     def test_scan_buses_accepts_recognized_reader_versions(self):
         connections = rc522_diag.scan_buses(FakeSpidevModule(0x92))
@@ -267,6 +286,29 @@ class RC522DiagnosticTests(unittest.TestCase):
         rc522_diag.run_bitbang(gpio, rst_bcm=None)
 
         self.assertEqual(gpio.rst_sequence, [])
+
+    def test_reset_effect_detects_a_chip_that_reacts(self):
+        changed, _, _ = rc522_diag.interpret_reset_effect((0, 1))
+
+        self.assertTrue(changed)
+        self.assertEqual(rc522_diag.run_reset_effect(ResetEffectGpio(True)), 0)
+
+    def test_reset_effect_detects_an_unreachable_reset(self):
+        changed, _, _ = rc522_diag.interpret_reset_effect((0, 0))
+
+        self.assertFalse(changed)
+        self.assertEqual(rc522_diag.run_reset_effect(ResetEffectGpio(False)), 2)
+
+    def test_reset_effect_samples_before_and_after_release(self):
+        gpio = ResetEffectGpio(True)
+
+        readings = rc522_diag.probe_miso_across_reset(gpio, 9, 8, 25)
+
+        self.assertEqual(readings, (0, 1))
+        self.assertEqual(gpio.levels[8], gpio.LOW)
+
+    def test_reset_effect_requires_a_reset_pin(self):
+        self.assertEqual(rc522_diag.run_reset_effect(ResetEffectGpio(True), rst_bcm=None), 1)
 
 
 if __name__ == "__main__":
