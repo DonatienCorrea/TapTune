@@ -108,6 +108,28 @@ class FailingClaimGpio(FakeBitBangGpio):
         super().setup(pin, direction, initial=initial)
 
 
+class PullProbeGpio(FakeBitBangGpio):
+    """Simulates reading a line that either floats or is actively driven."""
+
+    PUD_UP = "UP"
+    PUD_DOWN = "DOWN"
+
+    def __init__(self, driven_level=None):
+        super().__init__(0x92)
+        self.driven_level = driven_level
+        self.pull = None
+
+    def setup(self, pin, direction, initial=None, pull_up_down=None):
+        if pull_up_down is not None:
+            self.pull = pull_up_down
+        super().setup(pin, direction, initial=initial)
+
+    def input(self, pin):
+        if self.driven_level is not None:
+            return self.driven_level
+        return self.HIGH if self.pull == self.PUD_UP else self.LOW
+
+
 class RC522DiagnosticTests(unittest.TestCase):
     def test_scan_buses_accepts_recognized_reader_versions(self):
         connections = rc522_diag.scan_buses(FakeSpidevModule(0x92))
@@ -187,6 +209,26 @@ class RC522DiagnosticTests(unittest.TestCase):
         bus.cleanup()
 
         self.assertEqual(sorted(gpio.cleaned), [5, 6, 13, 19])
+
+    def test_line_check_detects_a_floating_miso(self):
+        driven, _, _ = rc522_diag.interpret_line((1, 0))
+
+        self.assertFalse(driven)
+        self.assertEqual(rc522_diag.run_line_check(PullProbeGpio()), 2)
+
+    def test_line_check_detects_an_actively_driven_miso(self):
+        driven, _, _ = rc522_diag.interpret_line((0, 0))
+
+        self.assertTrue(driven)
+        self.assertEqual(rc522_diag.run_line_check(PullProbeGpio(driven_level=0)), 0)
+
+    def test_line_check_probes_with_both_internal_resistors(self):
+        gpio = PullProbeGpio()
+
+        readings = rc522_diag.probe_line(gpio, 9, 8)
+
+        self.assertEqual(readings, (1, 0))
+        self.assertEqual(gpio.levels[8], gpio.LOW)
 
 
 if __name__ == "__main__":
