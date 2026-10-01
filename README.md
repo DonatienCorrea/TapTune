@@ -174,6 +174,22 @@ remaining possibilities:
 | A recognised version such as `0x92` | The module works; the hardware SPI path is at fault. |
 | `0x00` again | Software and the SPI peripheral are both excluded; the module, its solder joints, or the jumper wires are at fault. |
 
+GPIO 8-11 belong to the SPI driver while SPI is enabled, so claiming them as
+plain GPIO fails with `Invalid argument`. Turn SPI off for the test:
+
+```bash
+sudo raspi-config nonint do_spi 1 && sudo reboot
+python -m app.rc522_diag --bitbang
+sudo raspi-config nonint do_spi 0 && sudo reboot
+```
+
+To keep SPI enabled instead, move the four RC522 signal wires to free pins and
+name them as `SCK,MOSI,MISO,CS` in BCM numbering:
+
+```bash
+python -m app.rc522_diag --bitbang --bitbang-pins 5,6,13,19
+```
+
 With all power disconnected, use a multimeter in continuity mode to test each
 jumper separately from Pi-end connector to RC522-end connector. Do not use the
 proposed "walk" method of driving every connected signal as an output: MISO is

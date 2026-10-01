@@ -213,6 +213,14 @@ def run_clock_test(spidev) -> int:
     return 2
 
 
+class PinClaimError(Exception):
+    def __init__(self, pin: int, label: str, cause: Exception):
+        super().__init__(f"GPIO {pin} ({label}) could not be claimed: {cause}")
+        self.pin = pin
+        self.label = label
+        self.cause = cause
+
+
 class BitBangBus:
     """Drive the RC522 over SPI by toggling plain GPIO lines.
 
@@ -231,10 +239,20 @@ class BitBangBus:
 
     def setup(self) -> None:
         self.gpio.setmode(self.gpio.BCM)
-        self.gpio.setup(self.sck, self.gpio.OUT, initial=self.gpio.LOW)
-        self.gpio.setup(self.mosi, self.gpio.OUT, initial=self.gpio.LOW)
-        self.gpio.setup(self.cs, self.gpio.OUT, initial=self.gpio.HIGH)
-        self.gpio.setup(self.miso, self.gpio.IN)
+        plan = [
+            (self.sck, "SCK", self.gpio.OUT, self.gpio.LOW),
+            (self.mosi, "MOSI", self.gpio.OUT, self.gpio.LOW),
+            (self.cs, "CS", self.gpio.OUT, self.gpio.HIGH),
+            (self.miso, "MISO", self.gpio.IN, None),
+        ]
+        for pin, label, direction, initial in plan:
+            try:
+                if initial is None:
+                    self.gpio.setup(pin, direction)
+                else:
+                    self.gpio.setup(pin, direction, initial=initial)
+            except Exception as exc:
+                raise PinClaimError(pin, label, exc) from exc
 
     def cleanup(self) -> None:
         for pin in (self.sck, self.mosi, self.cs, self.miso):
@@ -271,15 +289,69 @@ class BitBangBus:
             self._settle()
 
 
-def run_bitbang(gpio) -> int:
-    print("Bit-banging SPI on GPIO 8, 9, 10 and 11 (physical 24, 21, 19, 23).")
+PHYSICAL_PINS = {
+    4: 7, 5: 29, 6: 31, 7: 26, 8: 24, 9: 21, 10: 19, 11: 23,
+    12: 32, 13: 33, 16: 36, 17: 11, 18: 12, 19: 35, 20: 38,
+    21: 40, 22: 15, 23: 16, 24: 18, 25: 22, 26: 37, 27: 13,
+}
+
+DEFAULT_BITBANG_PINS = (11, 10, 9, 8)
+
+
+def describe_pin(bcm: int) -> str:
+    physical = PHYSICAL_PINS.get(bcm)
+    return f"GPIO {bcm}" + (f" (physical {physical})" if physical else "")
+
+
+def parse_bitbang_pins(text: str):
+    parts = [part.strip() for part in text.split(",")]
+    if len(parts) != 4:
+        raise ValueError("--bitbang-pins needs exactly four values: SCK,MOSI,MISO,CS")
+    try:
+        pins = tuple(int(part) for part in parts)
+    except ValueError:
+        raise ValueError("--bitbang-pins values must be BCM pin numbers") from None
+    if len(set(pins)) != 4:
+        raise ValueError("--bitbang-pins values must be four different pins")
+    if any(pin < 0 or pin > 27 for pin in pins):
+        raise ValueError("--bitbang-pins values must be between 0 and 27")
+    return pins
+
+
+def run_bitbang(gpio, pins=DEFAULT_BITBANG_PINS) -> int:
+    sck, mosi, miso, cs = pins
+    print("Bit-banging SPI on:")
+    for label, bcm in (("SCK", sck), ("MOSI", mosi), ("MISO", miso), ("CS", cs)):
+        print(f"  {label:<4} {describe_pin(bcm)}")
     print("This ignores /dev/spidev and the RP1 SPI peripheral entirely.\n")
-    bus = BitBangBus(gpio)
+    bus = BitBangBus(gpio, sck=sck, mosi=mosi, miso=miso, cs=cs)
     try:
         bus.setup()
+    except PinClaimError as exc:
+        bus.cleanup()
+        print(f"Could not claim {describe_pin(exc.pin)} as {exc.label}: {exc.cause}")
+        if tuple(pins) == DEFAULT_BITBANG_PINS:
+            print(
+                "\nGPIO 8-11 are still held by the SPI driver, which owns them in "
+                "alt-function mode, so they cannot be driven as plain GPIO."
+            )
+            print("Turn SPI off for this test, then run it again:")
+            print("  sudo raspi-config nonint do_spi 1 && sudo reboot")
+            print(
+                "Afterwards turn SPI back on with "
+                "'sudo raspi-config nonint do_spi 0 && sudo reboot'."
+            )
+            print(
+                "\nAlternatively, leave SPI enabled, move the four RC522 signal "
+                "wires to free pins and pass them explicitly, for example:"
+            )
+            print("  python -m app.rc522_diag --bitbang --bitbang-pins 5,6,13,19")
+        else:
+            print("Pick pins that no other driver or process is using, then retry.")
+        return 1
     except Exception as exc:
-        print(f"Could not claim the SPI pins as GPIO: {exc}")
-        print("Stop any other process using the reader, then retry.")
+        bus.cleanup()
+        print(f"Could not set up the bit-banged bus: {exc}")
         return 1
 
     try:
@@ -484,6 +556,10 @@ def main() -> None:
         help="read VersionReg by toggling the SPI pins as plain GPIO, with the RC522 connected normally",
     )
     parser.add_argument(
+        "--bitbang-pins",
+        help="BCM pins for --bitbang as SCK,MOSI,MISO,CS (default 11,10,9,8)",
+    )
+    parser.add_argument(
         "--confirm-disconnected",
         action="store_true",
         help="confirm the RC522 is disconnected before running --loopback or --clock-test",
@@ -494,13 +570,19 @@ def main() -> None:
     if args.pin_config:
         raise SystemExit(show_pin_configuration())
     if args.bitbang:
+        pins = DEFAULT_BITBANG_PINS
+        if args.bitbang_pins:
+            try:
+                pins = parse_bitbang_pins(args.bitbang_pins)
+            except ValueError as exc:
+                parser.error(str(exc))
         try:
             import RPi.GPIO as GPIO
         except ImportError:
             parser.error(
                 "RPi.GPIO is unavailable; run ./systemd/install-pi-dependencies.sh"
             )
-        raise SystemExit(run_bitbang(GPIO))
+        raise SystemExit(run_bitbang(GPIO, pins))
     if args.loopback or args.clock_test:
         if not args.confirm_disconnected:
             parser.error(
