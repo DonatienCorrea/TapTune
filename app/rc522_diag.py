@@ -244,6 +244,72 @@ def release_power_down(gpio, rst_bcm: int) -> None:
     time.sleep(0.05)
 
 
+def probe_miso_across_reset(gpio, miso: int, cs: int, rst_bcm: int) -> tuple:
+    """Sample MISO in hard power-down and again after leaving it.
+
+    Section 8.6.1 freezes the output pins while NRSTPD is low, and section 8.1.1
+    has the chip re-detect its host interface on the rising edge. A chip that
+    receives the reset should therefore not look identical in both states.
+    """
+    gpio.setmode(gpio.BCM)
+    gpio.setup(cs, gpio.OUT, initial=gpio.LOW)
+    gpio.setup(miso, gpio.IN, pull_up_down=gpio.PUD_UP)
+    gpio.setup(rst_bcm, gpio.OUT, initial=gpio.LOW)
+    time.sleep(0.05)
+    held_low = 1 if gpio.input(miso) else 0
+    gpio.output(rst_bcm, gpio.HIGH)
+    time.sleep(0.05)
+    released = 1 if gpio.input(miso) else 0
+    return (held_low, released)
+
+
+def interpret_reset_effect(readings: tuple) -> tuple:
+    in_power_down, released = readings
+    if in_power_down != released:
+        return (
+            True,
+            "MISO changed when RST was released.",
+            "The reset signal reaches the chip and it responds to leaving "
+            "power-down, so RST wiring is good.",
+        )
+    return (
+        False,
+        "MISO is identical in power-down and after releasing RST.",
+        "Toggling RST changes nothing at the module. Either the RST jumper or "
+        "its header joint is open, so the chip never leaves hard power-down, or "
+        "the chip is dead. Check RC522 RST to physical pin 22 for continuity "
+        "with the power off before replacing the module.",
+    )
+
+
+def run_reset_effect(gpio, pins=DEFAULT_BITBANG_PINS, rst_bcm=DEFAULT_RST_BCM) -> int:
+    _, _, miso, cs = pins
+    if rst_bcm is None:
+        print("This test needs a reset pin; drop --no-rst.")
+        return 1
+    print(f"Holding {describe_pin(rst_bcm)} (RST) low, then releasing it.")
+    print(f"Watching {describe_pin(miso)} (MISO) with chip select asserted.\n")
+    try:
+        readings = probe_miso_across_reset(gpio, miso, cs, rst_bcm)
+    except Exception as exc:
+        print(f"Could not probe across reset: {exc}")
+        print("Disable SPI first with 'sudo raspi-config nonint do_spi 1 && sudo reboot'.")
+        return 1
+    finally:
+        for pin in (miso, cs, rst_bcm):
+            try:
+                gpio.cleanup(pin)
+            except Exception:
+                pass
+
+    print(f"MISO with RST low (power-down): {readings[0]}")
+    print(f"MISO with RST high (running):   {readings[1]}\n")
+    changed, summary, detail = interpret_reset_effect(readings)
+    print(summary)
+    print(detail)
+    return 0 if changed else 2
+
+
 def probe_line(gpio, pin: int, cs: int) -> tuple:
     """Read a line with the internal pull-up and then the pull-down applied.
 
@@ -665,6 +731,11 @@ def main() -> None:
         help="probe MISO with the internal pull-up and pull-down to see whether anything drives it",
     )
     parser.add_argument(
+        "--reset-effect",
+        action="store_true",
+        help="check whether toggling RST changes anything at the module",
+    )
+    parser.add_argument(
         "--bitbang-pins",
         help="BCM pins for --bitbang as SCK,MOSI,MISO,CS (default 11,10,9,8)",
     )
@@ -678,7 +749,7 @@ def main() -> None:
         parser.error("--seconds must be greater than zero")
     if args.pin_config:
         raise SystemExit(show_pin_configuration())
-    if args.bitbang or args.line_check:
+    if args.bitbang or args.line_check or args.reset_effect:
         pins = DEFAULT_BITBANG_PINS
         if args.bitbang_pins:
             try:
@@ -692,6 +763,8 @@ def main() -> None:
             parser.error(
                 "RPi.GPIO is unavailable; run ./systemd/install-pi-dependencies.sh"
             )
+        if args.reset_effect:
+            raise SystemExit(run_reset_effect(GPIO, pins, rst_bcm))
         if args.line_check:
             raise SystemExit(run_line_check(GPIO, pins, rst_bcm))
         raise SystemExit(run_bitbang(GPIO, pins, rst_bcm))

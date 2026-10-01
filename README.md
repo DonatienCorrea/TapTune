@@ -214,6 +214,23 @@ the same reason as `--bitbang`.
 | The same level both times | The module holds MISO, so that wire and pad are connected. A chip in hard power-down also freezes this output, so this alone does not prove the chip is running. |
 | The level follows the resistor | Nothing drives MISO. The wire, its header joint, or the module's output is open. |
 
+### Check whether RST reaches the chip
+
+A MISO line stuck at one level is what hard power-down looks like, because
+section 8.6.1 freezes the output pins. Test whether the reset signal arrives at
+all:
+
+```bash
+python -m app.rc522_diag --reset-effect
+```
+
+This samples MISO with RST held low, then again after releasing it.
+
+| Result | Meaning |
+| --- | --- |
+| MISO changes | The reset reaches the chip, so the RST wiring is good. |
+| MISO is identical | Toggling RST changes nothing. The RST jumper or its header joint is open, or the chip is dead. |
+
 With all power disconnected, use a multimeter in continuity mode to test each
 jumper separately from Pi-end connector to RC522-end connector. Do not use the
 proposed "walk" method of driving every connected signal as an output: MISO is
