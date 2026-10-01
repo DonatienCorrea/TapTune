@@ -549,6 +549,99 @@ def run_reset_effect(gpio, pins=DEFAULT_BITBANG_PINS, rst_bcm=DEFAULT_RST_BCM) -
     return 0 if changed else 2
 
 
+def probe_chip_select_effect(gpio, miso: int, cs: int) -> tuple:
+    """Sample MISO while deselected and then while selected.
+
+    An SPI slave only enables its MISO output buffer while NSS is low. A healthy
+    module therefore floats when deselected and holds the line when selected, so
+    comparing the two states separates "nothing drives MISO" from "the chip was
+    simply never selected".
+    """
+    gpio.setmode(gpio.BCM)
+    gpio.setup(cs, gpio.OUT, initial=gpio.HIGH)
+    time.sleep(0.01)
+    deselected = probe_pulls(gpio, miso)
+    gpio.output(cs, gpio.LOW)
+    time.sleep(0.01)
+    selected = probe_pulls(gpio, miso)
+    return (deselected, selected)
+
+
+def interpret_chip_select_effect(readings: tuple) -> tuple:
+    deselected, selected = readings
+    floating = (1, 0)
+    selected_driven = selected[0] == selected[1]
+    if selected_driven and deselected == floating:
+        level = "high" if selected[0] else "low"
+        return (
+            True,
+            f"MISO floats while deselected and is held {level} once chip select "
+            "goes low.",
+            "That is exactly how a live SPI slave behaves: it only enables its "
+            "output buffer while NSS is asserted. The module is driving the bus, "
+            "so look at clocking and register access rather than the wiring.",
+        )
+    if selected_driven:
+        level = "high" if selected[0] else "low"
+        return (
+            True,
+            f"MISO is held {level} in both chip select states.",
+            "Something holds the line even while the module is deselected, which "
+            "a correctly behaving slave would not do. Suspect a short to a rail "
+            "or another device on the same pin.",
+        )
+    if deselected == floating and selected == floating:
+        return (
+            False,
+            "MISO follows the internal resistors whether chip select is high or "
+            "low.",
+            "Asserting chip select changes nothing, so the chip is not merely "
+            "unselected. Either nothing connects MISO to the module, or the chip "
+            "is not running. Measure the current on the module's 3.3 V line next: "
+            "tens of mA means the silicon is alive, a few microamps means it is "
+            "in hard power-down.",
+        )
+    return (
+        False,
+        "MISO is unstable: it neither floats consistently nor settles on a level.",
+        "The readings do not match either a driven or an undriven line. Re-run "
+        "with the module reseated, and confirm SPI is disabled so the kernel is "
+        "not fighting for these pins.",
+    )
+
+
+def run_chip_select_effect(gpio, pins=DEFAULT_BITBANG_PINS, rst_bcm=DEFAULT_RST_BCM) -> int:
+    _, _, miso, cs = pins
+    print(f"Comparing {describe_pin(miso)} (MISO) with chip select high and low.")
+    claimed = [miso, cs]
+    try:
+        if rst_bcm is not None:
+            print(f"Releasing power-down on {describe_pin(rst_bcm)} (RST) first.")
+            release_power_down(gpio, rst_bcm)
+            claimed.append(rst_bcm)
+        print()
+        readings = probe_chip_select_effect(gpio, miso, cs)
+    except Exception as exc:
+        print(f"Could not probe chip select: {exc}")
+        print("Disable SPI first with 'sudo raspi-config nonint do_spi 1 && sudo reboot'.")
+        return 1
+    finally:
+        for pin in claimed:
+            try:
+                gpio.cleanup(pin)
+            except Exception:
+                pass
+
+    labels = ("chip select high (deselected)", "chip select low (selected)")
+    for label, pair in zip(labels, readings):
+        print(f"MISO with {label}: pull-up {pair[0]}, pull-down {pair[1]}")
+    print()
+    driven, summary, detail = interpret_chip_select_effect(readings)
+    print(summary)
+    print(detail)
+    return 0 if driven else 2
+
+
 def probe_line(gpio, pin: int, cs: int) -> tuple:
     """Read a line with the internal pull-up and then the pull-down applied.
 
@@ -996,6 +1089,11 @@ def main() -> None:
         help="check whether toggling RST changes anything at the module",
     )
     parser.add_argument(
+        "--cs-effect",
+        action="store_true",
+        help="compare MISO with chip select high and low to see whether the module drives it only when selected",
+    )
+    parser.add_argument(
         "--bitbang-pins",
         help="BCM pins for --bitbang as SCK,MOSI,MISO,CS (default 11,10,9,8)",
     )
@@ -1013,7 +1111,7 @@ def main() -> None:
         raise SystemExit(run_spi_status())
     if args.pin_config:
         raise SystemExit(show_pin_configuration())
-    if args.bitbang or args.line_check or args.reset_effect:
+    if args.bitbang or args.line_check or args.reset_effect or args.cs_effect:
         pins = DEFAULT_BITBANG_PINS
         if args.bitbang_pins:
             try:
@@ -1027,6 +1125,8 @@ def main() -> None:
             parser.error(
                 "RPi.GPIO is unavailable; run ./systemd/install-pi-dependencies.sh"
             )
+        if args.cs_effect:
+            raise SystemExit(run_chip_select_effect(GPIO, pins, rst_bcm))
         if args.reset_effect:
             raise SystemExit(run_reset_effect(GPIO, pins, rst_bcm))
         if args.line_check:

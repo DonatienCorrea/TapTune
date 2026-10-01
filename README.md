@@ -206,7 +206,8 @@ This reports three things that can disagree with each other:
 A `config.txt` change only takes effect after a reboot, so "config.txt says on
 but no device node exists" means a reboot is pending.
 
-The pin-level tests `--bitbang`, `--line-check` and `--reset-effect` need SPI
+The pin-level tests `--bitbang`, `--line-check`, `--cs-effect` and
+`--reset-effect` need SPI
 **off**, because the SPI driver holds GPIO 8-11 in alt-function mode. Every
 other test needs it **on**:
 
@@ -311,6 +312,35 @@ the same reason as `--bitbang`.
 | --- | --- |
 | The same level both times | The module holds MISO, so that wire and pad are connected. A chip in hard power-down also freezes this output, so this alone does not prove the chip is running. |
 | The level follows the resistor | Nothing drives MISO. The wire, its header joint, or the module's output is open. |
+
+### Check whether chip select changes anything
+
+A floating MISO on its own proves less than it looks. An SPI slave only enables
+its MISO output buffer while chip select is low; a perfectly healthy module
+therefore floats whenever it is deselected. Compare the two states explicitly:
+
+```bash
+python -m app.rc522_diag --cs-effect
+```
+
+This reads MISO with both internal resistors while chip select is high, then
+repeats the pair with chip select pulled low. It needs SPI disabled, like the
+other pin-level tests.
+
+| Result | Meaning |
+| --- | --- |
+| Floats deselected, held at one level when selected | Normal, healthy SPI behaviour. The module drives the bus, so investigate clocking and register access instead of the wiring. |
+| Follows the resistor in both states | Asserting chip select changes nothing, so the chip is not merely unselected. Either MISO is not connected to the module, or the chip is not running. |
+| Held at the same level in both states | Something holds the line even while the module is deselected, which a correct slave never does. Suspect a short or a second device on that pin. |
+
+If chip select makes no difference, the next useful evidence is electrical, not
+software. Measure the current on the module's 3.3 V line with the meter in
+series: tens of milliamps means the silicon is running and the fault is on the
+bus, while a few microamps means the chip is still in hard power-down
+(datasheet table 1 gives 5 µA there and roughly 26 mA in normal operation).
+Also confirm the supply reads 3.3 V and not 5 V at the module's own pads, since
+the MFRC522 is not 5 V tolerant and a 5 V supply would destroy every module the
+same way.
 
 ### Check whether RST reaches the chip
 
