@@ -216,20 +216,23 @@ the same reason as `--bitbang`.
 
 ### Check whether RST reaches the chip
 
-A MISO line stuck at one level is what hard power-down looks like, because
-section 8.6.1 freezes the output pins. Test whether the reset signal arrives at
-all:
-
 ```bash
 python -m app.rc522_diag --reset-effect
 ```
 
-This samples MISO with RST held low, then again after releasing it.
+This samples MISO with both internal resistors while RST is held low, then
+repeats the pair after releasing RST.
 
 | Result | Meaning |
 | --- | --- |
-| MISO changes | The reset reaches the chip, so the RST wiring is good. |
-| MISO is identical | Toggling RST changes nothing. The RST jumper or its header joint is open, or the chip is dead. |
+| MISO changes between the two states | The reset reaches the chip, so the RST wiring is good. |
+| MISO follows the resistor in both states | Nothing drives MISO at all. Check the MISO jumper and its solder joint before suspecting the chip. |
+| MISO is held at the same level in both states | Toggling RST changes nothing. The RST jumper or its header joint is open, or the chip is dead. |
+
+Always release a pin before re-reading it with a different pull. The underlying
+driver only applies a pull while it claims a line, so calling setup again on a
+pin it already holds silently keeps the first pull and makes a floating line
+look like a driven one.
 
 ### Cross-check the pins with `pinctrl`
 
