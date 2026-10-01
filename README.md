@@ -165,6 +165,13 @@ plain GPIO instead of using the kernel SPI driver:
 python -m app.rc522_diag --bitbang
 ```
 
+Before reading, this pulses RST low then high and waits 50 ms. The MFRC522
+holds its whole digital core in hard power-down while NRSTPD (RST) is low: the
+SPI input buffers are disconnected and MISO is frozen, so no SPI master can get
+a reply (datasheet rev 3.9, section 8.6.1). The breakout boards have no pull-up
+on that pin, so an undriven RST floats and the chip may never leave power-down.
+Pass `--no-rst` to skip this, or `--rst-bcm` to use a different pin.
+
 This ignores `/dev/spidev` and the Pi 5 RP1 SPI peripheral, including its
 GPIO-driven chip select, and clocks the bus slowly by hand. It separates the two
 remaining possibilities:
@@ -204,7 +211,7 @@ the same reason as `--bitbang`.
 
 | Result | Meaning |
 | --- | --- |
-| The same level both times | The module drives MISO and overrides both resistors, so that wire and pad are connected. |
+| The same level both times | The module holds MISO, so that wire and pad are connected. A chip in hard power-down also freezes this output, so this alone does not prove the chip is running. |
 | The level follows the resistor | Nothing drives MISO. The wire, its header joint, or the module's output is open. |
 
 With all power disconnected, use a multimeter in continuity mode to test each

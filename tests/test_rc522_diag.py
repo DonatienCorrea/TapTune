@@ -130,6 +130,22 @@ class PullProbeGpio(FakeBitBangGpio):
         return self.HIGH if self.pull == self.PUD_UP else self.LOW
 
 
+class ResetTrackingGpio(FakeBitBangGpio):
+    def __init__(self, response=0x92):
+        super().__init__(response)
+        self.rst_sequence = []
+
+    def setup(self, pin, direction, initial=None, pull_up_down=None):
+        if pin == 25 and initial is not None:
+            self.rst_sequence.append(initial)
+        super().setup(pin, direction, initial=initial)
+
+    def output(self, pin, value):
+        if pin == 25:
+            self.rst_sequence.append(value)
+        super().output(pin, value)
+
+
 class RC522DiagnosticTests(unittest.TestCase):
     def test_scan_buses_accepts_recognized_reader_versions(self):
         connections = rc522_diag.scan_buses(FakeSpidevModule(0x92))
@@ -229,6 +245,28 @@ class RC522DiagnosticTests(unittest.TestCase):
 
         self.assertEqual(readings, (1, 0))
         self.assertEqual(gpio.levels[8], gpio.LOW)
+
+    def test_release_power_down_pulses_reset_low_then_high(self):
+        gpio = ResetTrackingGpio()
+
+        rc522_diag.release_power_down(gpio, 25)
+
+        self.assertEqual(gpio.rst_sequence, [gpio.LOW, gpio.HIGH])
+
+    def test_bitbang_releases_power_down_before_reading(self):
+        gpio = ResetTrackingGpio()
+
+        rc522_diag.run_bitbang(gpio)
+
+        self.assertEqual(gpio.rst_sequence, [gpio.LOW, gpio.HIGH])
+        self.assertIn(25, gpio.cleaned)
+
+    def test_bitbang_skips_reset_when_disabled(self):
+        gpio = ResetTrackingGpio()
+
+        rc522_diag.run_bitbang(gpio, rst_bcm=None)
+
+        self.assertEqual(gpio.rst_sequence, [])
 
 
 if __name__ == "__main__":
