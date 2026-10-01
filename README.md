@@ -117,6 +117,36 @@ register writes and antenna control, checks the reset line, and sends a direct
 REQA command. Stop any other reader process first so it does not keep the reset
 GPIO busy. Use `--no-rst` only to isolate a reset-line problem.
 
+### Check whether SPI is enabled
+
+The diagnostics toggle SPI on and off, so check what state it is actually in
+before reading anything else:
+
+```bash
+python -m app.rc522_diag --spi-status
+```
+
+This reports three things that can disagree with each other:
+
+- every uncommented `spi` line in `config.txt`, in file order, because the last
+  one wins and a leftover `dtparam=spi=off` further down silently overrides an
+  earlier `on`
+- which `/dev/spidev*` nodes exist, ignoring `/dev/spidev10.0`, which is the
+  boot EEPROM bus rather than the 40-pin header
+- whether GPIO 7-11 are actually muxed to SPI0 right now
+
+A `config.txt` change only takes effect after a reboot, so "config.txt says on
+but no device node exists" means a reboot is pending.
+
+The pin-level tests `--bitbang`, `--line-check` and `--reset-effect` need SPI
+**off**, because the SPI driver holds GPIO 8-11 in alt-function mode. Every
+other test needs it **on**:
+
+```bash
+sudo raspi-config nonint do_spi 0 && sudo reboot   # on
+sudo raspi-config nonint do_spi 1 && sudo reboot   # off
+```
+
 ### Test the Raspberry Pi SPI pins
 
 If the diagnostic reports no RC522 response, first inspect the SPI pin routing:

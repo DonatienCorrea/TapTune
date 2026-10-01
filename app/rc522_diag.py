@@ -132,6 +132,123 @@ def scan_buses(spidev) -> List[ReaderConnection]:
     return connections
 
 
+def read_boot_config(paths=("/boot/firmware/config.txt", "/boot/config.txt")) -> tuple:
+    for path in paths:
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as handle:
+                return path, handle.read()
+        except OSError:
+            continue
+    return None, ""
+
+
+def parse_spi_params(text: str) -> list:
+    """Return every uncommented spi dtparam line, in file order.
+
+    The last one wins, so a leftover 'dtparam=spi=off' further down the file
+    quietly overrides an earlier 'on'.
+    """
+    found = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith("#") or "spi" not in line:
+            continue
+        if line.startswith("dtparam=") and "spi=" in line:
+            found.append(line)
+        elif line.startswith("dtoverlay=") and "spi" in line.split("=", 1)[1]:
+            found.append(line)
+    return found
+
+
+def summarise_spi_status(config_path, params, devices, modules, pin_text) -> tuple:
+    """Turn the gathered facts into an enabled/disabled verdict plus notes."""
+    notes = []
+    requested = None
+    for line in params:
+        if line.startswith("dtparam=") and "spi=" in line:
+            requested = line.rsplit("spi=", 1)[1].strip().lower()
+    if config_path is None:
+        notes.append("Could not read config.txt, so the boot setting is unknown.")
+    elif requested is None:
+        notes.append(
+            "No 'dtparam=spi=' line in config.txt; SPI is off unless an overlay "
+            "enables it."
+        )
+    elif requested in ("on", "true", "1"):
+        notes.append(f"config.txt requests SPI on ({config_path}).")
+    else:
+        notes.append(f"config.txt requests SPI off ({config_path}).")
+
+    header_devices = [d for d in devices if not d.startswith("/dev/spidev10.")]
+    if header_devices:
+        notes.append("The SPI driver is loaded and bound to the header bus.")
+    elif devices:
+        notes.append(
+            "Only the boot EEPROM bus is present; nothing is bound to the "
+            "40-pin header."
+        )
+    else:
+        notes.append("No /dev/spidev* device exists at all.")
+
+    muxed = "spi" in pin_text.lower()
+    if pin_text and muxed:
+        notes.append("GPIO 7-11 are muxed to SPI0.")
+    elif pin_text:
+        notes.append("GPIO 7-11 are not muxed to SPI0; they are plain GPIO.")
+
+    enabled = bool(header_devices) and muxed
+    if header_devices and not muxed and pin_text:
+        notes.append(
+            "The device node exists but the pins are not muxed, which happens "
+            "while another process holds them as plain GPIO."
+        )
+    if not header_devices and requested in ("on", "true", "1"):
+        notes.append("config.txt and the running kernel disagree; reboot to apply it.")
+    if header_devices and requested not in ("on", "true", "1") and requested is not None:
+        notes.append("SPI is live but config.txt turns it off at the next boot.")
+    return enabled, notes
+
+
+def run_spi_status() -> int:
+    config_path, config_text = read_boot_config()
+    params = parse_spi_params(config_text)
+    devices = sorted(glob.glob("/dev/spidev*"))
+    modules = ""
+    try:
+        with open("/proc/modules", "r", encoding="utf-8", errors="replace") as handle:
+            modules = handle.read()
+    except OSError:
+        pass
+    pin_text = ""
+    tool = shutil.which("pinctrl") or shutil.which("raspi-gpio")
+    if tool is not None:
+        result = subprocess.run(
+            [tool, "get", "7-11"], capture_output=True, text=True, check=False
+        )
+        pin_text = (result.stdout + result.stderr).strip()
+
+    print(f"config.txt: {config_path or 'not found'}")
+    for line in params or ["  (no spi lines)"]:
+        print(f"  {line}")
+    print(f"\n/dev/spidev*: {' '.join(devices) or 'none'}")
+    print("  /dev/spidev10.0 is the boot EEPROM bus, not the 40-pin header.")
+    loaded = [name for name in ("spidev", "spi_dw", "spi_bcm2835") if name in modules]
+    print(f"\nSPI modules loaded: {' '.join(loaded) or 'none'}")
+    print("\nPin multiplexing:")
+    print(pin_text or "  (pinctrl is unavailable)")
+
+    enabled, notes = summarise_spi_status(
+        config_path, params, devices, modules, pin_text
+    )
+    print()
+    for note in notes:
+        print(f"- {note}")
+    print(f"\nSPI is currently {'enabled' if enabled else 'not usable'}.")
+    print("\nTo turn SPI on:  sudo raspi-config nonint do_spi 0 && sudo reboot")
+    print("To turn SPI off: sudo raspi-config nonint do_spi 1 && sudo reboot")
+    return 0 if enabled else 2
+
+
 def show_pin_configuration() -> int:
     tool = shutil.which("pinctrl") or shutil.which("raspi-gpio")
     if tool is None:
@@ -735,6 +852,11 @@ def main() -> None:
     parser.add_argument("--rst-bcm", type=int, default=25)
     parser.add_argument("--no-rst", action="store_true")
     parser.add_argument(
+        "--spi-status",
+        action="store_true",
+        help="report whether SPI is enabled in config.txt, in the kernel, and on the pins",
+    )
+    parser.add_argument(
         "--pin-config",
         action="store_true",
         help="show whether GPIO 7-11 are routed to SPI0, then exit",
@@ -776,6 +898,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.seconds <= 0:
         parser.error("--seconds must be greater than zero")
+    if args.spi_status:
+        raise SystemExit(run_spi_status())
     if args.pin_config:
         raise SystemExit(show_pin_configuration())
     if args.bitbang or args.line_check or args.reset_effect:
