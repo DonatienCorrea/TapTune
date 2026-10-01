@@ -8,7 +8,7 @@ TapTune is a Raspberry Pi + RC522 NFC reader project for assigning physical tags
 - a command-line simulator for testing the dispatch path without hardware; and
 - a `systemd` unit for running the web service on a Pi.
 
-> **Current boundary:** `app.main` starts the web UI and `/health`; it does not yet start an NFC polling loop. `app.nfc_reader.RC522Reader` can read a UID when the Pi dependency is installed, but physical scans are not connected to dispatch in this scaffold. NFC tag writing is also not implemented. Use the simulator to verify playback dispatch today, and use the UI to assign the UID read from a tag.
+> **Current boundary:** `app.main` starts the web UI and `/health`; it does not yet start an NFC polling loop. `app.nfc_reader.RC522Reader` can read a UID when the Pi dependency is installed, but physical scans are not connected to dispatch in this scaffold. TapTune reads self-describing NDEF tags but does not write them; write them from a phone instead. Use the simulator to verify playback dispatch today, and use the UI to assign the UID read from a tag.
 
 ## Signal path
 
@@ -436,6 +436,27 @@ curl -X POST -d 'uid=04A7B2F1' http://127.0.0.1:5000/dispatch
 
 `action:next` and `action:next_track` are equivalent; the UI quick-fill control uses the latter.
 
+### Self-describing tags
+
+A tag can carry its own value instead of being registered by UID. Write it from
+a phone with NFC Tools, or any app that writes an NDEF URI record, and TapTune
+reads the value straight off the tag. Such a tag works on any TapTune
+installation without being assigned first.
+
+Either form works:
+
+- the Spotify share link, for example `https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M?si=…`, which is normalised to `spotify:playlist:37i9dQZF1DXcBWIGoYBM5M` with the tracking parameters and any locale segment dropped
+- the URI directly, for example `spotify:track:<id>`, written as a URI or a text record
+
+NDEF wins when it is present and readable. A blank tag, or one holding
+something TapTune cannot use, falls back to the registered UID mapping and then
+to the raw UID, so existing tags keep working unchanged.
+
+Decoding lives in `app/ndef.py` and has no hardware dependency, so it is tested
+without a reader attached. Reading NDEF off a tag needs a reader whose library
+exposes the user memory: the maintained PN532 libraries do, while the
+unmaintained `mfrc522` package only returns a UID.
+
 ## Raspberry Pi installation
 
 From an SSH session on the Pi:
@@ -538,7 +559,7 @@ sqlite3 data/raspi_spotify_nfc.db \
 | Reader waits or reports `0x00`/`0xFF` | Stop other reader jobs and run `python -m app.rc522_diag --seconds 30`; its final output distinguishes SPI, reset, antenna, and tag-response failures. |
 | `0x00` persists after every SPI test passes | Suspect wiring or the module. Keep SPI jumpers under 15 cm — long or thin dupont wires degrade signal integrity. Then reflow the RC522 header joints and try another module. |
 | Physical taps do nothing | Expected with the current scaffold: `app.main` does not poll `RC522Reader` yet. Use `app.simulate` or `/dispatch`. |
-| A tag cannot be written | Expected: tag writing is explicitly not implemented in v1. |
+| A tag cannot be written | Expected: TapTune does not write tags itself. Write the value from a phone with NFC Tools instead; see "Self-describing tags". |
 
 ## Safe updates
 

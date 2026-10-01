@@ -3,6 +3,8 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
+from .ndef import tag_value_from_ndef
+
 try:
     from mfrc522 import MFRC522
 except ImportError:  # pragma: no cover - hardware-specific library not installed in dev
@@ -78,10 +80,7 @@ class RC522Reader(ReaderBase):
             return None
 
         uid_hex = "".join(f"{byte:02X}" for byte in uid[:4])
-        from .db import get_tag_by_uid
-
-        tag = get_tag_by_uid(uid_hex)
-        payload = tag["value"] if tag else uid_hex
+        payload = payload_for_tag(uid_hex)
         return NFCEvent(uid=uid_hex, payload=payload, source="nfc")
 
     def write_tag(self, uid: str, payload: str) -> bool:
@@ -92,6 +91,24 @@ def parse_tag_value(value: str) -> str:
     if value.startswith("spotify:") or value.startswith("action:"):
         return value
     return value.strip()
+
+
+def payload_for_tag(uid: str, ndef_bytes: Optional[bytes] = None, lookup=None) -> str:
+    """Choose what a scanned tag should play.
+
+    A self-describing tag carries its own value in an NDEF message, so that wins
+    when it is present and readable. Tags written before NDEF support, or tags a
+    phone has not written, still fall back to the registered UID mapping and
+    finally to the raw UID.
+    """
+    if ndef_bytes:
+        value = tag_value_from_ndef(ndef_bytes)
+        if value:
+            return parse_tag_value(value)
+    if lookup is None:
+        from .db import get_tag_by_uid as lookup  # noqa: N813
+    tag = lookup(uid)
+    return tag["value"] if tag else uid
 
 
 def read_uid_from_hardware(poll_interval_seconds: float = 0.2) -> str:
