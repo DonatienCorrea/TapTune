@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="620" viewBox="0 0 960 620" role="img" aria-labelledby="title description">
   <title id="title">TapTune signal path</title>
-  <desc id="description">An NFC tag passes through the RC522 reader and Python service to Spotify playback, while SQLite stores tag assignments.</desc>
+  <desc id="description">An NFC tag passes through a PN532 I2C reader and Python service to Spotify playback, while SQLite stores tag assignments.</desc>
   <rect width="960" height="620" fill="#1e282e"/>
   <g stroke="#39434a" stroke-width="1">
     <path d="M0 124h960M0 248h960M0 372h960M0 496h960"/>
@@ -29,8 +29,8 @@
       <rect width="136" height="128" fill="#f4f1e8" stroke="#11181d"/>
       <path d="M30 32h76v46H30zM38 40h60v30H38z" fill="none" stroke="#1945e8" stroke-width="2"/>
       <path d="M44 56c8-12 16-12 24 0s16 12 24 0" fill="none" stroke="#1945e8" stroke-width="2"/>
-      <text x="18" y="98" fill="#182027" font-size="20" font-weight="700">RC522</text>
-      <text x="18" y="116" fill="#5c635f" font-family="DM Mono, monospace" font-size="11">SPI reader</text>
+      <text x="18" y="98" fill="#182027" font-size="20" font-weight="700">PN532</text>
+      <text x="18" y="116" fill="#5c635f" font-family="DM Mono, monospace" font-size="11">I2C reader</text>
     </g>
 
     <g transform="translate(538 92)">

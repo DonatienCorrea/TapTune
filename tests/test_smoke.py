@@ -95,49 +95,31 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(result, {"status": "invalid_position", "position_ms": -1})
         self.assertIsNone(spotify_service._fake_spotify_client)
 
-    def test_rc522_reader_uses_the_value_assigned_to_the_scanned_uid(self):
+    def test_pn532_reader_uses_the_value_assigned_to_the_scanned_uid(self):
         class FakeReader:
-            MI_OK = 0
-            PICC_REQIDL = 0
+            def __init__(self, i2c, debug):
+                self.i2c = i2c
+                self.debug = debug
+                self.configured = False
 
-            def __init__(self, pin_mode, pin_rst):
-                nfc_reader.GPIO.setup(pin_rst, nfc_reader.GPIO.OUT)
+            def SAM_configuration(self):
+                self.configured = True
 
-            def MFRC522_Request(self, request):
-                return self.MI_OK, None
+            def read_passive_target(self, timeout):
+                self.timeout = timeout
+                return bytes([4, 167, 178, 241, 224])
 
-            def MFRC522_Anticoll(self):
-                return self.MI_OK, [4, 167, 178, 241, 224]
+        dispatch_simulated_value("04A7B2F1E0", "action:next")
+        i2c = object()
+        reader = nfc_reader.PN532Reader(i2c=i2c, reader_factory=FakeReader)
+        event = reader.read_once()
 
-        class FakeGPIO:
-            BOARD = 10
-            OUT = 0
-            HIGH = 1
-
-            def __init__(self):
-                self.mode = None
-                self.setup_calls = []
-
-            def getmode(self):
-                return self.mode
-
-            def setmode(self, mode):
-                self.mode = mode
-
-            def setup(self, pin, direction, initial):
-                self.setup_calls.append((pin, direction, initial))
-
-        dispatch_simulated_value("04A7B2F1", "action:next")
-        gpio = FakeGPIO()
-        with patch.object(nfc_reader, "GPIO", gpio):
-            original_setup = gpio.setup
-            with patch.object(nfc_reader, "MFRC522", FakeReader):
-                event = nfc_reader.RC522Reader().read_once()
-
-        self.assertEqual(gpio.setup_calls, [(22, gpio.OUT, gpio.HIGH)])
-        self.assertEqual(gpio.setup, original_setup)
+        self.assertIs(reader.reader.i2c, i2c)
+        self.assertFalse(reader.reader.debug)
+        self.assertTrue(reader.reader.configured)
+        self.assertEqual(reader.reader.timeout, 0.1)
         self.assertIsNotNone(event)
-        self.assertEqual(event.uid, "04A7B2F1")
+        self.assertEqual(event.uid, "04A7B2F1E0")
         self.assertEqual(event.payload, "action:next")
 
     def test_read_uid_from_hardware_polls_until_a_tag_is_present(self):
@@ -152,7 +134,7 @@ class SmokeTests(unittest.TestCase):
                 return nfc_reader.NFCEvent(uid="04A7B2F1", payload="04A7B2F1")
 
         fake_reader = FakeHardwareReader()
-        with patch.object(nfc_reader, "RC522Reader", return_value=fake_reader):
+        with patch.object(nfc_reader, "PN532Reader", return_value=fake_reader):
             with patch.object(nfc_reader.time, "sleep") as mock_sleep:
                 uid = nfc_reader.read_uid_from_hardware()
 
@@ -185,6 +167,16 @@ class SmokeTests(unittest.TestCase):
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_parse_bool_accepts_common_environment_values(self):
+        for value in ("1", "true", "YES", "on"):
+            self.assertTrue(config.parse_bool(value))
+        for value in ("0", "false", "NO", "off"):
+            self.assertFalse(config.parse_bool(value))
+
+    def test_parse_bool_rejects_invalid_values(self):
+        with self.assertRaisesRegex(ValueError, "NFC_READER_ENABLED"):
+            config.parse_bool("sometimes")
+
     def test_parse_port_accepts_valid_boundary_values(self):
         self.assertEqual(config.parse_port("1"), 1)
         self.assertEqual(config.parse_port("65535"), 65535)

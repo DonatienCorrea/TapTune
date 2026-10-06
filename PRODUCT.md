@@ -20,7 +20,7 @@ The project makes Spotify playback tangible by connecting inexpensive, programma
 
 ## Operating Context
 
-The service runs on Raspberry Pi OS Lite with an RC522 reader over SPI. A local Flask web UI assigns tag UIDs, SQLite persists mappings, and systemd keeps the service running. Playback uses a shared Spotify Premium account and Spotify Connect.
+The service runs on Raspberry Pi OS Lite with a PN532 reader over I2C. A local Flask web UI assigns tag UIDs, SQLite persists mappings, and systemd keeps the service running. Playback uses a shared Spotify Premium account and Spotify Connect. Reader polling is disabled by default for hardware-free setup and joins the service dispatch loop when `NFC_READER_ENABLED=true`.
 
 ## Capabilities and Constraints
 

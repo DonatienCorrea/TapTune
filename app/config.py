@@ -18,6 +18,18 @@ def parse_port(value: str) -> int:
     return port
 
 
+def parse_bool(value: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(
+        "NFC_READER_ENABLED must be one of true/false, yes/no, on/off, or 1/0; "
+        f"got {value!r}"
+    )
+
+
 class Settings:
     APP_HOST = os.getenv("APP_HOST", "0.0.0.0")
     APP_PORT = parse_port(os.getenv("APP_PORT", "5000"))
@@ -26,6 +38,7 @@ class Settings:
     SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET", "")
     SPOTIFY_REDIRECT_URI = os.getenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8888/callback")
     SPOTIFY_REFRESH_TOKEN = os.getenv("SPOTIFY_REFRESH_TOKEN", "")
+    NFC_READER_ENABLED = parse_bool(os.getenv("NFC_READER_ENABLED", "false"))
 
 
 settings = Settings()

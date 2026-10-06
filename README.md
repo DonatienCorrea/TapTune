@@ -1,6 +1,6 @@
 # TapTune
 
-TapTune is a Raspberry Pi + RC522 NFC reader project for assigning physical tags to Spotify content and simple playback actions. The repository currently provides:
+TapTune is a Raspberry Pi + PN532 NFC reader project for assigning physical tags to Spotify content and simple playback actions. The repository currently provides:
 
 - a Flask tag-assignment UI;
 - SQLite storage for tag mappings and event records;
@@ -8,7 +8,7 @@ TapTune is a Raspberry Pi + RC522 NFC reader project for assigning physical tags
 - a command-line simulator for testing the dispatch path without hardware; and
 - a `systemd` unit for running the web service on a Pi.
 
-> **Current boundary:** `app.main` starts the web UI and `/health`; it does not yet start an NFC polling loop. `app.nfc_reader.RC522Reader` can read a UID when the Pi dependency is installed, but physical scans are not connected to dispatch in this scaffold. TapTune reads self-describing NDEF tags but does not write them; write them from a phone instead. Use the simulator to verify playback dispatch today, and use the UI to assign the UID read from a tag.
+> **Current boundary:** `app.main` always starts the web UI and `/health`. It starts the PN532 polling loop only when `NFC_READER_ENABLED=true`; the default is `false` so local development and first-time setup do not require hardware. The current PN532 path reads UIDs and dispatches their saved mappings. TapTune can decode supported self-describing NDEF values when a reader supplies tag memory, but the PN532 reader does not yet supply NDEF data and TapTune does not write tags. Use the simulator or `/dispatch` before enabling the reader, then enable it for normal tap-to-play use.
 
 ## Signal path
 
@@ -29,12 +29,12 @@ The app listens on `APP_HOST:APP_PORT` (defaults to `0.0.0.0:5000`). The UI is a
 ### Raspberry Pi
 
 - Raspberry Pi OS Lite (or another Raspberry Pi OS installation) with SSH access;
-- a Raspberry Pi with an RC522 connected over SPI;
+- a Raspberry Pi with a PN532 configured for I2C;
 - Python 3.10+;
 - a Spotify Premium account and a Spotify Developer app for live playback; and
-- a tag UID. Read the UID with the RC522 tooling or another NFC reader; this repository does not write payloads to tags.
+- an NFC tag. Read its UID with the PN532 first-card test below; this repository does not write payloads to tags.
 
-The current RC522 code expects the `MFRC522` Python package and `spidev`; install those from `requirements-pi.txt` in addition to the base requirements.
+Install the hardware-specific dependencies from `requirements-pi.txt` in addition to the base requirements. The PN532 uses the Raspberry Pi's I2C bus rather than SPI.
 
 ## Quick start: local fake mode
 
@@ -77,7 +77,7 @@ source .venv/bin/activate
 python -m unittest discover -s tests -v
 ```
 
-The suite uses a temporary SQLite database and the fake Spotify client. It does not require `.env`, Spotify credentials, an RC522, SPI, or a running server. It covers configuration validation, tag assignment, dispatch, simulator validation, and the RC522 UID lookup behavior.
+The suite uses a temporary SQLite database and the fake Spotify client. It does not require `.env`, Spotify credentials, a PN532, I2C, or a running server. It covers configuration validation, tag assignment, dispatch, simulator validation, and reader UID lookup behavior.
 
 ### Manual fake-mode dispatch check
 
@@ -94,332 +94,87 @@ The simulator upserts each mapping, records an event, dispatches it, and prints 
 
 > The simulator runs as its own command and does not send a request to the Flask server. The health request verifies the server; the simulator verifies the mapping and dispatch path. Both should succeed before configuring live Spotify or installing the service.
 
-## Wiring
+## PN532 wiring and I2C setup
 
-Both sides of this table were derived independently: the RC522 column from the
-NXP MFRC522 datasheet rev 3.9, table 3 "Pin description" and section 8.1.2, and
-the Raspberry Pi column from the official Pi 5 SPI0 pin mapping and the RP1
-device tree. They agree.
+PN532 breakout boards expose different labels and use different switches or
+solder jumpers to select a host interface. Before applying power, set the board
+to **I2C mode** according to its own silkscreen or manufacturer documentation.
+Do not copy an SPI or UART switch position from a different PN532 board.
 
-| RC522 pin | Function in SPI mode | Pi physical pin | BCM | Mandatory |
-| --- | --- | --- | --- | --- |
-| 3.3V | supply, 2.5-3.6 V | 1 | - | yes |
-| GND | ground | 6 | - | yes |
-| SCK | SPI clock input | 23 | GPIO 11 | yes |
-| MOSI | host to module data | 19 | GPIO 10 | yes |
-| MISO | module to host data | 21 | GPIO 9 | yes |
-| SDA | chip select, named NSS on the chip | 24 | GPIO 8 | yes |
-| RST | reset and power-down, named NRSTPD | 22 | GPIO 25 | must sit at a defined level |
-| IRQ | interrupt output | - | - | no, leave unconnected |
+Use the Raspberry Pi's primary I2C bus:
 
-Notes from the datasheet that the usual wiring diagrams omit:
-
-- The module is **not** 5 V tolerant. Table 150 limits any input to the supply
-  voltage plus 0.5 V, so never feed it from physical pin 2 or 4.
-- RST must not float. The chip has an internal power-on reset, so tying RST to
-  3.3 V also works, but leaving it unconnected is undefined.
-- IRQ defaults to open-drain and three-state, so it needs a pull-up if you ever
-  connect it.
-- Peak supply current during RF transmission is up to 100 mA.
-
-### If SPI never works: check the interface mode
-
-The MFRC522 picks SPI, I2C or UART by sampling two pins at power-on or on the
-rising edge of RST, and latches the result (datasheet section 8.1.1, table 5).
-Those two pins are chip pins 1 and 32; **neither is exposed on the 8-pin
-header**, so the board wires them permanently and you cannot change the choice.
-
-This matters because of how the pins are renamed in each mode:
-
-| Header label | SPI | I2C | UART |
+| PN532 pin | Raspberry Pi physical pin | BCM | Notes |
 | --- | --- | --- | --- |
-| SDA | NSS, chip select | SDA | RX |
-| SCK | SCK | ADR_1 | DTRQ |
-| MOSI | MOSI | ADR_0 | MX |
-| MISO | MISO | **SCL** | TX |
+| VCC / 3.3V | 1 | - | Use 3.3 V unless the breakout's documentation explicitly requires another supply. |
+| GND | 6 | - | Common ground. |
+| SDA | 3 | GPIO 2 / SDA1 | I2C data. |
+| SCL | 5 | GPIO 3 / SCL1 | I2C clock. |
+| IRQ | - | - | Leave disconnected for the polling setup. |
+| RST / RSTO | - | - | Leave disconnected unless the selected PN532 library or breakout instructions require it. |
 
-If a board straps those pins for I2C, the pin labelled MISO is really SCL, an
-open-drain line, so with no pull-up it floats and nothing ever appears on SPI.
-That is indistinguishable from a dead module unless you test for it:
+The Pi's GPIO lines are 3.3 V only. A breakout may accept 5 V on its power
+input, but that does not make 5 V safe on SDA or SCL. Power down the Pi before
+changing the board mode or wiring.
 
-```bash
-sudo raspi-config nonint do_i2c 0 && sudo reboot
-```
-
-Move two wires, leaving 3.3V, GND and RST alone, and disconnect SCK and MOSI:
-
-| RC522 pin | Pi physical pin | BCM |
-| --- | --- | --- |
-| SDA | 3 | GPIO 2, I2C1 SDA |
-| MISO | 5 | GPIO 3, I2C1 SCL |
+Enable I2C and install the bus utilities:
 
 ```bash
-python -m app.rc522_diag --i2c-check
+sudo raspi-config nonint do_i2c 0
+sudo apt install -y i2c-tools
+sudo reboot
 ```
 
-The default address is `0x28`, which is what the datasheet's reserved prefix
-`0101` plus three grounded address pins produces. Use `--i2c-address` to try
-another. A reply here proves the chip is alive and merely latched the wrong
-interface.
-
-## Read a tag's UID
-
-Before assigning a tag in the UI, you need its UID. On the Pi, with the RC522 wired up, SPI enabled, and `requirements-pi.txt` installed:
+After reboot, verify the controller and scan the bus:
 
 ```bash
-source .venv/bin/activate
-python -m app.nfc_reader --read
+ls -l /dev/i2c-1
+sudo i2cdetect -y 1
 ```
 
-The command polls the reader, prints `Hold a tag near the reader...`, and once you present a tag prints its four-byte UID as uppercase hexadecimal (without the reader's check byte), for example `uid=04A7B2F1`. Press `Ctrl-C` to cancel if no tag is presented.
+A PN532 in I2C mode normally uses the 7-bit address `0x24`, so the scan should
+show `24`. Some PN532 firmware/library combinations do not respond reliably to
+the generic probing used by `i2cdetect`; if `/dev/i2c-1` exists but `24` is
+absent, recheck the board's interface selection, SDA/SCL orientation, power,
+and ground, then use the first-card test as the definitive application check.
 
-If the command waits without detecting a tag, run the low-level diagnostic:
+## First-card test
 
-```bash
-python -m app.rc522_diag --seconds 30
-```
+Run this once before starting normal application setup. It proves that the Pi,
+I2C bus, PN532, and one physical card can work together without involving
+Spotify or the web service.
 
-The diagnostic bypasses the `mfrc522` package. It checks both SPI chip-select
-lines at several speeds, accepts only known RC522 version values, verifies
-register writes and antenna control, checks the reset line, and sends a direct
-REQA command. Stop any other reader process first so it does not keep the reset
-GPIO busy. Use `--no-rst` only to isolate a reset-line problem.
-
-### Check whether SPI is enabled
-
-The diagnostics toggle SPI on and off, so check what state it is actually in
-before reading anything else:
-
-```bash
-python -m app.rc522_diag --spi-status
-```
-
-This reports three things that can disagree with each other:
-
-- every uncommented `spi` line in `config.txt`, in file order, because the last
-  one wins and a leftover `dtparam=spi=off` further down silently overrides an
-  earlier `on`
-- which `/dev/spidev*` nodes exist, ignoring `/dev/spidev10.0`, which is the
-  boot EEPROM bus rather than the 40-pin header
-- whether GPIO 7-11 are actually muxed to SPI0 right now
-
-A `config.txt` change only takes effect after a reboot, so "config.txt says on
-but no device node exists" means a reboot is pending.
-
-The pin-level tests `--bitbang`, `--line-check`, `--cs-effect` and
-`--reset-effect` need SPI
-**off**, because the SPI driver holds GPIO 8-11 in alt-function mode. Every
-other test needs it **on**:
-
-```bash
-sudo raspi-config nonint do_spi 0 && sudo reboot   # on
-sudo raspi-config nonint do_spi 1 && sudo reboot   # off
-```
-
-### Test the Raspberry Pi SPI pins
-
-If the diagnostic reports no RC522 response, first inspect the SPI pin routing:
-
-```bash
-python -m app.rc522_diag --pin-config
-```
-
-Then perform a safe SPI loopback:
-
-1. Shut down the Pi with `sudo poweroff` and disconnect power.
-2. Disconnect **all** RC522 wires from the Pi.
-3. Bridge physical pin 19 (MOSI) directly to physical pin 21 (MISO) with one
-   jumper. Connect nothing else.
-4. Power the Pi, activate the project virtual environment, and run:
+1. Stop the TapTune service if it is already running so only one process owns
+   the reader:
 
    ```bash
-   python -m app.rc522_diag --loopback --confirm-disconnected
+   sudo systemctl stop raspi-spotify-nfc.service
    ```
 
-5. Shut down and disconnect power before removing the bridge or reconnecting
-   the RC522.
+2. Activate the project environment and run the bounded PN532 diagnostic:
 
-A passing loopback proves the SPI controller, driver, MOSI pin, MISO pin, and
-the bridge connection. It does not electrically prove SCK or CE0 without an
-oscilloscope, logic analyzer, or responding SPI peripheral.
+   ```bash
+   source .venv/bin/activate
+   python -m app.pn532_diag --seconds 30
+   ```
 
-To test SCK specifically, repeat the procedure above but bridge physical pin 23
-(SCK) to physical pin 21 (MISO) instead, then run:
+3. When `PN532 initialized over I2C` appears, hold one card flat and close to
+   the antenna until the command prints a UID such as `uid=04A7B2F1`, then
+   remove the card. UID length varies by card type; copy the complete value
+   exactly as printed.
+4. If initialization fails, recheck I2C mode, power, SDA, and SCL. If the
+   command initializes but times out, move the card directly over the antenna
+   and retry with a known ISO/IEC 14443 Type A card. The unbounded
+   `python -m app.nfc_reader --read` command is also available when you want to
+   wait indefinitely for one card.
 
-```bash
-python -m app.rc522_diag --clock-test --confirm-disconnected
-```
-
-This clocks a transfer while sampling the clock line itself. Any non-zero byte
-proves pin 23 emits a real clock. An all-zero result is only a hint, not proof,
-because the sample can land on the low phase of the clock; re-seat the jumper
-and retry before suspecting the Pi.
-
-### Bypass the SPI peripheral entirely
-
-With the RC522 wired up normally, read its version by toggling the SPI pins as
-plain GPIO instead of using the kernel SPI driver:
-
-```bash
-python -m app.rc522_diag --bitbang
-```
-
-Before reading, this pulses RST low then high and waits 50 ms. The MFRC522
-holds its whole digital core in hard power-down while NRSTPD (RST) is low: the
-SPI input buffers are disconnected and MISO is frozen, so no SPI master can get
-a reply (datasheet rev 3.9, section 8.6.1). The breakout boards have no pull-up
-on that pin, so an undriven RST floats and the chip may never leave power-down.
-Pass `--no-rst` to skip this, or `--rst-bcm` to use a different pin.
-
-This ignores `/dev/spidev` and the Pi 5 RP1 SPI peripheral, including its
-GPIO-driven chip select, and clocks the bus slowly by hand. It separates the two
-remaining possibilities:
-
-| Result | Meaning |
-| --- | --- |
-| A recognised version such as `0x92` | The module works; the hardware SPI path is at fault. |
-| `0x00` again | Software and the SPI peripheral are both excluded; the module, its solder joints, or the jumper wires are at fault. |
-
-GPIO 8-11 belong to the SPI driver while SPI is enabled, so claiming them as
-plain GPIO fails with `Invalid argument`. Turn SPI off for the test:
-
-```bash
-sudo raspi-config nonint do_spi 1 && sudo reboot
-python -m app.rc522_diag --bitbang
-sudo raspi-config nonint do_spi 0 && sudo reboot
-```
-
-To keep SPI enabled instead, move the four RC522 signal wires to free pins and
-name them as `SCK,MOSI,MISO,CS` in BCM numbering:
-
-```bash
-python -m app.rc522_diag --bitbang --bitbang-pins 5,6,13,19
-```
-
-### Check whether anything drives MISO
-
-When even the bit-banged read returns `0x00`, probe the MISO line itself:
-
-```bash
-python -m app.rc522_diag --line-check
-```
-
-This asserts chip select, then reads MISO with the Pi's internal pull-up and
-again with its pull-down. It needs SPI disabled, or a `--bitbang-pins` set, for
-the same reason as `--bitbang`.
-
-| Result | Meaning |
-| --- | --- |
-| The same level both times | The module holds MISO, so that wire and pad are connected. A chip in hard power-down also freezes this output, so this alone does not prove the chip is running. |
-| The level follows the resistor | Nothing drives MISO. The wire, its header joint, or the module's output is open. |
-
-### Check whether chip select changes anything
-
-A floating MISO on its own proves less than it looks. An SPI slave only enables
-its MISO output buffer while chip select is low; a perfectly healthy module
-therefore floats whenever it is deselected. Compare the two states explicitly:
-
-```bash
-python -m app.rc522_diag --cs-effect
-```
-
-This reads MISO with both internal resistors while chip select is high, then
-repeats the pair with chip select pulled low. It needs SPI disabled, like the
-other pin-level tests.
-
-| Result | Meaning |
-| --- | --- |
-| Floats deselected, held at one level when selected | Normal, healthy SPI behaviour. The module drives the bus, so investigate clocking and register access instead of the wiring. |
-| Follows the resistor in both states | Asserting chip select changes nothing, so the chip is not merely unselected. Either MISO is not connected to the module, or the chip is not running. |
-| Held at the same level in both states | Something holds the line even while the module is deselected, which a correct slave never does. Suspect a short or a second device on that pin. |
-
-If chip select makes no difference, the next useful evidence is electrical, not
-software. Measure the current on the module's 3.3 V line with the meter in
-series: tens of milliamps means the silicon is running and the fault is on the
-bus, while a few microamps means the chip is still in hard power-down
-(datasheet table 1 gives 5 µA there and roughly 26 mA in normal operation).
-Also confirm the supply reads 3.3 V and not 5 V at the module's own pads, since
-the MFRC522 is not 5 V tolerant and a 5 V supply would destroy every module the
-same way.
-
-### Check whether RST reaches the chip
-
-```bash
-python -m app.rc522_diag --reset-effect
-```
-
-This samples MISO with both internal resistors while RST is held low, then
-repeats the pair after releasing RST.
-
-| Result | Meaning |
-| --- | --- |
-| MISO changes between the two states | The reset reaches the chip, so the RST wiring is good. |
-| MISO follows the resistor in both states | Nothing drives MISO at all. Check the MISO jumper and its solder joint before suspecting the chip. |
-| MISO is held at the same level in both states | Toggling RST changes nothing. The RST jumper or its header joint is open, or the chip is dead. |
-
-Always release a pin before re-reading it with a different pull. The underlying
-driver only applies a pull while it claims a line, so calling setup again on a
-pin it already holds silently keeps the first pull and makes a floating line
-look like a driven one.
-
-### Cross-check the pins with `pinctrl`
-
-`pinctrl` replaces `raspi-gpio` on the Raspberry Pi 5. It talks to the RP1
-registers directly and bypasses the kernel drivers, so it is an independent
-second opinion on everything the Python diagnostics report:
-
-```bash
-sudo pinctrl -p get 19,21,22,23,24
-```
-
-Read each line as `GPIO<n>: <direction> <function> <pull> | <level>`. With SPI
-enabled and nothing else configured, expect GPIO 9, 10 and 11 to show function
-`spi0` and no pull, because the Pi 5 device tree applies `bias-disable` to the
-SPI0 data pins.
-
-The RP1 pad control register has an input-enable bit that the earlier
-Broadcom chips did not have, and it resets to disabled (RP1 Peripherals
-datasheet, table 21). A pad with that bit clear reads 0 no matter what is on
-the wire. The kernel's `pinctrl-rp1` driver sets it on every function change,
-so it should never be the culprit, but you can force the question:
-
-```bash
-sudo pinctrl set 9 ip pu && sudo pinctrl get 9
-sudo pinctrl set 9 ip pd && sudo pinctrl get 9
-```
-
-If the level follows the pull, the pad reads the outside world correctly and
-nothing is driving MISO. If it stays `lo` under both, something holds the line
-down. You can also watch the line live while power-cycling the module:
-
-```bash
-sudo pinctrl poll 9
-```
-
-Finally, confirm that no overlay has claimed the SPI pins for something else:
-
-```bash
-dtoverlay -l
-```
-
-No function on a stock Raspberry Pi 5 uses GPIO 7 to 11. The fan runs on an
-internal RP1 PWM channel, the HAT EEPROM uses GPIO 0 and 1, and the activity
-LED uses the separate always-on GPIO controller, which is a different block
-from the header's GPIO 9 despite sharing the number.
-
-With all power disconnected, use a multimeter in continuity mode to test each
-jumper separately from Pi-end connector to RC522-end connector. Do not use the
-proposed "walk" method of driving every connected signal as an output: MISO is
-normally driven by the RC522, so forcing both ends can cause electrical
-contention. Finally, with the wiring restored and the Pi powered, carefully
-measure about 3.3 V directly between the RC522 3.3V and GND pins.
+Do not continue to assignment until this command reads the card consistently.
 
 ## First tag assignment
 
-The assignment UI is the supported way to associate a UID with playback:
+After the first-card test passes, use the normal application flow:
 
 1. Start TapTune and open `http://127.0.0.1:5000/` locally, or `http://<pi-ip>:5000/` from another device on the same network.
-2. Enter the UID from the previous step exactly as printed (the RC522 implementation formats it as uppercase hexadecimal, for example `04A7B2F1`).
+2. Enter the complete UID from the first-card test exactly as printed, for example `04A7B2F1`.
 3. Enter one supported value:
    - `spotify:track:<id>`
    - `spotify:playlist:<id>`
@@ -428,34 +183,42 @@ The assignment UI is the supported way to associate a UID with playback:
    - `action:next`
 4. Optionally add a friendly label and select **Save tag**.
 5. Verify the row appears under **Assigned tags**.
-6. Dispatch the saved mapping explicitly while NFC polling is not yet wired:
+6. Verify the saved mapping explicitly before enabling hardware polling:
 
 ```bash
 curl -X POST -d 'uid=04A7B2F1' http://127.0.0.1:5000/dispatch
 ```
 
+7. Stop TapTune, set `NFC_READER_ENABLED=true` in `.env`, and restart it. A
+   physical tap now dispatches the saved mapping. Keep the card away from the
+   antenna until startup is complete, and remove it between taps; the loop
+   dispatches once per presentation rather than repeatedly while a card is held
+   in place.
+
 `action:next` and `action:next_track` are equivalent; the UI quick-fill control uses the latter.
 
 ### Self-describing tags
 
-A tag can carry its own value instead of being registered by UID. Write it from
-a phone with NFC Tools, or any app that writes an NDEF URI record, and TapTune
-reads the value straight off the tag. Such a tag works on any TapTune
-installation without being assigned first.
+TapTune's NDEF decoder supports tags that carry their own value instead of
+being registered by UID. You can prepare one with NFC Tools, or any phone app
+that writes an NDEF URI or text record. This is a supported data format, but
+the current PN532 hardware reader returns only the UID, so self-describing tags
+still need future reader-memory integration before they work directly from a
+physical tap.
 
 Either form works:
 
 - the Spotify share link, for example `https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M?si=…`, which is normalised to `spotify:playlist:37i9dQZF1DXcBWIGoYBM5M` with the tracking parameters and any locale segment dropped
 - the URI directly, for example `spotify:track:<id>`, written as a URI or a text record
 
-NDEF wins when it is present and readable. A blank tag, or one holding
-something TapTune cannot use, falls back to the registered UID mapping and then
-to the raw UID, so existing tags keep working unchanged.
+When NDEF bytes are supplied to the decoder, a supported NDEF value wins. A
+blank tag, or one holding something TapTune cannot use, falls back to the
+registered UID mapping and then to the raw UID.
 
 Decoding lives in `app/ndef.py` and has no hardware dependency, so it is tested
-without a reader attached. Reading NDEF off a tag needs a reader whose library
-exposes the user memory: the maintained PN532 libraries do, while the
-unmaintained `mfrc522` package only returns a UID.
+without a reader attached. Reading NDEF from hardware still depends on the
+PN532 reader layer supplying tag memory; the current reader returns UID-based
+mappings only.
 
 ## Raspberry Pi installation
 
@@ -475,9 +238,16 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-The dependency script replaces the `RPi.GPIO` package pulled in by `mfrc522` with the compatible `rpi-lgpio` backend required by Raspberry Pi 5. It is safe to rerun in an existing virtual environment when upgrading.
+The dependency script installs the Pi-only reader packages in addition to the
+base application dependencies. It is safe to rerun in an existing virtual
+environment when upgrading.
 
-Edit `.env` with `nano .env`. Keep `DATABASE_PATH=./data/raspi_spotify_nfc.db` unless you deliberately want another location. Enable SPI with `sudo raspi-config` → **Interface Options** → **SPI**, then reboot if Raspberry Pi OS requests it. Connect the RC522 according to the board's pin labels and Pi documentation; do not power a 3.3 V RC522 from 5 V.
+Edit `.env` with `nano .env`. Keep `DATABASE_PATH=./data/raspi_spotify_nfc.db`
+unless you deliberately want another location, and leave
+`NFC_READER_ENABLED=false` during setup. Enable I2C with `sudo raspi-config` →
+**Interface Options** → **I2C**, reboot, and connect the PN532 using the wiring
+table above. Complete the first-card test and explicit `/dispatch` check, then
+set `NFC_READER_ENABLED=true` for normal service operation.
 
 Before installing the service, prove the software works on the Pi in fake mode:
 
@@ -522,11 +292,13 @@ sudo systemctl stop raspi-spotify-nfc.service
 sudo systemctl disable raspi-spotify-nfc.service
 ```
 
-The service is configured to restart after failures. It currently serves the web UI; it does not make physical taps dispatch automatically (see the boundary at the top of this file).
+The service is configured to restart after failures. With
+`NFC_READER_ENABLED=false` it serves only the web UI; with the setting changed
+to `true`, it also polls the PN532 and dispatches assigned tags.
 
 ## Health checks and logs
 
-`/health` is a lightweight process check and returns JSON such as `{"app":"TapTune","status":"ok"}`. It does not validate Spotify credentials, Connect-device availability, SPI wiring, or database contents.
+`/health` is a lightweight process check and returns JSON such as `{"app":"TapTune","status":"ok"}`. It does not validate Spotify credentials, Connect-device availability, PN532/I2C wiring, reader-thread health, or database contents.
 
 For service diagnostics:
 
@@ -554,11 +326,13 @@ sqlite3 data/raspi_spotify_nfc.db \
 | Spotify returns an auth error | Recheck client ID/secret, refresh-token scopes, and an exact redirect URI match. |
 | Spotify returns no active device/playback error | Open Spotify on a Connect-capable device and confirm the account can control playback. |
 | Tag is “unknown” | Assign the exact UID shown by the reader; UID case and extra spaces matter to the current lookup. |
-| RC522 import fails | Activate the Pi virtual environment, run `./systemd/install-pi-dependencies.sh`, and verify SPI is enabled. |
-| `Cannot determine SOC peripheral base address` on Raspberry Pi 5 | Pull the latest changes and run `./systemd/install-pi-dependencies.sh` to replace `RPi.GPIO` with `rpi-lgpio`. |
-| Reader waits or reports `0x00`/`0xFF` | Stop other reader jobs and run `python -m app.rc522_diag --seconds 30`; its final output distinguishes SPI, reset, antenna, and tag-response failures. |
-| `0x00` persists after every SPI test passes | Suspect wiring or the module. Keep SPI jumpers under 15 cm — long or thin dupont wires degrade signal integrity. Then reflow the RC522 header joints and try another module. |
-| Physical taps do nothing | Expected with the current scaffold: `app.main` does not poll `RC522Reader` yet. Use `app.simulate` or `/dispatch`. |
+| PN532 import fails | Activate the Pi virtual environment and rerun `./systemd/install-pi-dependencies.sh`. |
+| `/dev/i2c-1` is missing | Enable I2C with `sudo raspi-config` and reboot. |
+| `i2cdetect -y 1` does not show `24` | Power down, confirm the PN532 is set to I2C, and recheck 3.3 V, ground, SDA on pin 3, and SCL on pin 5. Then retry the first-card test because generic probing is not definitive for every board. |
+| Reader command waits forever | Stop the service and any other reader process, place a known Type A card directly over the antenna, and run `python -m app.pn532_diag --seconds 30`. |
+| UID changes or is incomplete | Copy the entire UID printed for one card. Do not assume every card has a four-byte UID. |
+| Diagnostic reads a card but service taps do nothing | Set `NFC_READER_ENABLED=true` in the service's `.env`, restart the service, and inspect `journalctl` for PN532 initialization or unassigned-tag warnings. |
+| The same held card plays repeatedly | Update to the current reader loop. It dispatches once, then requires the card to be removed before another tap. |
 | A tag cannot be written | Expected: TapTune does not write tags itself. Write the value from a phone with NFC Tools instead; see "Self-describing tags". |
 
 ## Safe updates
