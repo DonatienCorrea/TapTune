@@ -6,14 +6,13 @@ from typing import Optional
 from .ndef import tag_value_from_ndef
 
 try:
-    from mfrc522 import MFRC522
-except ImportError:  # pragma: no cover - hardware-specific library not installed in dev
-    MFRC522 = None  # type: ignore
+    import board
+    from adafruit_pn532.i2c import PN532_I2C
+except (ImportError, NotImplementedError):  # pragma: no cover - Pi-only dependencies
+    board = None  # type: ignore
+    PN532_I2C = None  # type: ignore
 
-try:
-    import RPi.GPIO as GPIO
-except ImportError:  # pragma: no cover - hardware-specific library not installed in dev
-    GPIO = None  # type: ignore
+PN532_I2C_ADDRESS = 0x24
 
 
 @dataclass
@@ -46,45 +45,31 @@ class SimulatedReader(ReaderBase):
         return True
 
 
-class RC522Reader(ReaderBase):
-    def __init__(self):
-        if MFRC522 is None or GPIO is None:
-            raise RuntimeError("mfrc522 library not available; install requirements-pi.txt on the Pi.")
+class PN532Reader(ReaderBase):
+    def __init__(self, i2c=None, reader_factory=None):
+        factory = reader_factory or PN532_I2C
+        if factory is None or (i2c is None and board is None):
+            raise RuntimeError(
+                "PN532 support is not available; install requirements-pi.txt on the Pi."
+            )
 
-        pin_mode = GPIO.getmode()
-        if pin_mode is None:
-            pin_mode = GPIO.BOARD
-            GPIO.setmode(pin_mode)
-        reset_pin = 22 if pin_mode == GPIO.BOARD else 25
-
-        original_setup = GPIO.setup
-
-        def setup_with_initial(channel, direction, *args, **kwargs):
-            if channel == reset_pin and direction == GPIO.OUT and "initial" not in kwargs:
-                kwargs["initial"] = GPIO.HIGH
-            return original_setup(channel, direction, *args, **kwargs)
-
-        GPIO.setup = setup_with_initial
-        try:
-            self.reader = MFRC522(pin_mode=pin_mode, pin_rst=reset_pin)
-        finally:
-            GPIO.setup = original_setup
+        self.i2c = i2c or board.I2C()
+        self.reader = factory(self.i2c, debug=False)
+        self.reader.SAM_configuration()
 
     def read_once(self) -> Optional[NFCEvent]:
-        status, tag_type = self.reader.MFRC522_Request(self.reader.PICC_REQIDL)
-        if status != self.reader.MI_OK:
+        uid = self.reader.read_passive_target(timeout=0.1)
+        if uid is None:
             return None
 
-        status, uid = self.reader.MFRC522_Anticoll()
-        if status != self.reader.MI_OK:
-            return None
-
-        uid_hex = "".join(f"{byte:02X}" for byte in uid[:4])
+        uid_hex = "".join(f"{byte:02X}" for byte in uid)
         payload = payload_for_tag(uid_hex)
         return NFCEvent(uid=uid_hex, payload=payload, source="nfc")
 
     def write_tag(self, uid: str, payload: str) -> bool:
-        raise NotImplementedError("RC522 tag writing is not implemented in v1 scaffold; use simulated mode for now.")
+        raise NotImplementedError(
+            "PN532 tag writing is not implemented; write NDEF values with a phone or assign the UID in TapTune."
+        )
 
 
 def parse_tag_value(value: str) -> str:
@@ -112,12 +97,12 @@ def payload_for_tag(uid: str, ndef_bytes: Optional[bytes] = None, lookup=None) -
 
 
 def read_uid_from_hardware(poll_interval_seconds: float = 0.2) -> str:
-    """Poll the connected RC522 reader until a tag is present and return its UID.
+    """Poll the connected PN532 reader until a tag is present and return its UID.
 
-    Requires the MFRC522 library and SPI to be enabled; intended for use on a
+    Requires the PN532 library and I2C to be enabled; intended for use on a
     Raspberry Pi with the reader wired up, not for local development.
     """
-    reader = RC522Reader()
+    reader = PN532Reader()
     while True:
         event = reader.read_once()
         if event is not None:
@@ -130,7 +115,7 @@ def main() -> None:
     parser.add_argument(
         "--read",
         action="store_true",
-        help="Poll the connected RC522 reader and print the UID of the next tag presented, then exit.",
+        help="Poll the connected PN532 reader and print the UID of the next tag presented, then exit.",
     )
     parser.add_argument("--uid", help="Simulated UID (ignored with --read)")
     parser.add_argument("--payload", help="Simulated payload (ignored with --read)")

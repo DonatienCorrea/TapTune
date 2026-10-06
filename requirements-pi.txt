@@ -1,2 +1,2 @@
-rpi-lgpio==0.6
-spidev==3.6
+Adafruit-Blinka>=8.0,<9
+adafruit-circuitpython-pn532>=2.4,<3

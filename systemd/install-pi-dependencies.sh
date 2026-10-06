@@ -32,9 +32,5 @@ run() {
   fi
 }
 
-# mfrc522 declares the Pi 5-incompatible RPi.GPIO package as a dependency.
-# Install it without dependencies after replacing that backend with rpi-lgpio.
-run "$PYTHON" -m pip uninstall -y RPi.GPIO rpi-lgpio
 run "$PYTHON" -m pip install -r "$REPO_DIR/requirements.txt"
 run "$PYTHON" -m pip install -r "$REPO_DIR/requirements-pi.txt"
-run "$PYTHON" -m pip install --no-deps mfrc522==0.0.7

@@ -7,7 +7,7 @@ SCRIPT_PATH = REPO_ROOT / "systemd" / "install-pi-dependencies.sh"
 
 
 class InstallPiDependenciesScriptTests(unittest.TestCase):
-    def test_dry_run_replaces_rpi_gpio_before_installing_mfrc522(self):
+    def test_dry_run_installs_base_and_pn532_dependencies(self):
         result = subprocess.run(
             ["bash", str(SCRIPT_PATH), "--dry-run"],
             capture_output=True,
@@ -16,13 +16,14 @@ class InstallPiDependenciesScriptTests(unittest.TestCase):
         )
 
         commands = result.stdout.splitlines()
-        self.assertIn("pip uninstall -y RPi.GPIO rpi-lgpio", commands[0])
-        self.assertIn("requirements-pi.txt", commands[2])
-        self.assertIn("pip install --no-deps mfrc522==0.0.7", commands[3])
+        self.assertEqual(len(commands), 2)
+        self.assertIn("requirements.txt", commands[0])
+        self.assertIn("requirements-pi.txt", commands[1])
 
         requirements = (REPO_ROOT / "requirements-pi.txt").read_text()
-        self.assertIn("rpi-lgpio==0.6", requirements)
-        self.assertNotIn("RPi.GPIO", requirements)
+        self.assertIn("Adafruit-Blinka", requirements)
+        self.assertIn("adafruit-circuitpython-pn532", requirements)
+        self.assertNotIn("mfrc522", requirements)
 
     def test_rejects_unknown_argument(self):
         result = subprocess.run(
