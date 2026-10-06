@@ -4,11 +4,12 @@ import re
 from typing import Any, Optional
 
 try:
-    from spotipy import Spotify
+    from spotipy import Spotify, SpotifyException
     from spotipy.oauth2 import SpotifyOAuth
 except ModuleNotFoundError:  # pragma: no cover - exercised when the optional dependency is absent.
     Spotify = None
     SpotifyOAuth = None
+    SpotifyException = None
 
 from .config import settings
 
@@ -93,6 +94,24 @@ def build_spotify_client() -> Any:
     return Spotify(auth_manager=auth_manager)
 
 
+def _spotify_error_response(error: "SpotifyException") -> dict:
+    reason = getattr(error, "reason", None)
+    if reason == "NO_ACTIVE_DEVICE":
+        message = (
+            "No active Spotify device found. Open Spotify on a device and start "
+            "playback there once, then try again."
+        )
+    else:
+        message = str(error)
+    return {
+        "status": "error",
+        "error": "spotify_api_error",
+        "http_status": getattr(error, "http_status", None),
+        "reason": reason,
+        "message": message,
+    }
+
+
 def play_content(uri: str, position_ms: int = 0) -> dict:
     match = SPOTIFY_URI_PATTERN.fullmatch(uri)
     if not match:
@@ -101,24 +120,39 @@ def play_content(uri: str, position_ms: int = 0) -> dict:
         return {"status": "invalid_position", "position_ms": position_ms}
 
     spotify = build_spotify_client()
-    if match.group(1) == "track":
-        return spotify.start_playback(uris=[uri], position_ms=position_ms)
-    if match.group(1) in {"playlist", "album"}:
-        return spotify.start_playback(context_uri=uri, position_ms=position_ms)
+    try:
+        if match.group(1) == "track":
+            return spotify.start_playback(uris=[uri], position_ms=position_ms)
+        if match.group(1) in {"playlist", "album"}:
+            return spotify.start_playback(context_uri=uri, position_ms=position_ms)
+    except Exception as error:  # noqa: BLE001 - translate spotipy/network errors into a dict response.
+        if SpotifyException is not None and isinstance(error, SpotifyException):
+            return _spotify_error_response(error)
+        raise
     raise AssertionError("Validated Spotify URI had an unsupported resource type")
 
 
 def toggle_playback() -> dict:
     spotify = build_spotify_client()
-    current = spotify.current_playback()
-    if not current or not current.get("is_playing"):
-        return spotify.start_playback()
-    return spotify.pause_playback()
+    try:
+        current = spotify.current_playback()
+        if not current or not current.get("is_playing"):
+            return spotify.start_playback()
+        return spotify.pause_playback()
+    except Exception as error:  # noqa: BLE001 - translate spotipy/network errors into a dict response.
+        if SpotifyException is not None and isinstance(error, SpotifyException):
+            return _spotify_error_response(error)
+        raise
 
 
 def next_track() -> dict:
     spotify = build_spotify_client()
-    return spotify.next_track()
+    try:
+        return spotify.next_track()
+    except Exception as error:  # noqa: BLE001 - translate spotipy/network errors into a dict response.
+        if SpotifyException is not None and isinstance(error, SpotifyException):
+            return _spotify_error_response(error)
+        raise
 
 
 def get_current_playback() -> Optional[dict]:

@@ -95,6 +95,50 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(result, {"status": "invalid_position", "position_ms": -1})
         self.assertIsNone(spotify_service._fake_spotify_client)
 
+    def test_no_active_device_error_is_translated_instead_of_raised(self):
+        from spotipy import SpotifyException
+
+        class NoDeviceClient:
+            def current_playback(self):
+                return None
+
+            def start_playback(self, *args, **kwargs):
+                raise SpotifyException(
+                    404, -1, "No active device found", reason="NO_ACTIVE_DEVICE"
+                )
+
+        with patch.object(spotify_service, "build_spotify_client", return_value=NoDeviceClient()):
+            result = spotify_service.toggle_playback()
+
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["reason"], "NO_ACTIVE_DEVICE")
+        self.assertIn("No active Spotify device", result["message"])
+
+    def test_dispatch_returns_502_when_spotify_has_no_active_device(self):
+        from spotipy import SpotifyException
+
+        self.client.post('/assign', data={
+            'uid': 'UID-NO-DEVICE',
+            'value': 'action:play_pause',
+        })
+
+        class NoDeviceClient:
+            def current_playback(self):
+                return None
+
+            def start_playback(self, *args, **kwargs):
+                raise SpotifyException(
+                    404, -1, "No active device found", reason="NO_ACTIVE_DEVICE"
+                )
+
+        with patch.object(spotify_service, "build_spotify_client", return_value=NoDeviceClient()):
+            dispatch = self.client.post('/dispatch', data={'uid': 'UID-NO-DEVICE'})
+
+        self.assertEqual(dispatch.status_code, 502)
+        payload = dispatch.get_json()
+        self.assertEqual(payload['status'], 'error')
+        self.assertEqual(payload['result']['reason'], 'NO_ACTIVE_DEVICE')
+
     def test_pn532_reader_uses_the_value_assigned_to_the_scanned_uid(self):
         class FakeReader:
             def __init__(self, i2c, debug):
