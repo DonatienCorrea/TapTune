@@ -150,18 +150,29 @@ Spotify or the web service.
    sudo systemctl stop raspi-spotify-nfc.service
    ```
 
-2. Activate the project environment and run the bounded PN532 diagnostic:
+2. Activate the project environment and make sure the hardware-specific
+   dependencies from `requirements-pi.txt` are installed; the diagnostic fails
+   immediately with `PN532 support is not available; install
+   requirements-pi.txt on the Pi.` if they are missing:
 
    ```bash
    source .venv/bin/activate
+   python -m pip install -r requirements-pi.txt
+   ```
+
+3. Run the bounded PN532 diagnostic:
+
+   ```bash
    python -m app.pn532_diag --seconds 30
    ```
 
-3. When `PN532 initialized over I2C` appears, hold one card flat and close to
+4. When `PN532 initialized over I2C` appears, hold one card flat and close to
    the antenna until the command prints a UID such as `uid=04A7B2F1`, then
    remove the card. UID length varies by card type; copy the complete value
    exactly as printed.
-4. If initialization fails, recheck I2C mode, power, SDA, and SCL. If the
+5. If initialization fails with the `requirements-pi.txt` message above, confirm
+   step 2 installed the hardware dependencies into the active environment. If
+   it instead fails after that, recheck I2C mode, power, SDA, and SCL. If the
    command initializes but times out, move the card directly over the antenna
    and retry with a known ISO/IEC 14443 Type A card. The unbounded
    `python -m app.nfc_reader --read` command is also available when you want to

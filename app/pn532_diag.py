@@ -1,7 +1,7 @@
 import argparse
 import time
 
-from .nfc_reader import PN532Reader
+from .nfc_reader import PN532Reader, PN532_LIBRARY_UNAVAILABLE_MESSAGE
 
 
 def wait_for_card(reader, seconds: float = 30.0, clock=time.monotonic) -> str:
@@ -29,6 +29,16 @@ def main() -> None:
 
     try:
         reader = PN532Reader()
+    except RuntimeError as error:
+        if str(error) == PN532_LIBRARY_UNAVAILABLE_MESSAGE:
+            # The Pi-only PN532 library/board support isn't importable, which is
+            # unrelated to wiring or I2C mode. Surface the actionable message
+            # instead of the generic hardware-troubleshooting one below.
+            raise SystemExit(str(error)) from error
+        raise SystemExit(
+            "Could not initialize the PN532 over I2C. Check I2C is enabled, "
+            f"the board is in I2C mode, and wiring/power are correct: {error}"
+        ) from error
     except Exception as error:
         raise SystemExit(
             "Could not initialize the PN532 over I2C. Check I2C is enabled, "
