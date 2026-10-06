@@ -14,6 +14,10 @@ except (ImportError, NotImplementedError):  # pragma: no cover - Pi-only depende
 
 PN532_I2C_ADDRESS = 0x24
 
+PN532_LIBRARY_UNAVAILABLE_MESSAGE = (
+    "PN532 support is not available; install requirements-pi.txt on the Pi."
+)
+
 
 @dataclass
 class NFCEvent:
@@ -49,9 +53,7 @@ class PN532Reader(ReaderBase):
     def __init__(self, i2c=None, reader_factory=None):
         factory = reader_factory or PN532_I2C
         if factory is None or (i2c is None and board is None):
-            raise RuntimeError(
-                "PN532 support is not available; install requirements-pi.txt on the Pi."
-            )
+            raise RuntimeError(PN532_LIBRARY_UNAVAILABLE_MESSAGE)
 
         self.i2c = i2c or board.I2C()
         self.reader = factory(self.i2c, debug=False)
