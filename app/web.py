@@ -538,6 +538,8 @@ def create_app() -> Flask:
 
         record_event(uid or "simulated", "content" if value.startswith("spotify:") else "action", value, source="web")
         result = dispatch_tag_value(value)
+        if isinstance(result, dict) and result.get("status") == "error":
+            return jsonify({"status": "error", "result": result}), 502
         return jsonify({"status": "ok", "result": result})
 
     return app
