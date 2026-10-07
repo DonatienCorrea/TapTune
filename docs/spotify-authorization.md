@@ -1,5 +1,7 @@
 # Spotify authorization for TapTune
 
+[Documentation index](README.md)
+
 TapTune needs a Spotify client ID, client secret, and refresh token to control playback. This guide creates the refresh token with a one-time local Python script. A Spotify Premium account is required for playback control.
 
 ## 1. Create and configure a Spotify app

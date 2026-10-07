@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="{{ locale }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{{ translations['page_title'] }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <a class="skip-link" href="#assignment">{{ translations['skip'] }}</a>
+  <div class="app-shell">
+    <header class="header">
+      <div>
+        <span class="badge">{{ translations['badge_top'] }}</span>
+        <h1 class="title"><svg class="logo-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><circle cx="16" cy="16" r="13"></circle><circle cx="16" cy="16" r="5"></circle><path d="M16 3v7M16 22v7"></path></svg><span>Tap<span class="brand-tune">Tune</span></span></h1>
+        <p class="subtitle">{{ translations['subtitle'] }}</p>
+      </div>
+      <div class="header-actions">
+        <a class="badge switch-link" href="{{ switch_url }}">{{ translations['switch_label'] }}</a>
+        <span class="badge">{{ translations['badge_right'] }}</span>
+      </div>
+    </header>
+
+    <main id="assignment" class="panel form-panel">
+      {% if saved %}
+        <div class="success-banner" role="status" aria-live="polite">{{ translations['saved'] }}</div>
+      {% endif %}
+
+      <div class="assignment-heading">
+        <div>
+          <span class="badge">{{ translations['badge_step'] }}</span>
+          <h2 class="section-title">{{ translations['section_title'] }}</h2>
+        </div>
+        <p>{{ translations['intro'] }}</p>
+      </div>
+      <div class="helper-row">
+        <span class="helper-label">{{ translations['quick_fill'] }}</span>
+        <button type="button" class="helper-button" data-value="spotify:playlist:37i9dQZF1DXcBWIGoYBM5M">{{ translations['helper_playlist'] }}</button>
+        <button type="button" class="helper-button" data-value="action:play_pause">{{ translations['helper_pause'] }}</button>
+        <button type="button" class="helper-button" data-value="action:next_track">{{ translations['helper_next'] }}</button>
+      </div>
+
+      <form method="post" action="{{ form_action }}">
+        <div class="form-grid">
+          <div class="field">
+            <label for="uid">{{ translations['uid_label'] }}</label>
+            <input id="uid" name="uid" required autocomplete="off" spellcheck="false" inputmode="text" placeholder="{{ translations['uid_placeholder'] }}">
+          </div>
+
+          <div class="field">
+            <label for="label">{{ translations['label_label'] }}</label>
+            <input id="label" name="label" autocomplete="off" placeholder="{{ translations['label_placeholder'] }}">
+          </div>
+
+          <div class="field">
+            <label for="value">{{ translations['value_label'] }}</label>
+            <input id="value" name="value" required autocomplete="off" spellcheck="false" placeholder="{{ translations['value_placeholder'] }}">
+          </div>
+        </div>
+
+        <div class="actions">
+          <button class="save-button" type="submit">{{ translations['save'] }}</button>
+        </div>
+      </form>
+    </main>
+
+    <section class="panel tags-panel">
+      <h2 class="section-title">{{ translations['assigned_tags'] }}</h2>
+      <ul class="tag-list">
+        {% for tag in tags %}
+          <li class="tag-card">
+            <div class="tag-meta">
+              <span class="pill {{ tag.tag_type }}">{{ tag.tag_type }}</span>
+              <span>{{ tag.uid }}</span>
+            </div>
+            <div class="tag-uid">{{ tag.uid }}</div>
+            <div><span class="record-label">{{ translations['target'] }}</span><div class="tag-value">{{ tag.value }}</div></div>
+            <div class="tag-label">{% if tag.label %}<span class="record-label">{{ translations['label'] }}</span>{{ tag.label }}{% else %}<span class="record-label">{{ translations['label'] }}</span>{{ translations['unlabeled'] }}{% endif %}</div>
+          </li>
+        {% else %}
+          <li class="empty-state">{{ translations['empty'] }}</li>
+        {% endfor %}
+      </ul>
+    </section>
+  </div>
+
+  <script>
+    document.querySelectorAll('[data-value]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const input = document.getElementById('value');
+        input.value = button.dataset.value;
+        input.focus();
+      });
+    });
+  </script>
+</body>
+</html>
