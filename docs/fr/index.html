@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f4f1e8" />
+    <title>TapTune — la musique au toucher d’un tag</title>
+    <meta name="description" content="TapTune rend la musique plus facile d’accès : touchez un objet NFC familier pour lancer une playlist sans ouvrir de téléphone." />
+    <link rel="canonical" href="https://donatiencorrea.github.io/TapTune/fr/" />
+    <link rel="alternate" hreflang="en" href="https://donatiencorrea.github.io/TapTune/" />
+    <link rel="alternate" hreflang="fr" href="https://donatiencorrea.github.io/TapTune/fr/" />
+    <link rel="alternate" hreflang="x-default" href="https://donatiencorrea.github.io/TapTune/" />
+    <link rel="stylesheet" href="../styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Aller au contenu</a>
+
+    <header class="site-header">
+      <div class="shell header-inner">
+        <a class="wordmark" href="#main-content" aria-label="Accueil TapTune">
+          <svg class="wordmark-mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" /><circle cx="16" cy="16" r="5" /><path d="M16 3v7M16 22v7" /></svg>
+          <span>Tap<span>Tune</span></span>
+        </a>
+        <nav class="site-nav" aria-label="Navigation principale">
+          <a href="#for-whom">Pour qui</a>
+          <a href="#how-it-works">Fonctionnement</a>
+          <a href="#today">État du projet</a>
+          <a href="../" lang="en" hreflang="en">English</a>
+          <a class="nav-cta" href="https://github.com/DonatienCorrea/TapTune">GitHub <span aria-hidden="true">↗</span></a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main-content">
+      <section class="hero shell">
+        <div class="hero-copy">
+          <p class="kicker">La musique tangible, sans écran</p>
+          <h1>Touchez une carte.<br /><em>La musique démarre.</em></h1>
+          <p class="hero-lede">TapTune transforme un objet physique familier en commande musicale simple. Pas d’application à chercher, pas de menu à parcourir : choisissez un tag et touchez le lecteur.</p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="#how-it-works">Voir le fonctionnement <span aria-hidden="true">↓</span></a>
+            <a class="text-link" href="#build">Construire TapTune <span aria-hidden="true">→</span></a>
+          </div>
+          <p class="hero-note"><span class="status-dot" aria-hidden="true"></span><span><strong>Projet DIY open source aujourd’hui.</strong> L’expérience finie et accessible est l’objectif, pas encore un produit à vendre.</span></p>
+        </div>
+
+        <div class="tap-demo" aria-label="Illustration : une carte musicale touche un lecteur et lance une playlist">
+          <div class="demo-caption"><span>01</span> Choisissez un objet familier</div>
+          <div class="music-card">
+            <span class="card-eyebrow">Ma musique</span>
+            <strong>Dimanche<br />matin</strong>
+            <span class="card-mark" aria-hidden="true">♪</span>
+          </div>
+          <div class="signal-line" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div class="tap-base">
+            <span class="tap-rings" aria-hidden="true"></span>
+            <strong>Touchez ici</strong>
+            <small>playlist prête</small>
+          </div>
+          <div class="now-playing"><span class="equalizer" aria-hidden="true"><i></i><i></i><i></i></span><span><small>Lecture en cours</small><strong>Dimanche matin</strong></span></div>
+        </div>
+      </section>
+
+      <section class="manifesto" id="for-whom">
+        <div class="shell manifesto-grid">
+          <p class="section-index">Pourquoi c’est utile</p>
+          <div>
+            <h2>La technologie doit s’adapter<br /><span>à la personne qui l’utilise.</span></h2>
+            <p class="body-copy">Lancer de la musique demande souvent de trouver un téléphone, le déverrouiller, ouvrir une application et parcourir un écran. Un tag physique réduit cette séquence à une action compréhensible.</p>
+            <p class="body-copy">La musique devient ainsi plus simple à partager avec les enfants, les personnes âgées, les invités ou toute personne préférant des commandes tangibles. L’objet peut avoir du sens : une photo, une couleur ou une étiquette manuscrite.</p>
+          </div>
+          <div class="fact-stamp">
+            <span class="stamp-icon" aria-hidden="true">✳</span>
+            <strong>Un objet.<br />Une action claire.</strong>
+            <small>moins d’écran, moins de friction</small>
+          </div>
+        </div>
+      </section>
+
+      <section class="section shell" id="how-it-works">
+        <div class="section-heading">
+          <p class="section-index">L’expérience quotidienne</p>
+          <h2>Choisissez. Touchez.<br />Écoutez.</h2>
+          <p>La technique reste derrière l’interaction : la personne qui utilise TapTune doit seulement reconnaître un objet.</p>
+        </div>
+        <div class="loop">
+          <article class="loop-step"><div class="step-number">01</div><div class="step-glyph" aria-hidden="true">▰</div><h3>Choisissez un tag</h3><p>Associez chaque carte ou objet à une playlist, un album, un morceau ou une commande simple.</p></article>
+          <div class="loop-arrow" aria-hidden="true">→</div>
+          <article class="loop-step"><div class="step-number">02</div><div class="step-glyph glyph-map" aria-hidden="true">⌁</div><h3>Touchez le lecteur</h3><p>Approchez l’objet du lecteur. La personne qui écoute n’a pas besoin d’utiliser un téléphone.</p></article>
+          <div class="loop-arrow" aria-hidden="true">→</div>
+          <article class="loop-step"><div class="step-number">03</div><div class="step-glyph glyph-play" aria-hidden="true">▶</div><h3>Écoutez</h3><p>TapTune retrouve le choix enregistré et demande à Spotify de le lire sur l’appareil connecté.</p></article>
+        </div>
+      </section>
+
+      <section class="status-section" id="today">
+        <div class="shell status-grid">
+          <div><p class="section-index">Où en est le projet</p><h2>Une idée accessible.<br /><em>Un montage DIY.</em></h2></div>
+          <div class="status-copy">
+            <p>TapTune est un logiciel open source fonctionnel, mais pas encore un appareil prêt à l’emploi. La version actuelle demande de préparer un Raspberry Pi, connecter un PN532, configurer Python et Spotify puis assembler le dispositif.</p>
+            <p>L’objectif est de rendre cette technologie accessible aux personnes qui ne peuvent pas réaliser ce travail elles-mêmes. Le dépôt constitue la base : une implémentation transparente que les makers peuvent construire et simplifier.</p>
+            <div class="status-labels"><span>Disponible : code source</span><span>Pas encore : produit fini</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="paths shell">
+        <div class="section-heading"><p class="section-index">Choisissez votre parcours</p><h2>Personne curieuse<br />ou maker pratique ?</h2></div>
+        <div class="path-grid">
+          <article class="path path-listener"><span class="path-number">A</span><h3>Comprendre l’expérience</h3><p>Découvrez l’intérêt des commandes physiques, ce que fait réellement la personne et ce que le projet peut devenir.</p><a class="text-link" href="#for-whom">Lire l’histoire humaine <span aria-hidden="true">→</span></a></article>
+          <article class="path path-maker" id="build"><span class="path-number">B</span><h3>Construire la version actuelle</h3><p>Essayez d’abord le logiciel sans matériel, puis suivez les guides PN532, Spotify, Raspberry Pi et systemd.</p><a class="button button-dark" href="../getting-started.html">Ouvrir le guide en anglais <span aria-hidden="true">→</span></a><a class="path-secondary" href="../README.md">Documentation technique en anglais</a></article>
+        </div>
+      </section>
+
+      <section class="blueprint" id="architecture">
+        <div class="shell blueprint-grid">
+          <div class="section-heading blueprint-heading">
+            <p class="section-index">Pour les lecteurs techniques</p>
+            <h2>Un chemin court<br /><span>et inspectable.</span></h2>
+            <p>Un UID devient une instruction enregistrée, puis une demande de lecture. Chaque partie peut être testée séparément.</p>
+            <a class="text-link light-link" href="../architecture.html">Lire le guide d’architecture en anglais <span aria-hidden="true">→</span></a>
+          </div>
+          <figure class="architecture-figure">
+            <img src="../assets/signal-path.svg" width="960" height="620" alt="Chemin du signal d’un tag NFC vers Spotify via le PN532, SQLite et le service Python" loading="lazy" />
+            <figcaption>Tag NFC → PN532 → assignation SQLite → dispatch → Spotify Connect</figcaption>
+          </figure>
+        </div>
+        <div class="shell file-strip" aria-label="Modules du projet"><span>app/nfc_reader.py</span><span>app/db.py</span><span>app/spotify_service.py</span><span>app/web.py</span></div>
+      </section>
+
+      <section class="simulation">
+        <div class="shell simulation-grid">
+          <div><p class="section-index">Commencer sans matériel</p><h2>Testez l’idée<br />sur un ordinateur.</h2></div>
+          <div>
+            <p>Le mode simulé teste la base, la page d’assignation et le dispatch sans identifiants Spotify, Raspberry Pi ni lecteur NFC.</p>
+            <pre><span class="prompt">$</span> python -m app.simulate --uid 01AABBCC \
+  --payload "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M"</pre>
+            <a class="button button-primary" href="../getting-started.html">Guide du mode simulé en anglais <span aria-hidden="true">→</span></a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="shell footer-inner">
+        <p><svg class="wordmark-mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" /><circle cx="16" cy="16" r="5" /><path d="M16 3v7M16 22v7" /></svg> TapTune</p>
+        <p>Des commandes musicales tangibles et open source.</p>
+        <a href="../" lang="en">English</a>
+        <a href="https://github.com/DonatienCorrea/TapTune">GitHub <span aria-hidden="true">↗</span></a>
+      </div>
+    </footer>
+  </body>
+</html>

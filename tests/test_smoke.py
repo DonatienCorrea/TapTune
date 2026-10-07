@@ -52,6 +52,45 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(payload['status'], 'ok')
         self.assertIn('mode', payload['result'])
 
+    def test_assignment_pages_are_available_in_english_and_french(self):
+        english = self.client.get('/')
+        french = self.client.get('/fr/')
+
+        self.assertEqual(english.status_code, 200)
+        self.assertIn(b'Give a tag a job.', english.data)
+        self.assertIn(b'href="/fr/"', english.data)
+        self.assertEqual(french.status_code, 200)
+        self.assertIn('Donnez un rôle à un tag.'.encode(), french.data)
+        self.assertIn(b'href="/"', french.data)
+        self.assertIn(b'action="/fr/assign"', french.data)
+
+    def test_french_assignment_preserves_locale_after_redirect(self):
+        response = self.client.post('/fr/assign', data={
+            'uid': 'UID-FR-001',
+            'value': 'action:next',
+            'label': 'Musique du matin',
+        })
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers['Location'], '/fr/?saved=1')
+
+        redirected = self.client.get(response.headers['Location'])
+        self.assertIn('Tag enregistré avec succès.'.encode(), redirected.data)
+        self.assertIn('Musique du matin'.encode(), redirected.data)
+
+    def test_french_assignment_validation_is_translated(self):
+        missing = self.client.post('/fr/assign', data={'uid': '', 'value': ''})
+        unsupported = self.client.post('/fr/assign', data={
+            'uid': 'UID-FR-BAD',
+            'value': 'action:unsupported',
+        })
+
+        self.assertEqual(missing.status_code, 400)
+        self.assertEqual(missing.get_json()['error'], 'uid et value sont requis')
+        self.assertEqual(unsupported.status_code, 400)
+        self.assertIn('Valeur non prise en charge', unsupported.get_json()['error'])
+        self.assertIsNone(get_tag_by_uid('UID-FR-BAD'))
+
     def test_invalid_assignment_is_rejected_and_not_persisted(self):
         response = self.client.post('/assign', data={
             'uid': 'UID-INVALID',

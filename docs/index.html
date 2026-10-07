@@ -4,36 +4,29 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f4f1e8" />
-    <title>TapTune — tap into the music</title>
-    <meta name="description" content="Build a tactile Spotify player with a Raspberry Pi, a PN532 NFC reader over I2C, and physical tags." />
+    <title>TapTune — music at the touch of a tag</title>
+    <meta name="description" content="TapTune makes music easier to reach: tap a familiar NFC object to start a playlist without opening a phone." />
+    <link rel="canonical" href="https://donatiencorrea.github.io/TapTune/" />
+    <link rel="alternate" hreflang="en" href="https://donatiencorrea.github.io/TapTune/" />
+    <link rel="alternate" hreflang="fr" href="https://donatiencorrea.github.io/TapTune/fr/" />
+    <link rel="alternate" hreflang="x-default" href="https://donatiencorrea.github.io/TapTune/" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <!--
-      THESIS: A tap should feel like a music control, not a software workflow.
-      OWN-WORLD: Warm workshop paper, ink-black type, cobalt hardware marks, and signal orange for the live path.
-      STORY: A maker sees the tactile loop, understands the system boundary, then can install it without hunting through a README.
-      FIRST VIEWPORT: Brand rail at left, a large tap-to-play statement, and a drawn tag/Raspberry Pi signal path at right.
-      FORM: Read surface, built as a workshop field guide rather than a SaaS hero or card grid.
-    -->
     <a class="skip-link" href="#main-content">Skip to content</a>
 
     <header class="site-header">
       <div class="shell header-inner">
         <a class="wordmark" href="#main-content" aria-label="TapTune home">
-          <svg class="wordmark-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-            <circle cx="16" cy="16" r="13" />
-            <circle cx="16" cy="16" r="5" />
-            <path d="M16 3v7M16 22v7" />
-          </svg>
+          <svg class="wordmark-mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" /><circle cx="16" cy="16" r="5" /><path d="M16 3v7M16 22v7" /></svg>
           <span>Tap<span>Tune</span></span>
         </a>
         <nav class="site-nav" aria-label="Primary navigation">
-          <a href="#why">Why</a>
+          <a href="#for-whom">Who it helps</a>
           <a href="#how-it-works">How it works</a>
-          <a href="#architecture">Architecture</a>
-          <a href="#install">Install</a>
-          <a class="nav-cta" href="https://github.com/DonatienCorrea/TapTune" target="_blank" rel="noreferrer">View on GitHub <span aria-hidden="true">↗</span></a>
+          <a href="#today">Project status</a>
+          <a href="fr/" lang="fr" hreflang="fr">Français</a>
+          <a class="nav-cta" href="https://github.com/DonatienCorrea/TapTune">GitHub <span aria-hidden="true">↗</span></a>
         </nav>
       </div>
     </header>
@@ -41,75 +34,96 @@
     <main id="main-content">
       <section class="hero shell">
         <div class="hero-copy">
-          <p class="kicker">A small music machine for the home</p>
-          <h1>Make music<br /><em>physical</em> again.</h1>
-          <p class="hero-lede">TapTune turns a tap on a little piece of plastic into a playlist, an album, or the next track — powered by a Raspberry Pi and your Spotify account.</p>
+          <p class="kicker">Screen-free music, made tangible</p>
+          <h1>Tap a card.<br /><em>Music starts.</em></h1>
+          <p class="hero-lede">TapTune turns a familiar physical object into a simple music control. No app to find, no menu to navigate—just choose a tag and tap.</p>
           <div class="hero-actions">
-            <a class="button button-primary" href="#install">Build the player <span aria-hidden="true">↓</span></a>
-            <a class="text-link" href="#architecture">See the signal path <span aria-hidden="true">→</span></a>
+            <a class="button button-primary" href="#how-it-works">See how it works <span aria-hidden="true">↓</span></a>
+            <a class="text-link" href="#build">Build TapTune <span aria-hidden="true">→</span></a>
           </div>
-          <div class="hero-note"><span class="status-dot" aria-hidden="true"></span> Assign and simulate first, then enable the PN532 reader loop for physical taps.</div>
+          <p class="hero-note"><span class="status-dot" aria-hidden="true"></span><span><strong>Open DIY project today.</strong> The accessible finished experience is the direction, not yet a product for sale.</span></p>
         </div>
 
-        <figure class="hero-visual">
-          <div class="hero-photo-main">
-            <img src="assets/raspberry-pi-5.jpg" width="1200" height="1500" alt="Raspberry Pi 5 circuit board standing on a wooden surface" fetchpriority="high" />
+        <div class="tap-demo" aria-label="Illustration: a music card is tapped on a reader and starts a playlist">
+          <div class="demo-caption"><span>01</span> Choose something familiar</div>
+          <div class="music-card">
+            <span class="card-eyebrow">My music</span>
+            <strong>Sunday<br />morning</strong>
+            <span class="card-mark" aria-hidden="true">♪</span>
           </div>
-          <svg class="hero-signal" viewBox="0 0 190 92" aria-hidden="true" focusable="false">
-            <path d="M6 73C48 73 54 19 98 19s48 54 86 54" />
-            <circle cx="6" cy="73" r="5" />
-            <circle cx="98" cy="19" r="5" />
-            <circle cx="184" cy="73" r="5" />
-          </svg>
-          <figcaption>
-            <span>Hardware host / Raspberry Pi 5 + PN532 over I2C</span>
-            <small>Raspberry Pi photo: <a href="https://commons.wikimedia.org/wiki/File:Raspberry_Pi_5_(vertical).jpg">SimonWaldherr</a>, CC BY 4.0</small>
-          </figcaption>
-        </figure>
+          <div class="signal-line" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div class="tap-base">
+            <span class="tap-rings" aria-hidden="true"></span>
+            <strong>Tap here</strong>
+            <small>playlist ready</small>
+          </div>
+          <div class="now-playing"><span class="equalizer" aria-hidden="true"><i></i><i></i><i></i></span><span><small>Now playing</small><strong>Sunday morning</strong></span></div>
+        </div>
       </section>
 
-      <section class="manifesto" id="why">
+      <section class="manifesto" id="for-whom">
         <div class="shell manifesto-grid">
-          <p class="section-index">Why it exists</p>
+          <p class="section-index">Why it matters</p>
           <div>
-            <h2>Music should be<br /><span>physical, friendly, and easy to reach.</span></h2>
-            <p class="body-copy">The main goal is to reduce our dependence on screens and use physical objects to play music. Instead of opening a phone or navigating a menu, a person can tap a simple object and the music starts. This makes the interaction more natural, more immediate, and more accessible in a real room.</p>
-            <p class="body-copy">The intention is not only to build a clever gadget. It is to create a way for people who are often kept away from screens — children, older adults, guests, or anyone who prefers tangible interfaces — to use music technology without friction. A tag becomes a familiar object, not a digital barrier: it invites interaction, lowers anxiety, and makes music part of the space around us.</p>
+            <h2>Technology should adapt<br /><span>to the person using it.</span></h2>
+            <p class="body-copy">Starting music often means finding a phone, unlocking it, opening an app, and navigating a screen. A physical tag reduces that sequence to one understandable action.</p>
+            <p class="body-copy">That can make music easier to share with children, older adults, guests, or anyone who prefers tangible controls. The object can carry meaning—a photo, a color, a handwritten label—not just a technical identifier.</p>
           </div>
           <div class="fact-stamp">
             <span class="stamp-icon" aria-hidden="true">✳</span>
-            <strong>Built for<br />real living</strong>
-            <small>not just screens</small>
+            <strong>One object.<br />One clear action.</strong>
+            <small>less screen, less friction</small>
           </div>
         </div>
       </section>
 
       <section class="section shell" id="how-it-works">
         <div class="section-heading">
-          <p class="section-index">The loop</p>
-          <h2>One tap.<br />Three handoffs.</h2>
-          <p>Every scan follows the same small, inspectable path.</p>
+          <p class="section-index">The everyday experience</p>
+          <h2>Choose. Tap.<br />Listen.</h2>
+          <p>The technical work stays behind the interaction, so the person using TapTune only needs to recognize an object.</p>
         </div>
         <div class="loop">
-          <article class="loop-step">
-            <div class="step-number">01</div>
-            <div class="step-glyph glyph-tag" aria-hidden="true">⌁</div>
-            <h3>Touch</h3>
-            <p>The PN532 reads a tag UID over I2C. No app, login, or menu required.</p>
-          </article>
+          <article class="loop-step"><div class="step-number">01</div><div class="step-glyph" aria-hidden="true">▰</div><h3>Choose a tag</h3><p>Give each card or object a playlist, album, track, or simple playback action.</p></article>
           <div class="loop-arrow" aria-hidden="true">→</div>
-          <article class="loop-step">
-            <div class="step-number">02</div>
-            <div class="step-glyph glyph-map" aria-hidden="true">↳</div>
-            <h3>Translate</h3>
-            <p>SQLite maps that UID to a Spotify URI or a control action like <code>action:next</code>.</p>
-          </article>
+          <article class="loop-step"><div class="step-number">02</div><div class="step-glyph glyph-map" aria-hidden="true">⌁</div><h3>Tap the reader</h3><p>Bring the object close to the reader. There is no phone workflow for the listener.</p></article>
           <div class="loop-arrow" aria-hidden="true">→</div>
-          <article class="loop-step">
-            <div class="step-number">03</div>
-            <div class="step-glyph glyph-play" aria-hidden="true">▶</div>
-            <h3>Play</h3>
-            <p>Spotipy sends the intent to your Spotify Connect playback device.</p>
+          <article class="loop-step"><div class="step-number">03</div><div class="step-glyph glyph-play" aria-hidden="true">▶</div><h3>Hear the music</h3><p>TapTune finds the saved choice and asks Spotify to play it on the connected device.</p></article>
+        </div>
+      </section>
+
+      <section class="status-section" id="today">
+        <div class="shell status-grid">
+          <div>
+            <p class="section-index">Where the project is today</p>
+            <h2>An accessible idea.<br /><em>A DIY build.</em></h2>
+          </div>
+          <div class="status-copy">
+            <p>TapTune is working open-source software, but it is not yet a ready-made appliance. Building the current version still requires preparing a Raspberry Pi, connecting a PN532 reader, configuring Python and Spotify, and assembling the physical setup.</p>
+            <p>The goal is to make this technology easier to access for people who cannot do that work themselves. The repository is the foundation: a transparent implementation that makers can build today and improve toward a simpler future.</p>
+            <div class="status-labels"><span>Available now: source code</span><span>Not yet: finished product</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="paths shell">
+        <div class="section-heading">
+          <p class="section-index">Choose your path</p>
+          <h2>Curious listener<br />or practical maker?</h2>
+        </div>
+        <div class="path-grid">
+          <article class="path path-listener">
+            <span class="path-number">A</span>
+            <h3>Understand the experience</h3>
+            <p>See why physical music controls can be useful, what a listener actually does, and what the project can become.</p>
+            <a class="text-link" href="#for-whom">Read the human story <span aria-hidden="true">→</span></a>
+          </article>
+          <article class="path path-maker" id="build">
+            <span class="path-number">B</span>
+            <h3>Build the current version</h3>
+            <p>Try the software without hardware first, then follow focused guides for the PN532, Spotify, Raspberry Pi, and service setup.</p>
+            <a class="button button-dark" href="getting-started.html">Open the build guide <span aria-hidden="true">→</span></a>
+            <a class="path-secondary" href="README.md">Browse all documentation</a>
           </article>
         </div>
       </section>
@@ -117,56 +131,27 @@
       <section class="blueprint" id="architecture">
         <div class="shell blueprint-grid">
           <div class="section-heading blueprint-heading">
-            <p class="section-index">Under the hood</p>
-            <h2>Small pieces.<br /><span>Clear boundaries.</span></h2>
-            <p>Each concern has one home, so the project stays friendly to change.</p>
+            <p class="section-index">For technical readers</p>
+            <h2>A short,<br /><span>inspectable path.</span></h2>
+            <p>A tag UID becomes a saved instruction, then a playback request. Each concern can be tested independently.</p>
+            <a class="text-link light-link" href="architecture.html">Read the architecture guide <span aria-hidden="true">→</span></a>
           </div>
           <figure class="architecture-figure">
-            <img src="assets/signal-path.svg" width="960" height="620" alt="Signal path from an NFC tag through a PN532 I2C reader and Python service to Spotify playback, with SQLite storing assignments" loading="lazy" />
-            <figcaption>The web UI and simulator enter the same dispatch path as a real tap.</figcaption>
+            <img src="assets/signal-path.svg" width="960" height="620" alt="Signal path from an NFC tag through a PN532 reader and Python service to Spotify, with SQLite storing assignments" loading="lazy" />
+            <figcaption>NFC tag → PN532 → SQLite mapping → dispatch → Spotify Connect</figcaption>
           </figure>
         </div>
-        <div class="shell file-strip" aria-label="Project modules">
-          <span>app/config.py</span><span>app/nfc_reader.py</span><span>app/spotify_service.py</span><span>app/db.py</span><span>app/web.py</span>
-        </div>
-      </section>
-
-      <section class="section shell install-section" id="install">
-        <div class="install-intro">
-          <p class="section-index">The field guide</p>
-          <h2>From blank SD card<br />to first <em>tap.</em></h2>
-          <p>Follow the path in order. The default setup keeps hardware and playback concerns separate, so you can test on a laptop before moving to the Pi.</p>
-          <a class="button button-dark" href="https://github.com/DonatienCorrea/TapTune" target="_blank" rel="noreferrer">Open repository <span aria-hidden="true">↗</span></a>
-        </div>
-        <div class="install-steps">
-          <div class="install-step"><span>01</span><div><h3>Prepare Raspberry Pi OS</h3><p>Install Raspberry Pi OS Lite, enable SSH and Wi‑Fi, then update the system.</p><pre>sudo apt update && sudo apt upgrade -y</pre></div></div>
-          <div class="install-step"><span>02</span><div><h3>Clone &amp; isolate</h3><p>Install Python tooling, clone the project, and create a virtual environment.</p><pre>sudo apt install -y python3 python3-pip python3-venv git
-git clone https://github.com/DonatienCorrea/TapTune.git
-cd TapTune
-python3 -m venv .venv &amp;&amp; source .venv/bin/activate</pre></div></div>
-          <div class="install-step"><span>03</span><div><h3>Install the two layers</h3><p>Base dependencies power local development; the Pi file adds PN532 support.</p><pre>pip install -r requirements.txt
-pip install -r requirements-pi.txt</pre></div></div>
-          <div class="install-step"><span>04</span><div><h3>Enable I2C &amp; connect</h3><p>Enable I2C, reboot, then wire PN532 SDA to pin 3 and SCL to pin 5. Follow the README for board mode and power details.</p><pre>sudo raspi-config nonint do_i2c 0
-sudo reboot</pre></div></div>
-          <div class="install-step"><span>05</span><div><h3>Test one card</h3><p>Initialize the PN532 and read one UID before involving Spotify or the web service.</p><pre>python -m app.pn532_diag --seconds 30</pre></div></div>
-          <div class="install-step"><span>06</span><div><h3>Connect Spotify</h3><p>Copy the example environment and add your client credentials and refresh token.</p><pre>cp .env.example .env
-# then edit .env</pre></div></div>
-          <div class="install-step"><span>07</span><div><h3>Assign, verify, enable</h3><p>Start the service with reader polling off, assign the tested UID, verify dispatch, then set <code>NFC_READER_ENABLED=true</code> and restart for physical taps.</p><pre>python -m app.main
-# open http://raspberrypi.local:5000</pre></div></div>
-        </div>
+        <div class="shell file-strip" aria-label="Project modules"><span>app/nfc_reader.py</span><span>app/db.py</span><span>app/spotify_service.py</span><span>app/web.py</span></div>
       </section>
 
       <section class="simulation">
         <div class="shell simulation-grid">
+          <div><p class="section-index">Start without hardware</p><h2>Test the idea<br />from a computer.</h2></div>
           <div>
-            <p class="section-index">No hardware? No problem.</p>
-            <h2>Test the whole tap<br />from your terminal.</h2>
-          </div>
-          <div>
-            <p>Fake mode and the simulator exercise the same dispatch path as a physical scan — useful while your Pi is still in the box.</p>
+            <p>Fake mode exercises the database, assignment page, and playback dispatch without Spotify credentials, a Raspberry Pi, or an NFC reader.</p>
             <pre><span class="prompt">$</span> python -m app.simulate --uid 01AABBCC \
   --payload "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M"</pre>
-            <p class="simulation-note"><span aria-hidden="true">✓</span> Safe to run without Spotify credentials or a PN532.</p>
+            <a class="button button-primary" href="getting-started.html">Start in fake mode <span aria-hidden="true">→</span></a>
           </div>
         </div>
       </section>
@@ -174,9 +159,10 @@ sudo reboot</pre></div></div>
 
     <footer class="site-footer">
       <div class="shell footer-inner">
-        <p><svg class="wordmark-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><circle cx="16" cy="16" r="13" /><circle cx="16" cy="16" r="5" /><path d="M16 3v7M16 22v7" /></svg> TapTune</p>
-        <p>Open hardware thinking for everyday listening.</p>
-        <a href="https://github.com/DonatienCorrea/TapTune" target="_blank" rel="noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+        <p><svg class="wordmark-mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" /><circle cx="16" cy="16" r="5" /><path d="M16 3v7M16 22v7" /></svg> TapTune</p>
+        <p>Open-source tangible music controls.</p>
+        <a href="fr/" lang="fr">Français</a>
+        <a href="https://github.com/DonatienCorrea/TapTune">GitHub <span aria-hidden="true">↗</span></a>
       </div>
     </footer>
   </body>
