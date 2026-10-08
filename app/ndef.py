@@ -113,6 +113,37 @@ def extract_ndef_message(data: bytes) -> bytes:
     raise NdefError("No NDEF block found on the tag")
 
 
+def ndef_block_end(data: bytes) -> Optional[int]:
+    """Return how many bytes of user memory hold the whole NDEF block.
+
+    Lets a reader stop fetching pages as soon as the message is complete instead
+    of pulling the tag's full capacity. Returns None while more bytes are needed
+    to tell, and raises NdefError once the data proves there is no NDEF block.
+    """
+    index = 0
+    while index < len(data):
+        tag = data[index]
+        if tag == TLV_TERMINATOR:
+            raise NdefError("No NDEF block found on the tag")
+        if tag == TLV_NULL:
+            index += 1
+            continue
+        if index + 1 >= len(data):
+            return None
+        length = data[index + 1]
+        value_start = index + 2
+        if length == 0xFF:
+            if index + 3 >= len(data):
+                return None
+            length = (data[index + 2] << 8) | data[index + 3]
+            value_start = index + 4
+        value_end = value_start + length
+        if tag == TLV_NDEF:
+            return value_end
+        index = value_end
+    return None
+
+
 def parse_records(message: bytes) -> List[NdefRecord]:
     """Split an NDEF message into its records.
 

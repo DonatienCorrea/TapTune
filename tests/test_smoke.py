@@ -192,6 +192,9 @@ class SmokeTests(unittest.TestCase):
                 self.timeout = timeout
                 return bytes([4, 167, 178, 241, 224])
 
+            def ntag2xx_read_block(self, page):
+                return None
+
         dispatch_simulated_value("04A7B2F1E0", "action:next")
         i2c = object()
         reader = nfc_reader.PN532Reader(i2c=i2c, reader_factory=FakeReader)
