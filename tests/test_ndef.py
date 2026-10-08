@@ -5,7 +5,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import ndef
-from app.nfc_reader import payload_for_tag
+from app.nfc_reader import PN532Reader, payload_for_tag
 
 
 def uri_record(prefix_code: int, rest: bytes, message_begin=True, message_end=True) -> bytes:
@@ -199,6 +199,127 @@ class PayloadForTagTests(unittest.TestCase):
 
     def test_falls_back_to_the_uid_when_nothing_is_known(self):
         self.assertEqual(payload_for_tag("AABBCCDD", None, lookup=lambda uid: None), "AABBCCDD")
+
+
+class BlockEndTests(unittest.TestCase):
+    def test_reports_the_end_once_the_header_is_visible(self):
+        data = wrap_in_tlv(uri_record(0x04, b"open.spotify.com/track/abc"))
+
+        self.assertEqual(ndef.ndef_block_end(data), 2 + len(data) - 3)
+
+    def test_asks_for_more_while_the_length_is_cut_off(self):
+        self.assertIsNone(ndef.ndef_block_end(bytes([0x03])))
+
+    def test_skips_other_blocks(self):
+        data = bytes([0x01, 0x02, 0xAA, 0xBB, 0x03, 0x04]) + b"1234"
+
+        self.assertEqual(ndef.ndef_block_end(data), 10)
+
+    def test_gives_up_at_the_terminator(self):
+        with self.assertRaises(ndef.NdefError):
+            ndef.ndef_block_end(bytes([0x00, 0xFE, 0x00, 0x00]))
+
+
+class FakeNtag:
+    """A PN532 holding one Type 2 tag, served 4 bytes per page."""
+
+    def __init__(self, memory=None, uid=bytes([4, 1, 2, 3, 4, 5, 6]), capacity=144, fail_at=None):
+        cc = bytes([0xE1, 0x10, capacity // 8, 0x00])
+        self.pages = {3: cc}
+        for number in range(36):
+            chunk = (memory or b"")[number * 4:number * 4 + 4]
+            self.pages[4 + number] = chunk.ljust(4, b"\x00")
+        self.uid = uid
+        self.fail_at = fail_at
+        self.present = True
+        self.reads = []
+
+    def SAM_configuration(self):
+        pass
+
+    def read_passive_target(self, timeout):
+        return self.uid if self.present else None
+
+    def ntag2xx_read_block(self, page):
+        self.reads.append(page)
+        if page == self.fail_at:
+            return None
+        return self.pages.get(page)
+
+
+def make_reader(tag):
+    return PN532Reader(i2c=object(), reader_factory=lambda i2c, debug: tag)
+
+
+class PN532NdefTests(unittest.TestCase):
+    def test_reads_a_value_the_tag_describes_itself_with(self):
+        memory = wrap_in_tlv(uri_record(0x04, b"open.spotify.com/playlist/abc?si=1"))
+        event = make_reader(FakeNtag(memory)).read_once()
+
+        self.assertEqual(event.uid, "04010203040506")
+        self.assertEqual(event.payload, "spotify:playlist:abc")
+
+    def test_stops_reading_pages_once_the_message_is_complete(self):
+        tag = FakeNtag(wrap_in_tlv(uri_record(0x04, b"open.spotify.com/track/abc")))
+
+        make_reader(tag).read_once()
+
+        self.assertEqual(tag.reads[0], 3)
+        self.assertLess(len(tag.reads), 12)
+
+    def test_does_not_scan_the_whole_tag_when_it_is_blank(self):
+        tag = FakeNtag(bytes([0x00, 0x00, 0xFE]))
+
+        event = make_reader(tag).read_once()
+
+        self.assertEqual(event.payload, event.uid)
+        self.assertLess(len(tag.reads), 5)
+
+    def test_falls_back_to_the_uid_when_a_page_read_fails(self):
+        memory = wrap_in_tlv(uri_record(0x04, b"open.spotify.com/track/abc"))
+        tag = FakeNtag(memory, fail_at=5)
+
+        self.assertEqual(make_reader(tag).read_once().payload, "04010203040506")
+
+    def test_falls_back_to_the_uid_for_a_tag_without_a_capability_container(self):
+        tag = FakeNtag(wrap_in_tlv(uri_record(0x04, b"open.spotify.com/track/abc")))
+        tag.pages[3] = bytes([0x00, 0x00, 0x00, 0x00])
+
+        self.assertEqual(make_reader(tag).read_once().payload, "04010203040506")
+
+    def test_falls_back_when_the_bus_raises(self):
+        tag = FakeNtag(wrap_in_tlv(uri_record(0x04, b"open.spotify.com/track/abc")))
+
+        def broken(page):
+            raise RuntimeError("PN532 busy")
+
+        tag.ntag2xx_read_block = broken
+
+        self.assertEqual(make_reader(tag).read_once().payload, "04010203040506")
+
+    def test_reads_the_memory_once_per_presentation(self):
+        tag = FakeNtag(wrap_in_tlv(uri_record(0x04, b"open.spotify.com/track/abc")))
+        reader = make_reader(tag)
+
+        reader.read_once()
+        reads_after_first = len(tag.reads)
+        second = reader.read_once()
+
+        self.assertEqual(len(tag.reads), reads_after_first)
+        self.assertEqual(second.payload, "spotify:track:abc")
+
+    def test_reads_again_after_the_tag_is_removed_and_returns(self):
+        tag = FakeNtag(wrap_in_tlv(uri_record(0x04, b"open.spotify.com/track/abc")))
+        reader = make_reader(tag)
+        reader.read_once()
+        tag.present = False
+        self.assertIsNone(reader.read_once())
+        tag.present = True
+        reads_before = len(tag.reads)
+
+        reader.read_once()
+
+        self.assertGreater(len(tag.reads), reads_before)
 
 
 if __name__ == "__main__":

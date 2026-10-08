@@ -76,7 +76,7 @@ The result should include `"status": "ok"` and `"mode": "fake"`.
 ## Current boundaries
 
 - The web UI always starts; PN532 polling starts only when `NFC_READER_ENABLED=true`.
-- The current PN532 integration reads tag UIDs. TapTune can decode supported NDEF values in software, but the hardware reader does not yet supply tag memory and TapTune does not write tags.
+- Self-describing tags: on NTAG21x (Type 2) tags the PN532 reader fetches the NDEF memory and plays the Spotify link or `spotify:` URI written on the tag, for example from a phone with NFC Tools. Share links such as `https://open.spotify.com/playlist/<id>?si=…` are converted automatically. A blank tag, a non-Type-2 tag (MIFARE Classic), or a failed read falls back to the value assigned to the UID in the web UI. The memory is read once each time a tag is presented. TapTune does not write tags.
 - Live playback requires a Spotify Premium account, valid developer credentials, and an active Spotify Connect device.
 - v1 has no status LED or audio feedback. Runtime errors are inspected through logs.
 - Hardware-specific Python packages are kept in `requirements-pi.txt` so local development remains hardware-free.

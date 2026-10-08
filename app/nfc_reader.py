@@ -3,7 +3,11 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
-from .ndef import tag_value_from_ndef
+from .ndef import NdefError, ndef_block_end, tag_value_from_ndef
+
+CAPABILITY_CONTAINER_PAGE = 3
+USER_MEMORY_FIRST_PAGE = 4
+NDEF_MAGIC_NUMBER = 0xE1
 
 try:
     import board
@@ -59,14 +63,47 @@ class PN532Reader(ReaderBase):
         self.reader = factory(self.i2c, debug=False)
         self.reader.SAM_configuration()
 
+        self._last_uid = None
+        self._last_payload = None
+
+    def read_ndef_memory(self) -> Optional[bytes]:
+        """Read the NDEF area of a Type 2 tag such as an NTAG21x.
+
+        Returns None when the tag is not Type 2, holds no NDEF block, or a page
+        read fails, so the caller can fall back to the UID mapping.
+        """
+        try:
+            capability = self.reader.ntag2xx_read_block(CAPABILITY_CONTAINER_PAGE)
+            if capability is None or capability[0] != NDEF_MAGIC_NUMBER:
+                return None
+            capacity = capability[2] * 8
+            data = bytearray()
+            for page in range(USER_MEMORY_FIRST_PAGE, USER_MEMORY_FIRST_PAGE + capacity // 4):
+                block = self.reader.ntag2xx_read_block(page)
+                if block is None:
+                    return None
+                data.extend(block)
+                try:
+                    end = ndef_block_end(bytes(data))
+                except NdefError:
+                    return None
+                if end is not None and end <= len(data):
+                    return bytes(data)
+        except (RuntimeError, OSError):
+            return None
+        return None
+
     def read_once(self) -> Optional[NFCEvent]:
         uid = self.reader.read_passive_target(timeout=0.1)
         if uid is None:
+            self._last_uid = None
             return None
 
         uid_hex = "".join(f"{byte:02X}" for byte in uid)
-        payload = payload_for_tag(uid_hex)
-        return NFCEvent(uid=uid_hex, payload=payload, source="nfc")
+        if uid_hex != self._last_uid:
+            self._last_payload = payload_for_tag(uid_hex, self.read_ndef_memory())
+            self._last_uid = uid_hex
+        return NFCEvent(uid=uid_hex, payload=self._last_payload, source="nfc")
 
     def write_tag(self, uid: str, payload: str) -> bool:
         raise NotImplementedError(
