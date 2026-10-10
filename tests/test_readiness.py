@@ -78,6 +78,22 @@ class ReadySoundTests(unittest.TestCase):
         self.assertFalse(readiness.play_sound(b"wav", audio_device="bluealsa", runner=failing))
         self.assertFalse(readiness.play_sound(b"wav", audio_device="bluealsa", runner=missing))
 
+    def test_play_sound_falls_back_to_default_device(self):
+        commands = []
+
+        def runner(command, **kwargs):
+            commands.append(command)
+            code = 1 if "-D" in command else 0
+            return subprocess.CompletedProcess(command, code, b"", b"aplay: PCM not found")
+
+        self.assertTrue(readiness.play_sound(b"wav", audio_device="bluealsa", runner=runner))
+        self.assertEqual(commands, [["aplay", "-q", "-D", "bluealsa", "-"], ["aplay", "-q", "-"]])
+
+    def test_aplay_error_summary_drops_bluealsa_noise(self):
+        noise = "D: bluealsa-pcm.c:475: Closing\naplay: main:850: erreur\nALSA lib x: PCM not found"
+        self.assertEqual(readiness._summarize_aplay_error(noise), "aplay: main:850: erreur")
+        self.assertEqual(readiness._summarize_aplay_error(""), "no error output")
+
     def test_thread_is_skipped_in_fake_mode_or_when_disabled(self):
         started = []
         with patch.multiple(config.settings, SPOTIFY_CLIENT_ID="", READY_SOUND_ENABLED=True):

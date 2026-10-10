@@ -42,20 +42,48 @@ def build_chime_wav(sample_rate: int = SAMPLE_RATE, volume: float = 0.35) -> byt
     return buffer.getvalue()
 
 
-def play_sound(wav: bytes, audio_device: Optional[str] = None, runner=subprocess.run) -> bool:
-    device = settings.AUDIO_OUTPUT_DEVICE if audio_device is None else audio_device
+_last_play_failure = [None]
+
+
+def _summarize_aplay_error(stderr: str) -> str:
+    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
+    # aplay's own error line is the useful one; BlueALSA debug lines are noise.
+    for line in reversed(lines):
+        if line.startswith("aplay:"):
+            return line
+    return lines[-1] if lines else "no error output"
+
+
+def _aplay(wav: bytes, device: str, runner):
     command = ["aplay", "-q"]
     if device:
         command += ["-D", device]
     command.append("-")
+    return runner(command, input=wav, capture_output=True, timeout=10)
+
+
+def play_sound(wav: bytes, audio_device: Optional[str] = None, runner=subprocess.run) -> bool:
+    device = settings.AUDIO_OUTPUT_DEVICE if audio_device is None else audio_device
     try:
-        result = runner(command, input=wav, capture_output=True, timeout=10)
+        result = _aplay(wav, device, runner)
+        if result.returncode != 0 and device:
+            # The Pi may route Bluetooth through PipeWire/PulseAudio instead of BlueALSA; the
+            # system default device then reaches the same speaker Spotify plays on.
+            first_error = _summarize_aplay_error((result.stderr or b"").decode(errors="replace"))
+            fallback = _aplay(wav, "", runner)
+            if fallback.returncode == 0:
+                logger.info("Ready sound played on the default audio device (%s failed: %s)", device, first_error)
+                return True
     except (OSError, subprocess.SubprocessError) as error:
         logger.warning("Could not play the ready sound: %s", error)
         return False
     if result.returncode != 0:
         stderr = (result.stderr or b"").decode(errors="replace").strip()
-        logger.info("Ready sound not played yet (aplay exit %s): %s", result.returncode, stderr)
+        reason = _summarize_aplay_error(stderr)
+        # Retried every few seconds while the speaker connects: log each distinct reason once.
+        level = logging.INFO if reason != _last_play_failure[0] else logging.DEBUG
+        _last_play_failure[0] = reason
+        logger.log(level, "Ready sound not played yet (speaker not connected?): %s", reason)
         return False
     return True
 
