@@ -99,7 +99,7 @@ If the speaker is switched on after the Pi, the Pi connects to it within about t
 | --- | --- | --- |
 | `SPOTIFY_DEVICE_NAME` | `TapTune` | Name of the Pi in Spotify's device list. When nothing else is playing, TapTune sends music here. Leave it empty to only use devices that are already active, which was the old behavior. |
 | `BLUETOOTH_SPEAKER_MAC` | empty | Address of the speaker to keep connected. |
-| `AUDIO_OUTPUT_DEVICE` | `bluealsa` | ALSA output used for the ready sound. |
+| `AUDIO_OUTPUT_DEVICE` | `bluealsa` | ALSA output used for the ready sound. If it fails, the system default device is tried. |
 | `READY_SOUND_ENABLED` | `true` | Set to `false` to switch the chime off. |
 
 Restart TapTune after changing these values. If you change `SPOTIFY_DEVICE_NAME`, rerun `./systemd/install-speaker.sh` so raspotify uses the same name.
