@@ -18,10 +18,10 @@ Use the path that matches what you are trying to do. You do not need to read the
 1. [Hardware setup](hardware-setup.md) — configure I2C, wire the PN532 safely, and read the first physical card.
 2. [Spotify authorization](spotify-authorization.md) — create the refresh token used for live playback.
 3. [Raspberry Pi service](raspberry-pi-service.md) — install TapTune on the Pi, enable the reader, and operate the service.
-4. [Speaker setup](speaker-setup.md) — make the Pi its own Spotify speaker with a Bluetooth speaker, so music plays right after boot and a chime says it is ready.
+4. [Speaker setup](speaker-setup.md) — make the Pi its own Spotify speaker with a Bluetooth speaker (Lite/BlueALSA).
+   For Debian 13 Desktop, use the [PipeWire desktop setup](speaker-setup-desktop.md).
 
 ## Maintain and repair
 
 - [Troubleshooting](troubleshooting.md) — symptom-based checks for the web service, Spotify, I2C, the PN532, and tag assignments.
 - [Raspberry Pi service](raspberry-pi-service.md#safe-updates) — back up, update, test, and restart a deployed installation safely.
-

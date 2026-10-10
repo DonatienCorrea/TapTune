@@ -14,9 +14,11 @@ If music is already playing on another device, such as a phone, a tag keeps play
 ## What you need
 
 - TapTune installed on the Pi ([Raspberry Pi service](raspberry-pi-service.md)) with working [Spotify authorization](spotify-authorization.md).
-- Raspberry Pi OS **Lite**. The desktop edition uses PipeWire for audio, which conflicts with the `bluez-alsa` setup used here.
+- Raspberry Pi OS **Lite** for the BlueALSA setup below. For Debian 13 Desktop, use the [PipeWire desktop setup](speaker-setup-desktop.md) instead.
 - A Bluetooth speaker.
 - A phone or computer with the Spotify app, needed **once** during setup.
+
+Do not run `systemd/install-speaker.sh` on a Desktop/PipeWire installation. It configures BlueALSA and the system-wide Raspotify service, which do not use the desktop user's PipeWire audio session.
 
 ## 1. Install the speaker software
 
