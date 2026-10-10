@@ -11,7 +11,9 @@ Start with the smallest failing boundary: web process, configuration, Spotify, I
 | The service exits immediately | Confirm `.env` exists, the unit paths match it, and `journalctl` shows the Python error. |
 | Fake mode is unexpected | All three live Spotify values must be non-empty. Remove placeholder values or complete the credentials, then restart. |
 | Spotify reports an authorization error | Recheck the client ID, client secret, refresh-token scopes, and exact redirect URI. |
-| Spotify reports no active device | Open Spotify on a Connect-capable device using the same account, start playback once, and retry. |
+| Spotify reports no active device | Complete [Speaker setup](speaker-setup.md) so the Pi is always available, or open Spotify on a Connect-capable device using the same account, start playback once, and retry. |
+| Dispatch returns `speaker_not_ready` | Nothing is playing and the Pi speaker (`SPOTIFY_DEVICE_NAME`) is not signed in to Spotify. See [Speaker setup troubleshooting](speaker-setup.md#troubleshooting). |
+| No ready chime after boot | See [Speaker setup troubleshooting](speaker-setup.md#troubleshooting). |
 | A tag is “unknown” | Assign the complete UID printed by the reader. Avoid extra spaces and preserve the exact value. |
 | PN532 import fails | Activate the Pi virtual environment and rerun `./systemd/install-pi-dependencies.sh`. |
 | `/dev/i2c-1` is missing | Enable I2C with `sudo raspi-config` and reboot. |

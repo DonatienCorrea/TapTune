@@ -18,14 +18,14 @@ def parse_port(value: str) -> int:
     return port
 
 
-def parse_bool(value: str) -> bool:
+def parse_bool(value: str, name: str = "NFC_READER_ENABLED") -> bool:
     normalized = value.strip().lower()
     if normalized in {"1", "true", "yes", "on"}:
         return True
     if normalized in {"0", "false", "no", "off"}:
         return False
     raise ValueError(
-        "NFC_READER_ENABLED must be one of true/false, yes/no, on/off, or 1/0; "
+        f"{name} must be one of true/false, yes/no, on/off, or 1/0; "
         f"got {value!r}"
     )
 
@@ -39,6 +39,11 @@ class Settings:
     SPOTIFY_REDIRECT_URI = os.getenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8888/callback")
     SPOTIFY_REFRESH_TOKEN = os.getenv("SPOTIFY_REFRESH_TOKEN", "")
     NFC_READER_ENABLED = parse_bool(os.getenv("NFC_READER_ENABLED", "false"))
+    # Name of the Spotify Connect receiver running on the Pi (raspotify/librespot).
+    # Leave empty to only ever play on an already active device.
+    SPOTIFY_DEVICE_NAME = os.getenv("SPOTIFY_DEVICE_NAME", "TapTune").strip()
+    AUDIO_OUTPUT_DEVICE = os.getenv("AUDIO_OUTPUT_DEVICE", "bluealsa").strip()
+    READY_SOUND_ENABLED = parse_bool(os.getenv("READY_SOUND_ENABLED", "true"), "READY_SOUND_ENABLED")
 
 
 settings = Settings()

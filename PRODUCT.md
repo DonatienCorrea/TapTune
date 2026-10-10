@@ -20,11 +20,11 @@ The project makes Spotify playback tangible by connecting inexpensive, programma
 
 ## Operating Context
 
-The service runs on Raspberry Pi OS Lite with a PN532 reader over I2C. A local Flask web UI assigns tag UIDs, SQLite persists mappings, and systemd keeps the service running. Playback uses a shared Spotify Premium account and Spotify Connect. Reader polling is disabled by default for hardware-free setup and joins the service dispatch loop when `NFC_READER_ENABLED=true`.
+The service runs on Raspberry Pi OS Lite with a PN532 reader over I2C. A local Flask web UI assigns tag UIDs, SQLite persists mappings, and systemd keeps the service running. Playback uses a shared Spotify Premium account and Spotify Connect; raspotify makes the Pi its own Connect speaker through a Bluetooth speaker, so music plays right after boot. Reader polling is disabled by default for hardware-free setup and joins the service dispatch loop when `NFC_READER_ENABLED=true`.
 
 ## Capabilities and Constraints
 
-Supports Spotify playlist, album, and track URIs plus play/pause and next actions. Includes fake mode and a CLI simulator. v1 has no status LEDs or audio feedback; errors are logged and inspected over SSH. Hardware-specific dependencies are separate from base development dependencies.
+Supports Spotify playlist, album, and track URIs plus play/pause and next actions. Includes fake mode and a CLI simulator. A chime signals readiness after boot; there are no status LEDs, and other errors are logged and inspected over SSH. Hardware-specific dependencies are separate from base development dependencies.
 
 ## Brand Commitments
 
