@@ -1,0 +1,14 @@
+[Unit]
+Description=TapTune Bluetooth speaker auto-reconnect
+Wants=bluetooth.target
+After=bluetooth.target bluetooth.service
+
+[Service]
+Type=simple
+ExecStart=/home/pi/TapTune/systemd/taptune-bluetooth.sh
+EnvironmentFile=/home/pi/TapTune/.env
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

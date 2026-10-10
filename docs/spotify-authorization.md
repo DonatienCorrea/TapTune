@@ -161,7 +161,7 @@ rm get_spotify_token.py
 python -m app.main
 ```
 
-Open Spotify on a Connect-capable device using the same account and start playback once. In another terminal, activate the virtual environment and test TapTune:
+TapTune needs a Spotify Connect device to play on. For a first test, open Spotify on a phone or computer using the same account and start playback once. To play on the Pi without a phone, complete [Speaker setup](speaker-setup.md). In another terminal, activate the virtual environment and test TapTune:
 
 ```bash
 source .venv/bin/activate
@@ -179,6 +179,6 @@ A successful result reports `"status": "ok"` and `"mode": "spotify"`. If the res
 | Spotify reports an invalid redirect URI | Confirm the dashboard and `.env` both use exactly `http://127.0.0.1:8888/callback`. |
 | The callback page does not load | Confirm no other process is using port `8888`, then run the script again. |
 | The browser does not open | Copy the authorization URL printed in the terminal into a browser. |
-| Spotify returns no active device | Open Spotify on the target device, play something once, and retry. |
+| Spotify returns no active device or `speaker_not_ready` | Complete [Speaker setup](speaker-setup.md), or open Spotify on the target device, play something once, and retry. |
 | TapTune still uses fake mode | Confirm the client ID, client secret, and refresh token are all present, then restart TapTune. |
 | Authorization was granted to the wrong account | Run the script again in a private browser window and sign in with the intended account. |

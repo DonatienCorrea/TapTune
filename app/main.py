@@ -6,6 +6,7 @@ import time
 from .config import settings
 from .db import record_event
 from .nfc_reader import NFCEvent, PN532Reader
+from .readiness import start_readiness_thread
 from .spotify_service import dispatch_tag_value, get_tag_type
 from .web import app
 
@@ -66,4 +67,5 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     if settings.NFC_READER_ENABLED:
         start_reader_thread()
+    start_readiness_thread()
     app.run(host=settings.APP_HOST, port=settings.APP_PORT, debug=False)

@@ -1,7 +1,7 @@
 [Unit]
 Description=TapTune service
-Wants=network-online.target
-After=network-online.target
+Wants=network-online.target raspotify.service
+After=network-online.target raspotify.service bluealsa.service taptune-bluetooth.service
 
 [Service]
 Type=simple

@@ -57,7 +57,7 @@ From another machine on the same network:
 curl http://<pi-ip>:5000/health
 ```
 
-Follow [Spotify authorization](spotify-authorization.md) when you are ready for live playback. A valid token is not enough by itself; playback also requires an available Spotify Connect device.
+Follow [Spotify authorization](spotify-authorization.md) when you are ready for live playback. A valid token is not enough by itself; playback also needs a Spotify Connect device. Follow [Speaker setup](speaker-setup.md) to make the Pi that device so it plays right after boot.
 
 ## Assign and verify a tag
 
@@ -84,7 +84,7 @@ Run the installer from the repository root after `.venv` and `.env` exist:
 sudo ./systemd/install-service.sh
 ```
 
-The installer rewrites those three paths for the current checkout before installing the unit.
+The installer rewrites those three paths for the current checkout before installing the unit. The unit starts after `raspotify` and the Bluetooth services when they are installed by [Speaker setup](speaker-setup.md).
 
 Preview the generated unit without root or installation:
 

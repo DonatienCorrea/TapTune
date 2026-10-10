@@ -146,7 +146,8 @@ class SmokeTests(unittest.TestCase):
                     404, -1, "No active device found", reason="NO_ACTIVE_DEVICE"
                 )
 
-        with patch.object(spotify_service, "build_spotify_client", return_value=NoDeviceClient()):
+        with patch.object(spotify_service, "build_spotify_client", return_value=NoDeviceClient()), \
+                patch.object(config.settings, "SPOTIFY_DEVICE_NAME", ""):
             result = spotify_service.toggle_playback()
 
         self.assertEqual(result["status"], "error")
@@ -170,7 +171,8 @@ class SmokeTests(unittest.TestCase):
                     404, -1, "No active device found", reason="NO_ACTIVE_DEVICE"
                 )
 
-        with patch.object(spotify_service, "build_spotify_client", return_value=NoDeviceClient()):
+        with patch.object(spotify_service, "build_spotify_client", return_value=NoDeviceClient()), \
+                patch.object(config.settings, "SPOTIFY_DEVICE_NAME", ""):
             dispatch = self.client.post('/dispatch', data={'uid': 'UID-NO-DEVICE'})
 
         self.assertEqual(dispatch.status_code, 502)

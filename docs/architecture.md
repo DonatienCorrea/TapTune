@@ -69,8 +69,8 @@ All paths reach `dispatch_tag_value`, which validates and translates the stored 
 - `app/ndef.py` can decode supported tag memory supplied by another caller, but the hardware path does not yet read that memory.
 - TapTune does not write NFC tags.
 - A successful `/health` response does not prove that Spotify or the reader is healthy.
-- Live playback depends on a separate active Spotify Connect device.
-- v1 reports runtime problems through logs; there are no status LEDs or audio prompts.
+- Live playback needs a Spotify Connect device. With [Speaker setup](speaker-setup.md), raspotify makes the Pi that device. TapTune keeps playback on an already active device and otherwise targets the Pi by name (`SPOTIFY_DEVICE_NAME`).
+- A chime plays once the Pi speaker is online after boot; other runtime problems are reported through logs; there are no status LEDs.
 
 ## Further reading
 
