@@ -84,7 +84,7 @@ Run the installer from the repository root after `.venv` and `.env` exist:
 sudo ./systemd/install-service.sh
 ```
 
-The installer rewrites those three paths for the current checkout before installing the unit. The unit starts after `raspotify` and the Bluetooth services when they are installed by [Speaker setup](speaker-setup.md).
+The installer rewrites those three paths for the current checkout before installing the unit. With the Lite speaker setup, the unit starts after `raspotify` and the Bluetooth services. On Debian 13 Desktop, the Spotify Connect receiver is a separate user service and starts with the desktop session; see [PipeWire desktop setup](speaker-setup-desktop.md).
 
 Preview the generated unit without root or installation:
 

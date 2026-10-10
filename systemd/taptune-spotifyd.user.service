@@ -1,0 +1,11 @@
+[Unit]
+Description=TapTune Spotify Connect receiver
+After=pipewire-pulse.service
+
+[Service]
+ExecStart=/usr/local/bin/spotifyd --no-daemon
+Restart=on-failure
+RestartSec=12
+
+[Install]
+WantedBy=default.target
