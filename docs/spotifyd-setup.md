@@ -181,14 +181,12 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=%h/.cargo/bin/spotifyd --no-daemon
+ExecStart=/usr/local/bin/spotifyd --no-daemon
 Restart=on-failure
 RestartSec=10
 
 StandardOutput=journal
 StandardError=journal
-
-Environment="PATH=/home/pi/.cargo/bin:/usr/local/bin:/usr/bin:/bin"
 
 [Install]
 WantedBy=default.target
@@ -248,8 +246,9 @@ Music should play on the Spotifyd device.
 | Build fails with out-of-memory error | Ensure swap is active: `free -h`. Rerun the build command. |
 | `libssl.so.1.1: cannot open shared object file` | The build used the old OpenSSL. Clean and rebuild: `cargo clean && cargo +stable build --release --locked`. |
 | Spotifyd starts but audio is silent or errors occur | Use `backend = "pulseaudio"` instead of `alsa`. PulseAudio handles PipeWire integration on modern Raspberry Pi OS. |
+| Service fails to start: `Unable to locate executable` | Ensure `ExecStart=/usr/local/bin/spotifyd --no-daemon` in the `.service` file. Reload with `systemctl --user daemon-reload`. |
 | Spotifyd not in Spotify device list | It takes 5–10 seconds to register. Refresh the device list in Spotify. Check `journalctl --user -u spotifyd.service -n 50`. |
-| Service fails to start at boot | Check `systemctl --user status spotifyd.service`. Ensure `SPOTIFY_PASSWORD` and `SPOTIFY_USERNAME` are set. Verify the binary path in `ExecStart`. |
+| Service fails to start at boot | Check `systemctl --user status spotifyd.service`. Ensure `SPOTIFY_PASSWORD` and `SPOTIFY_USERNAME` are set. Verify the binary path in `ExecStart` is `/usr/local/bin/spotifyd`. |
 
 ## Next steps
 
