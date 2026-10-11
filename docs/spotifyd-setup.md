@@ -10,7 +10,7 @@
 
 - Raspberry Pi 5 with **2+ GB RAM** (the 8 GB model is ideal)
 - **Official Raspberry Pi 27 W USB-C power supply** (5.1 V / 5 A minimum)
-- Raspberry Pi OS Lite (or Desktop, but Lite is recommended for this guide)
+- Raspberry Pi OS Lite or Desktop
 - SSH access or terminal access
 - Spotify Premium account
 
@@ -118,22 +118,21 @@ mkdir -p ~/.config/spotifyd
 nano ~/.config/spotifyd/spotifyd.conf
 ```
 
-Paste this template:
+Paste this template for **PulseAudio** (recommended for Raspberry Pi OS with Bluetooth speakers):
 
 ```ini
 [global]
 username = "YOUR_SPOTIFY_USERNAME"
 password = "YOUR_SPOTIFY_PASSWORD"
-backend = "alsa"
+backend = "pulseaudio"
 device_name = "Raspberry Pi 5"
 bitrate = 320
-volume_controller = "alsa"
-mixer = "Master"
-device = "default"
 cache_path = "/home/pi/.cache/spotifyd"
 ```
 
 Replace `YOUR_SPOTIFY_USERNAME` and `YOUR_SPOTIFY_PASSWORD` with your Spotify account credentials.
+
+> **Why PulseAudio?** Recent Raspberry Pi OS versions (Debian Bookworm/Trixie) use PipeWire with PulseAudio emulation. The `pulseaudio` backend works reliably with Bluetooth speakers and avoids ALSA device conflicts.
 
 > **Security note:** Storing credentials in plain text is acceptable for this use case because the Pi is typically on a private network. For critical installations, use Spotify OAuth instead (see [Spotify authorization](spotify-authorization.md) for the TapTune pattern).
 
@@ -159,7 +158,7 @@ Open Spotify on your phone or computer. In the device picker (speaker icon), you
 Test playback:
 1. Start a song on your phone.
 2. Open the device list and select **Raspberry Pi 5**.
-3. Music should now come from the Pi.
+3. Music should now come from the Pi's Bluetooth speaker.
 
 If it works, press `Ctrl+C` to stop the foreground process.
 
@@ -248,7 +247,7 @@ Music should play on the Spotifyd device.
 | --- | --- |
 | Build fails with out-of-memory error | Ensure swap is active: `free -h`. Rerun the build command. |
 | `libssl.so.1.1: cannot open shared object file` | The build used the old OpenSSL. Clean and rebuild: `cargo clean && cargo +stable build --release --locked`. |
-| Spotifyd starts but music won't play | Check `ldd /usr/local/bin/spotifyd \| grep -i ssl` confirms OpenSSL 3. Verify Spotify credentials in `.conf`. Test with `spotifyd --no-daemon`. |
+| Spotifyd starts but audio is silent or errors occur | Use `backend = "pulseaudio"` instead of `alsa`. PulseAudio handles PipeWire integration on modern Raspberry Pi OS. |
 | Spotifyd not in Spotify device list | It takes 5–10 seconds to register. Refresh the device list in Spotify. Check `journalctl --user -u spotifyd.service -n 50`. |
 | Service fails to start at boot | Check `systemctl --user status spotifyd.service`. Ensure `SPOTIFY_PASSWORD` and `SPOTIFY_USERNAME` are set. Verify the binary path in `ExecStart`. |
 
