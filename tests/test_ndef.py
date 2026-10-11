@@ -172,6 +172,15 @@ class TagValueTests(unittest.TestCase):
 
 
 class PayloadForTagTests(unittest.TestCase):
+    def test_self_describing_volume_control_is_supported(self):
+        for value in ("action:volume_up", "action:volume_down"):
+            payload = b"\x02en" + value.encode()
+            message = bytes([0xD1, 1, len(payload)]) + b"T" + payload
+            self.assertEqual(
+                payload_for_tag("AABBCCDD", wrap_in_tlv(message), lookup=lambda uid: None),
+                value,
+            )
+
     def test_prefers_what_the_tag_describes_itself_as(self):
         data = wrap_in_tlv(uri_record(0x04, b"open.spotify.com/album/xyz"))
 

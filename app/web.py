@@ -33,10 +33,12 @@ TRANSLATIONS = {
         "error_required": "uid and value are required",
         "error_unknown": "Unknown tag",
         "error_missing": "uid or value required",
-        "error_unsupported": "Unsupported value. Use a Spotify track, playlist, or album URI, or action:play_pause, action:next, or action:next_track.",
+        "error_unsupported": "Unsupported value. Use a Spotify track, playlist, or album URI, or action:play_pause, action:next, action:next_track, action:volume_up, or action:volume_down.",
         "helper_playlist": "Spotify playlist",
         "helper_pause": "Play / pause",
         "helper_next": "Next track",
+        "helper_volume_up": "Volume +10%",
+        "helper_volume_down": "Volume -10%",
     },
     "fr": {
         "switch_label": "English",
@@ -66,10 +68,12 @@ TRANSLATIONS = {
         "error_required": "uid et value sont requis",
         "error_unknown": "Tag inconnu",
         "error_missing": "uid ou value requis",
-        "error_unsupported": "Valeur non prise en charge. Utilisez une URI Spotify de morceau, playlist ou album, ou action:play_pause, action:next, ou action:next_track.",
+        "error_unsupported": "Valeur non prise en charge. Utilisez une URI Spotify de morceau, playlist ou album, ou action:play_pause, action:next, action:next_track, action:volume_up, ou action:volume_down.",
         "helper_playlist": "Playlist Spotify",
         "helper_pause": "Lecture / pause",
         "helper_next": "Piste suivante",
+        "helper_volume_up": "Volume +10 %",
+        "helper_volume_down": "Volume -10 %",
     },
 }
 

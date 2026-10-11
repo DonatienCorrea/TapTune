@@ -4,11 +4,25 @@
 
 Use this guide for Debian 13 / Raspberry Pi OS Desktop with PipeWire. The standard [`install-speaker.sh`](../systemd/install-speaker.sh) path is for Raspberry Pi OS Lite: it configures BlueALSA and a system-wide Raspotify service, not the desktop user's PipeWire session.
 
-This setup runs Spotifyd as a **user service**. It uses the desktop session's PipeWire PulseAudio-compatible socket, so the Connect speaker is available while that user is logged in. If the Pi does not log in automatically after boot, the speaker will not be available until you log in.
+This setup runs Spotifyd as a **user service** using PipeWire's PulseAudio-compatible
+socket (`backend = "pulseaudio"`). The installer below enables user lingering,
+starts the audio services at boot and disables WirePlumber's active-login check
+for Bluetooth audio. **No desktop login or auto-login is required.**
+
+Use this on a dedicated music Pi with one audio user. Disabling the login check
+lets that user's WirePlumber own Bluetooth audio while logged out; another
+desktop/login-manager audio session can still compete for the device.
 
 ## 1. Connect the Bluetooth speaker
 
-Pair the speaker using the desktop Bluetooth settings. In the sound settings, select it as the output device and confirm that the desktop can play audio through it. PipeWire/WirePlumber manages the Bluetooth connection; do not install BlueALSA or enable `taptune-bluetooth.service` for this setup.
+Pair the speaker using the desktop Bluetooth settings. In the sound settings,
+select it as the output device and confirm it plays audio. Get its address with
+`bluetoothctl devices` and put `BLUETOOTH_SPEAKER_MAC=AA:BB:CC:DD:EE:FF` in TapTune's
+`.env` (using your speaker's address).
+
+Do not install BlueALSA or enable the **system-wide** `taptune-bluetooth.service`.
+The installer uses a separate **user** service with the same name, which can
+access this user's PipeWire server.
 
 ## 2. Install Spotifyd
 
@@ -35,6 +49,8 @@ cat > ~/.config/spotifyd/spotifyd.conf <<'EOF'
 device_name = "TapTune"
 device_type = "speaker"
 backend = "pulseaudio"
+initial_volume = 30
+volume_controller = "softvol"
 use_mpris = false
 EOF
 chmod 600 ~/.config/spotifyd/spotifyd.conf
@@ -48,24 +64,36 @@ Authenticate from the desktop user's terminal. Spotifyd opens an OAuth link; com
 
 Spotifyd stores its credentials in that user's cache. Keep using the same desktop account so the service can read them.
 
-## 4. Run Spotifyd when the desktop session starts
+## 4. Enable audio before login and Bluetooth recovery
 
-Install the included user unit:
-
-```bash
-mkdir -p ~/.config/systemd/user
-cp systemd/taptune-spotifyd.user.service ~/.config/systemd/user/taptune-spotifyd.service
-systemctl --user daemon-reload
-systemctl --user enable --now taptune-spotifyd.service
-```
-
-Check that the receiver is running:
+Install the runtime tools if needed:
 
 ```bash
-systemctl --user status taptune-spotifyd.service --no-pager
+sudo apt install -y pipewire pipewire-pulse wireplumber pulseaudio-utils bluez
 ```
 
-Open Spotify on a phone or computer on the same network and choose **TapTune** from its device list. This confirms that Spotify Connect can reach the Pi.
+From the TapTune repository, run **as the same user who authenticated Spotifyd**,
+not with `sudo` (the script invokes `sudo` only for system changes):
+
+```bash
+bash systemd/install-desktop-speaker.sh --dry-run
+bash systemd/install-desktop-speaker.sh
+```
+
+It installs the Spotifyd and Bluetooth user services, sets Spotifyd's
+`initial_volume` to 30, enables lingering for this user, starts PipeWire and
+WirePlumber at boot, and configures Bluetooth audio without an active login
+session. WirePlumber 0.4 (Bookworm) and 0.5 (Trixie) use different configuration
+formats; the installer detects which to use.
+
+The Bluetooth service checks the link every 10 seconds, retries connections,
+sets this speaker as the default audio sink and moves existing playback streams
+back to it after reconnection. This includes desktop audio, so the Pi should be
+dedicated to this speaker. It logs failures and retries while the audio server
+or speaker is unavailable.
+
+If you previously enabled another `spotifyd.service`, disable it so only one
+receiver runs: `systemctl --user disable --now spotifyd.service`.
 
 ## 5. Configure TapTune
 
@@ -73,22 +101,60 @@ In TapTune's `.env`, keep the Connect device name in sync and disable the ready 
 
 ```dotenv
 SPOTIFY_DEVICE_NAME=TapTune
+SPOTIFY_INITIAL_VOLUME=30
+BLUETOOTH_SPEAKER_MAC=AA:BB:CC:DD:EE:FF
 READY_SOUND_ENABLED=false
 ```
 
-TapTune runs as a system service and cannot use the desktop user's PipeWire audio session for its chime. Spotifyd handles music playback through PipeWire. Restart TapTune after changing `.env`:
+Use your actual Bluetooth address. TapTune checks this connection on each local
+receiver command, reconnects if needed, and reports `bluetooth_not_ready` rather
+than dispatching to a disconnected speaker. A tap may take a few seconds while
+the speaker reconnects. Physical power-off cannot be repaired in software.
+
+TapTune's system service cannot use the user's PipeWire audio session for its
+chime, so leave the chime disabled. Volume initialization still runs. Reinstall
+TapTune's unit in Desktop mode so it no longer starts competing Lite services:
 
 ```bash
+bash systemd/install-service.sh --desktop
 sudo systemctl restart raspi-spotify-nfc.service
 ```
 
-When nothing is already playing, TapTune sends playback to the `TapTune` Connect device. Music starts after the desktop user session and Spotifyd are running.
+When nothing is already playing, TapTune sends playback to the `TapTune`
+Connect device. If another Spotify device is active, tags continue to control
+that device.
+
+## 6. Verify a cold boot
+
+Reboot with the speaker powered on. **Before logging into the Pi**, choose
+**TapTune** in Spotify on your phone or tap a music tag. Confirm sound comes from
+the Bluetooth speaker, not HDMI or the Pi's analogue output. Allow time for
+network connection and Spotify registration.
+
+Then log in to inspect:
+
+```bash
+loginctl show-user "$(id -un)" -p Linger
+systemctl --user status pipewire-pulse.service wireplumber.service taptune-spotifyd.service taptune-bluetooth.service --no-pager
+pactl get-default-sink
+journalctl --user -u taptune-bluetooth.service -u taptune-spotifyd.service -n 100 --no-pager
+```
+
+For idle recovery, stop music, let the speaker disconnect, then tap again.
+Reconnection and PipeWire routing are separate steps: if BlueZ reconnects but
+audio is still on another sink, inspect the Bluetooth user-service log. A
+speaker that powers off completely needs its auto-standby setting disabled
+(if available) or must be turned on manually. We do not send periodic sounds
+or silently resume music to keep it awake.
 
 ## Troubleshooting
 
 | Symptom | Check |
 | --- | --- |
-| TapTune is missing from Spotify's device list | Confirm the desktop user is logged in, then run `systemctl --user status taptune-spotifyd.service --no-pager`. |
+| TapTune is missing from Spotify's device list | Check `Linger=yes` with `loginctl show-user "$(id -un)" -p Linger`, then inspect the Spotifyd and PipeWire user services. |
 | Spotifyd fails to start | Read its user-service log with `journalctl --user -u taptune-spotifyd.service -n 100 --no-pager`. |
 | Spotifyd is visible but silent | Confirm the Bluetooth speaker is connected and selected as the desktop output; check `wpctl status` and the Spotifyd log. |
+| Bluetooth says connected but music only works after login | Check the WirePlumber headless config installed by the script and that PipeWire/WirePlumber are running under the Spotifyd user. Lingering alone does not disable WirePlumber's active-session check. |
+| Volume tags fail | Use `volume_controller = "softvol"`, not `"none"`, and check that Spotify reports volume support for the receiver. |
+| The speaker disconnects after idle | Check the Bluetooth user-service log. Turn the speaker back on if it powered off; software cannot wake an unreachable powered-off device. |
 | TapTune dispatch returns `speaker_not_ready` | Check the `SPOTIFY_DEVICE_NAME` value in `.env` matches `device_name` in `spotifyd.conf`, then restart both services. |

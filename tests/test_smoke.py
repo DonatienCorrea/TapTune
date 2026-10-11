@@ -116,6 +116,17 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(dispatch.status_code, 200)
         self.assertEqual(dispatch.get_json()['result']['action'], 'next')
 
+    def test_volume_tags_can_be_assigned_and_dispatched_in_both_locales(self):
+        for path, action, expected in (("/assign", "up", 40), ("/fr/assign", "down", 30)):
+            value = f"action:volume_{action}"
+            uid = f"VOLUME-{action}"
+            response = self.client.post(path, data={"uid": uid, "value": value}, follow_redirects=True)
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(f'data-value="{value}"'.encode(), response.data)
+            self.assertEqual(get_tag_by_uid(uid)["tag_type"], "action")
+            result = self.client.post("/dispatch", data={"uid": uid}).get_json()["result"]
+            self.assertEqual(result["volume_percent"], expected)
+
     def test_invalid_simulated_value_is_not_persisted(self):
         with self.assertRaisesRegex(ValueError, "Unsupported simulated tag value"):
             dispatch_simulated_value("UID-INVALID", "action:unsupported")

@@ -25,7 +25,8 @@ TapTune provides:
 
 - a local web page for assigning NFC tags;
 - Spotify playlist, album, and track playback;
-- play/pause and next-track actions;
+- play/pause, next-track and volume ±10-point actions;
+- a 30% startup volume for the Pi receiver;
 - SQLite storage for assignments and event records;
 - a fake mode and simulator for testing without Spotify or NFC hardware;
 - a PN532 reader path over Raspberry Pi I2C; and
@@ -78,7 +79,7 @@ The result should include `"status": "ok"` and `"mode": "fake"`.
 
 - The web UI always starts; PN532 polling starts only when `NFC_READER_ENABLED=true`.
 - Self-describing tags: on NTAG21x (Type 2) tags the PN532 reader fetches the NDEF memory and plays the Spotify link or `spotify:` URI written on the tag, for example from a phone with NFC Tools. Share links such as `https://open.spotify.com/playlist/<id>?si=…` are converted automatically. A blank tag, a non-Type-2 tag (MIFARE Classic), or a failed read falls back to the value assigned to the UID in the web UI. The memory is read once each time a tag is presented. TapTune does not write tags.
-- Live playback requires a Spotify Premium account and valid developer credentials. With the [Lite speaker setup](docs/speaker-setup.md), the Pi is its own Spotify speaker after boot. The [Desktop/PipeWire setup](docs/speaker-setup-desktop.md) makes it available after the desktop user logs in. If music is already playing on another device, taps control that device.
+- Live playback requires a Spotify Premium account and valid developer credentials. Both the [Lite speaker setup](docs/speaker-setup.md) and the [Desktop/PipeWire setup](docs/speaker-setup-desktop.md) support playback after boot without logging in. Desktop requires the included user-audio installer and a dedicated audio user. If music is already playing on another device, taps control that device.
 - On Lite, a short chime tells you when TapTune is ready after boot. Desktop/PipeWire setup disables the chime because TapTune's system service cannot play into the user's audio session. There is no status LED, and other runtime errors are inspected through logs.
 - Hardware-specific Python packages are kept in `requirements-pi.txt` so local development remains hardware-free.
 

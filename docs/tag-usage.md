@@ -20,9 +20,30 @@ Controls:
 action:play_pause
 action:next
 action:next_track
+action:volume_up
+action:volume_down
 ```
 
 `action:next` and `action:next_track` are equivalent.
+
+`action:volume_up` adds **10 percentage points** (30% becomes 40%);
+`action:volume_down` subtracts 10 points. Volume is clamped to 0–100%.
+Assign two tags using the **Volume +10%** and **Volume -10%** quick-fill buttons.
+These controls do not start music. They adjust the current Spotify device, or
+the configured Pi receiver when there is no current playback. If Spotify cannot
+read or control the device's volume, TapTune reports an error rather than
+guessing a value.
+
+TapTune sets its own receiver to **30% when the app starts**, once the receiver
+appears on Spotify Connect. Set `SPOTIFY_INITIAL_VOLUME=30` in `.env` to make this
+explicit. It does not reset another active device's volume or reset the volume
+on every tap. For Spotifyd, also use `initial_volume = 30` in its `[global]`
+configuration so the receiver starts safely even before TapTune reaches it.
+
+When `BLUETOOTH_SPEAKER_MAC` is configured, local receiver commands check the
+Bluetooth connection first and try reconnecting if necessary. An unreachable
+speaker produces `bluetooth_not_ready`; turn it on and tap again. Fake mode and
+commands directed to another active Spotify device do not touch Bluetooth.
 
 ## Assign the first tag
 
@@ -82,6 +103,9 @@ When NDEF bytes are supplied to the decoder:
 2. a blank or unsupported value falls back to the registered UID mapping; and
 3. if no mapping exists, the raw UID remains the final fallback.
 
-This is a supported data format, but it is **not yet connected to physical PN532 reads**. The current reader returns only the UID and TapTune does not write tags. Physical self-describing tags require future reader-memory integration.
+The PN532 reads NDEF memory on Type 2 tags (such as NTAG21x). A text record
+containing `action:volume_up` or `action:volume_down` works without a UID mapping.
+Blank tags, unsupported values and failed memory reads fall back to UID lookup.
+TapTune does not write tags.
 
 Decoding lives in `app/ndef.py` and is tested without reader hardware.

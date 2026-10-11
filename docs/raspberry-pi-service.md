@@ -84,7 +84,7 @@ Run the installer from the repository root after `.venv` and `.env` exist:
 sudo ./systemd/install-service.sh
 ```
 
-The installer rewrites those three paths for the current checkout before installing the unit. With the Lite speaker setup, the unit starts after `raspotify` and the Bluetooth services. On Debian 13 Desktop, the Spotify Connect receiver is a separate user service and starts with the desktop session; see [PipeWire desktop setup](speaker-setup-desktop.md).
+The installer rewrites those three paths for the current checkout before installing the unit. With the Lite speaker setup, the unit starts after `raspotify` and the Bluetooth services. On Desktop/PipeWire, use `bash systemd/install-service.sh --desktop` instead: this removes the Lite audio dependencies so TapTune does not start a competing Raspotify/BlueALSA stack. Enable the Spotifyd user's audio services at boot with the [PipeWire desktop setup](speaker-setup-desktop.md).
 
 Preview the generated unit without root or installation:
 
@@ -129,6 +129,11 @@ sqlite3 data/raspi_spotify_nfc.db \
 ## Safe updates
 
 Back up the database and `.env` before updating:
+
+For Desktop/PipeWire, replace the `install-service.sh` command below with
+`bash systemd/install-service.sh --desktop`, and rerun
+`bash systemd/install-desktop-speaker.sh` as the Spotifyd user to update its
+installed reconnect script and user units.
 
 ```bash
 cd /home/pi/TapTune

@@ -3,6 +3,7 @@ import stat
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -55,7 +56,7 @@ class BluetoothReconnectScriptTests(unittest.TestCase):
         self.fake = fake
 
     def run_once(self, mac, connected="no"):
-        env = dict(os.environ, BLUETOOTHCTL=str(self.fake), BLUETOOTH_SPEAKER_MAC=mac, FAKE_CONNECTED=connected)
+        env = dict(os.environ, BLUETOOTHCTL=str(self.fake), BLUETOOTH_SPEAKER_MAC=mac, FAKE_CONNECTED=connected, AUDIO_BACKEND="alsa")
         return subprocess.run(["bash", str(RECONNECT), "--once"], env=env, capture_output=True, text=True)
 
     def calls(self):
@@ -64,7 +65,7 @@ class BluetoothReconnectScriptTests(unittest.TestCase):
     def test_connects_when_speaker_is_disconnected(self):
         result = self.run_once("aa:bb:cc:dd:ee:ff")
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(self.calls(), ["info AA:BB:CC:DD:EE:FF", "connect AA:BB:CC:DD:EE:FF"])
+        self.assertEqual(self.calls(), ["info AA:BB:CC:DD:EE:FF", "--timeout 10 connect AA:BB:CC:DD:EE:FF"])
 
     def test_does_nothing_when_already_connected(self):
         result = self.run_once("AA:BB:CC:DD:EE:FF", connected="yes")
@@ -80,6 +81,60 @@ class BluetoothReconnectScriptTests(unittest.TestCase):
         result = self.run_once("not-a-mac")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("not a Bluetooth address", result.stderr)
+
+    def test_desktop_routes_default_output_and_existing_streams(self):
+        fake = Path(self.directory.name) / "pactl"
+        fake.write_text(
+            "#!/usr/bin/env bash\n"
+            f'echo "$@" >> "{self.log}"\n'
+            'case "$*" in\n'
+            '  "list short sinks") printf "1\\talsa_output.hdmi\\n2\\tbluez_output.AA_BB_CC_DD_EE_FF.1\\n" ;;\n'
+            '  "get-default-sink") echo alsa_output.hdmi ;;\n'
+            '  "list short sink-inputs") printf "5\\t1\\t42\\n6\\t2\\t43\\n" ;;\n'
+            'esac\n'
+        )
+        fake.chmod(0o755)
+        env = dict(
+            os.environ, BLUETOOTHCTL=str(self.fake), PACTL=str(fake),
+            BLUETOOTH_SPEAKER_MAC="AA:BB:CC:DD:EE:FF",
+            FAKE_CONNECTED="yes", AUDIO_BACKEND="pulseaudio",
+        )
+        result = subprocess.run(["bash", str(RECONNECT), "--once"], env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("set-default-sink bluez_output.AA_BB_CC_DD_EE_FF.1", self.calls())
+        self.assertIn("move-sink-input 5 bluez_output.AA_BB_CC_DD_EE_FF.1", self.calls())
+        self.assertNotIn("move-sink-input 6 bluez_output.AA_BB_CC_DD_EE_FF.1", self.calls())
+
+    def test_invalid_interval_fails_instead_of_spinning(self):
+        with patch.dict(os.environ, BLUETOOTH_RECONNECT_INTERVAL="0"):
+            result = self.run_once("AA:BB:CC:DD:EE:FF")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("positive integer", result.stderr)
+
+
+class DesktopInstallerTests(unittest.TestCase):
+    def test_dry_run_starts_user_audio_at_boot_and_disables_seat_monitoring(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fake = Path(directory) / "wireplumber"
+            for version in ("0.4.17", "0.5.8"):
+                with self.subTest(version=version):
+                    fake.write_text(f"#!/bin/sh\necho 'wireplumber {version}'\n")
+                    fake.chmod(0o755)
+                    env = dict(os.environ, PATH=directory + os.pathsep + os.environ["PATH"])
+                    env.pop("XDG_CONFIG_HOME", None)
+                    result = subprocess.run(
+                        ["bash", str(REPO_ROOT / "systemd/install-desktop-speaker.sh"), "--dry-run"],
+                        env=env, capture_output=True, text=True, check=True,
+                    )
+                    self.assertIn("loginctl enable-linger", result.stdout)
+                    self.assertIn("pipewire.socket pipewire-pulse.socket wireplumber.service", result.stdout)
+                    self.assertIn("taptune-bluetooth.user.service", result.stdout)
+                    self.assertIn("taptune-spotifyd.user.service", result.stdout)
+                    self.assertNotIn("bluealsa", result.stdout)
+                    if version.startswith("0.4"):
+                        self.assertIn('bluez_monitor.properties["with-logind"] = false', result.stdout)
+                    else:
+                        self.assertIn("monitor.bluez.seat-monitoring = disabled", result.stdout)
 
 
 if __name__ == "__main__":
