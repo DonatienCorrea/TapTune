@@ -1,6 +1,7 @@
 [Unit]
 Description=TapTune Spotify Connect receiver
 After=pipewire-pulse.service
+Wants=pipewire-pulse.service wireplumber.service
 
 [Service]
 ExecStart=/usr/local/bin/spotifyd --no-daemon

@@ -41,6 +41,16 @@ class InstallServiceScriptTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("unknown argument", result.stderr)
 
+    def test_desktop_does_not_start_competing_lite_audio_services(self):
+        result = subprocess.run(
+            ["bash", str(SCRIPT_PATH), "--desktop", "--dry-run"],
+            capture_output=True, text=True, check=True,
+        )
+        self.assertIn("Wants=network-online.target\n", result.stdout)
+        self.assertIn("After=network-online.target bluetooth.service\n", result.stdout)
+        self.assertNotIn("raspotify", result.stdout)
+        self.assertNotIn("bluealsa", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

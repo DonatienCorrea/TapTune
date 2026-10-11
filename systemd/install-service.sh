@@ -6,10 +6,14 @@
 set -euo pipefail
 
 DRY_RUN=0
+DESKTOP=0
 for arg in "$@"; do
   case "$arg" in
     --dry-run)
       DRY_RUN=1
+      ;;
+    --desktop)
+      DESKTOP=1
       ;;
     *)
       echo "error: unknown argument '$arg'" >&2
@@ -45,6 +49,12 @@ RENDERED=$(sed \
   -e "s#^ExecStart=.*#ExecStart=$REPO_DIR/.venv/bin/python -m app.main#" \
   -e "s#^EnvironmentFile=.*#EnvironmentFile=$REPO_DIR/.env#" \
   "$UNIT_SRC")
+
+if [ "$DESKTOP" -eq 1 ]; then
+  RENDERED="$(printf '%s\n' "$RENDERED" | sed \
+    -e 's/^Wants=.*/Wants=network-online.target/' \
+    -e 's/^After=.*/After=network-online.target bluetooth.service/')"
+fi
 
 if [ "$DRY_RUN" -eq 1 ]; then
   printf '%s\n' "$RENDERED"

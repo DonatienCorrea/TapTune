@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import threading
 from typing import Any, Optional
 
 try:
@@ -12,10 +13,15 @@ except ModuleNotFoundError:  # pragma: no cover - exercised when the optional de
     SpotifyException = None
 
 from .config import settings
+from .bluetooth import BluetoothNotReady, ensure_speaker_connected
 
 SPOTIFY_URI_PATTERN = re.compile(r"^spotify:(track|playlist|album):([A-Za-z0-9]+)$")
-SUPPORTED_ACTIONS = frozenset({"action:play_pause", "action:next", "action:next_track"})
+SUPPORTED_ACTIONS = frozenset({
+    "action:play_pause", "action:next", "action:next_track",
+    "action:volume_up", "action:volume_down",
+})
 _fake_spotify_client: Optional["FakeSpotifyClient"] = None
+_volume_lock = threading.Lock()
 
 
 class FakeSpotifyClient:
@@ -24,6 +30,20 @@ class FakeSpotifyClient:
         self.current_uri = "spotify:track:demo"
         self.position_ms = 0
         self.device_id = None
+        self.volume_percent = settings.SPOTIFY_INITIAL_VOLUME
+
+    def volume(self, volume_percent, device_id=None):
+        self.volume_percent = volume_percent
+        return {"status": "ok", "mode": "fake", "volume_percent": volume_percent}
+
+    def _device(self):
+        return {
+            "id": "fake-device",
+            "name": settings.SPOTIFY_DEVICE_NAME or "TapTune",
+            "is_active": self.device_id is not None,
+            "volume_percent": self.volume_percent,
+            "supports_volume": True,
+        }
 
     def start_playback(self, device_id=None, uris=None, context_uri=None, position_ms=0):
         if uris:
@@ -58,11 +78,7 @@ class FakeSpotifyClient:
     def devices(self):
         return {
             "devices": [
-                {
-                    "id": "fake-device",
-                    "name": settings.SPOTIFY_DEVICE_NAME or "TapTune",
-                    "is_active": self.device_id is not None,
-                }
+                self._device()
             ]
         }
 
@@ -72,6 +88,7 @@ class FakeSpotifyClient:
             "item": {"uri": self.current_uri},
             "position_ms": self.position_ms,
             "mode": "fake",
+            "device": self._device(),
         }
 
 
@@ -116,16 +133,21 @@ def build_spotify_client() -> Any:
     return Spotify(auth_manager=auth_manager)
 
 
-def find_device_id(spotify: Any, name: Optional[str] = None) -> Optional[str]:
-    """Return the Web API id of the Connect device called ``name`` (case-insensitive)."""
+def find_device(spotify: Any, name: Optional[str] = None) -> Optional[dict]:
+    """Return the Connect device called ``name`` (case-insensitive)."""
     name = (settings.SPOTIFY_DEVICE_NAME if name is None else name).strip()
     if not name:
         return None
     response = spotify.devices() or {}
     for device in response.get("devices") or []:
         if (device.get("name") or "").strip().casefold() == name.casefold() and device.get("id"):
-            return device["id"]
+            return device
     return None
+
+
+def find_device_id(spotify: Any, name: Optional[str] = None) -> Optional[str]:
+    device = find_device(spotify, name)
+    return device["id"] if device else None
 
 
 def resolve_target_device(spotify: Any, current: Optional[dict]) -> Optional[str]:
@@ -134,6 +156,7 @@ def resolve_target_device(spotify: Any, current: Optional[dict]) -> Optional[str
     Returns ``None`` to let Spotify use the active device, a device id for the Pi,
     or raises ``SpeakerNotReady`` when nothing can play.
     """
+    _prepare_local_speaker(current)
     if current:
         return None
     if not settings.SPOTIFY_DEVICE_NAME:
@@ -153,12 +176,14 @@ def _speaker_not_ready_response() -> dict:
         "device_name": settings.SPOTIFY_DEVICE_NAME,
         "message": (
             f"The '{settings.SPOTIFY_DEVICE_NAME}' speaker is not ready yet. Check that the "
-            "Raspberry Pi is connected to the network and that raspotify is running, then try again."
+            "Raspberry Pi is connected to the network and that Spotifyd or Raspotify is running, then try again."
         ),
     }
 
 
 def _handle_error(error: Exception) -> dict:
+    if isinstance(error, BluetoothNotReady):
+        return {"status": "error", "error": "bluetooth_not_ready", "message": str(error)}
     if isinstance(error, SpeakerNotReady):
         return _speaker_not_ready_response()
     if SpotifyException is not None and isinstance(error, SpotifyException):
@@ -171,7 +196,7 @@ def _spotify_error_response(error: "SpotifyException") -> dict:
     if reason == "NO_ACTIVE_DEVICE":
         message = (
             "No active Spotify device found. Check that the TapTune speaker "
-            "(raspotify) is running, or open Spotify on a device and start playback there once."
+            "(Spotifyd or Raspotify) is running, or open Spotify on a device and start playback there once."
         )
     else:
         message = str(error)
@@ -193,7 +218,8 @@ def play_content(uri: str, position_ms: int = 0) -> dict:
 
     spotify = build_spotify_client()
     try:
-        device_id = resolve_target_device(spotify, spotify.current_playback())
+        current = spotify.current_playback()
+        device_id = resolve_target_device(spotify, current)
         if match.group(1) == "track":
             return spotify.start_playback(device_id=device_id, uris=[uri], position_ms=position_ms)
         if match.group(1) in {"playlist", "album"}:
@@ -207,9 +233,9 @@ def toggle_playback() -> dict:
     spotify = build_spotify_client()
     try:
         current = spotify.current_playback()
+        device_id = resolve_target_device(spotify, current)
         if current and current.get("is_playing"):
             return spotify.pause_playback()
-        device_id = resolve_target_device(spotify, current)
         if device_id is not None:
             # Nothing is active: resume the account's last playback on the Pi.
             return spotify.transfer_playback(device_id, force_play=True)
@@ -221,7 +247,8 @@ def toggle_playback() -> dict:
 def next_track() -> dict:
     spotify = build_spotify_client()
     try:
-        device_id = resolve_target_device(spotify, spotify.current_playback())
+        current = spotify.current_playback()
+        device_id = resolve_target_device(spotify, current)
         return spotify.next_track(device_id=device_id)
     except Exception as error:  # noqa: BLE001 - translate spotipy/network errors into a dict response.
         return _handle_error(error)
@@ -232,6 +259,46 @@ def get_current_playback() -> Optional[dict]:
     return spotify.current_playback()
 
 
+def _prepare_local_speaker(current: Optional[dict]) -> None:
+    if not is_live_spotify_configured() or not settings.BLUETOOTH_SPEAKER_MAC:
+        return
+    device = (current or {}).get("device") or {}
+    local_name = settings.SPOTIFY_DEVICE_NAME.casefold()
+    if local_name and (not current or (device.get("name") or "").strip().casefold() == local_name):
+        ensure_speaker_connected()
+
+
+def change_volume(step: int) -> dict:
+    spotify = build_spotify_client()
+    try:
+        with _volume_lock:
+            current = spotify.current_playback()
+            _prepare_local_speaker(current)
+            device = current.get("device") if current else None
+            if not device and not current:
+                device = find_device(spotify)
+                if device is None:
+                    raise SpeakerNotReady(settings.SPOTIFY_DEVICE_NAME)
+            volume = device.get("volume_percent") if device else None
+            if (
+                not device or not device.get("id")
+                or device.get("supports_volume") is False
+                or device.get("is_restricted") is True
+                or isinstance(volume, bool) or not isinstance(volume, int)
+                or not 0 <= volume <= 100
+            ):
+                return {
+                    "status": "error",
+                    "error": "volume_unavailable",
+                    "message": "Spotify cannot read or change this device's volume. Select a receiver that supports volume control.",
+                }
+            new_volume = max(0, min(100, volume + step))
+            result = spotify.volume(new_volume, device_id=device["id"])
+            return result if isinstance(result, dict) else {"status": "ok", "volume_percent": new_volume}
+    except Exception as error:  # noqa: BLE001 - use the same API error translation as playback.
+        return _handle_error(error)
+
+
 def dispatch_tag_value(value: str) -> dict:
     if value.startswith("spotify:"):
         return play_content(value)
@@ -239,4 +306,6 @@ def dispatch_tag_value(value: str) -> dict:
         return toggle_playback()
     if value in {"action:next", "action:next_track"}:
         return next_track()
+    if value in {"action:volume_up", "action:volume_down"}:
+        return change_volume(10 if value == "action:volume_up" else -10)
     return {"status": "unsupported_action", "value": value}

@@ -30,6 +30,16 @@ def parse_bool(value: str, name: str = "NFC_READER_ENABLED") -> bool:
     )
 
 
+def parse_volume(value: str) -> int:
+    try:
+        volume = int(value)
+    except ValueError as error:
+        raise ValueError(f"SPOTIFY_INITIAL_VOLUME must be an integer from 0 to 100; got {value!r}") from error
+    if not 0 <= volume <= 100:
+        raise ValueError(f"SPOTIFY_INITIAL_VOLUME must be from 0 to 100; got {volume}")
+    return volume
+
+
 class Settings:
     APP_HOST = os.getenv("APP_HOST", "0.0.0.0")
     APP_PORT = parse_port(os.getenv("APP_PORT", "5000"))
@@ -42,6 +52,8 @@ class Settings:
     # Name of the Spotify Connect receiver running on the Pi (raspotify/librespot).
     # Leave empty to only ever play on an already active device.
     SPOTIFY_DEVICE_NAME = os.getenv("SPOTIFY_DEVICE_NAME", "TapTune").strip()
+    SPOTIFY_INITIAL_VOLUME = parse_volume(os.getenv("SPOTIFY_INITIAL_VOLUME", "30"))
+    BLUETOOTH_SPEAKER_MAC = os.getenv("BLUETOOTH_SPEAKER_MAC", "").strip()
     AUDIO_OUTPUT_DEVICE = os.getenv("AUDIO_OUTPUT_DEVICE", "bluealsa").strip()
     READY_SOUND_ENABLED = parse_bool(os.getenv("READY_SOUND_ENABLED", "true"), "READY_SOUND_ENABLED")
 

@@ -134,9 +134,43 @@ def should_announce_ready() -> bool:
     return bool(settings.READY_SOUND_ENABLED and settings.SPOTIFY_DEVICE_NAME and is_live_spotify_configured())
 
 
+def initialize_speaker(
+    sleep: Callable[[float], None] = time.sleep,
+    interval_seconds: float = 5.0,
+    timeout_seconds: float = 600.0,
+    stop_event: Optional[threading.Event] = None,
+) -> bool:
+    """Set only the Pi receiver's startup volume, even when its chime is disabled."""
+    waited = 0.0
+    while waited <= timeout_seconds:
+        if stop_event is not None and stop_event.is_set():
+            return False
+        try:
+            spotify = build_spotify_client()
+            device_id = find_device_id(spotify)
+            if device_id is not None:
+                spotify.volume(settings.SPOTIFY_INITIAL_VOLUME, device_id=device_id)
+                logger.info("Set '%s' startup volume to %s%%.", settings.SPOTIFY_DEVICE_NAME, settings.SPOTIFY_INITIAL_VOLUME)
+                if should_announce_ready():
+                    return wait_until_ready_then_chime(stop_event=stop_event)
+                return True
+        except Exception as error:  # noqa: BLE001 - the receiver/network may still be starting.
+            logger.info("Waiting to set startup volume: %s", error)
+        sleep(interval_seconds)
+        waited += interval_seconds
+    logger.warning("Could not set startup volume; check Spotifyd/Raspotify and the network.")
+    return False
+
+
+def start_speaker_thread(target: Callable[[], bool] = initialize_speaker) -> Optional[threading.Thread]:
+    if not settings.SPOTIFY_DEVICE_NAME or not is_live_spotify_configured():
+        return None
+    thread = threading.Thread(target=target, name="speaker-startup", daemon=True)
+    thread.start()
+    return thread
+
+
 def start_readiness_thread(target: Callable[[], bool] = wait_until_ready_then_chime) -> Optional[threading.Thread]:
     if not should_announce_ready():
         return None
-    thread = threading.Thread(target=target, name="ready-sound", daemon=True)
-    thread.start()
-    return thread
+    return start_speaker_thread(target=target)

@@ -122,19 +122,26 @@ Paste this template for **PulseAudio** (recommended for Raspberry Pi OS with Blu
 
 ```ini
 [global]
-username = "YOUR_SPOTIFY_USERNAME"
-password = "YOUR_SPOTIFY_PASSWORD"
 backend = "pulseaudio"
 device_name = "Raspberry Pi 5"
 bitrate = 320
-cache_path = "/home/pi/.cache/spotifyd"
+initial_volume = 30
+volume_controller = "softvol"
+use_mpris = false
 ```
 
-Replace `YOUR_SPOTIFY_USERNAME` and `YOUR_SPOTIFY_PASSWORD` with your Spotify account credentials.
+Protect the config, then authenticate as the user who will run Spotifyd:
+
+```bash
+chmod 600 ~/.config/spotifyd/spotifyd.conf
+/usr/local/bin/spotifyd authenticate
+```
+
+Complete the OAuth link in a browser. Spotifyd caches its credentials for that
+user; do not put your Spotify password in the config. TapTune's Web API OAuth
+credentials are separate from Spotifyd's receiver authentication.
 
 > **Why PulseAudio?** Recent Raspberry Pi OS versions (Debian Bookworm/Trixie) use PipeWire with PulseAudio emulation. The `pulseaudio` backend works reliably with Bluetooth speakers and avoids ALSA device conflicts.
-
-> **Security note:** Storing credentials in plain text is acceptable for this use case because the Pi is typically on a private network. For critical installations, use Spotify OAuth instead (see [Spotify authorization](spotify-authorization.md) for the TapTune pattern).
 
 ## 7. Test Spotifyd
 
@@ -162,56 +169,30 @@ Test playback:
 
 If it works, press `Ctrl+C` to stop the foreground process.
 
-## 8. Create a systemd service (optional)
+## 8. Start the receiver and audio at boot
 
-To run Spotifyd automatically on boot, create a systemd unit:
-
-```bash
-sudo nano /etc/systemd/user/spotifyd.service
-```
-
-Paste this:
-
-```ini
-[Unit]
-Description=Spotifyd Spotify Connect Receiver
-Documentation=https://github.com/Spotifyd/spotifyd
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/spotifyd --no-daemon
-Restart=on-failure
-RestartSec=10
-
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=default.target
-```
-
-Enable and start the service:
+For Desktop/PipeWire with a Bluetooth speaker, follow
+[Desktop speaker setup](speaker-setup-desktop.md#4-enable-audio-before-login-and-bluetooth-recovery).
+From the TapTune checkout, the included installer runs as the Spotifyd user:
 
 ```bash
-systemctl --user daemon-reload
-systemctl --user enable spotifyd.service
-systemctl --user start spotifyd.service
-systemctl --user status spotifyd.service
+bash systemd/install-desktop-speaker.sh --dry-run
+bash systemd/install-desktop-speaker.sh
 ```
 
-Check logs:
+It requires `BLUETOOTH_SPEAKER_MAC` in TapTune's `.env`. It installs
+`taptune-spotifyd.service` and the Bluetooth **user** service, enables lingering,
+starts PipeWire/WirePlumber at boot, and removes WirePlumber's active-login
+restriction on Bluetooth audio. **Lingering alone is not enough** to make
+Bluetooth audio work before login.
 
 ```bash
-journalctl --user -u spotifyd.service -n 50 -f
+systemctl --user status taptune-spotifyd.service taptune-bluetooth.service --no-pager
+journalctl --user -u taptune-spotifyd.service -n 50 --no-pager
 ```
 
-If you want Spotifyd to start even when you're not logged in, enable lingering for your user:
-
-```bash
-sudo loginctl enable-linger pi
-```
+Do not run a second `spotifyd.service` or Raspotify alongside this receiver.
+For Lite without PipeWire, use the [Lite speaker setup](speaker-setup.md) instead.
 
 ## 9. Connect via TapTune
 
@@ -221,6 +202,8 @@ In TapTune's `.env`:
 
 ```dotenv
 SPOTIFY_DEVICE_NAME=Raspberry Pi 5
+SPOTIFY_INITIAL_VOLUME=30
+READY_SOUND_ENABLED=false
 ```
 
 Make sure `SPOTIFY_DEVICE_NAME` matches the device name configured in `spotifyd.conf`.
@@ -247,11 +230,11 @@ Music should play on the Spotifyd device.
 | `libssl.so.1.1: cannot open shared object file` | The build used the old OpenSSL. Clean and rebuild: `cargo clean && cargo +stable build --release --locked`. |
 | Spotifyd starts but audio is silent or errors occur | Use `backend = "pulseaudio"` instead of `alsa`. PulseAudio handles PipeWire integration on modern Raspberry Pi OS. |
 | Service fails to start: `Unable to locate executable` | Ensure `ExecStart=/usr/local/bin/spotifyd --no-daemon` in the `.service` file. Reload with `systemctl --user daemon-reload`. |
-| Spotifyd not in Spotify device list | It takes 5–10 seconds to register. Refresh the device list in Spotify. Check `journalctl --user -u spotifyd.service -n 50`. |
-| Service fails to start at boot | Check `systemctl --user status spotifyd.service`. Ensure `SPOTIFY_PASSWORD` and `SPOTIFY_USERNAME` are set. Verify the binary path in `ExecStart` is `/usr/local/bin/spotifyd`. |
+| Spotifyd not in Spotify device list | It takes a few seconds to register. Refresh the device list in Spotify. Check `journalctl --user -u taptune-spotifyd.service -n 50 --no-pager`. |
+| Audio only works after login | Follow the Desktop installer guide; check lingering, the PipeWire user services and WirePlumber's headless Bluetooth config. |
 
 ## Next steps
 
 1. **If using Spotifyd alone:** continue with [Hardware setup](hardware-setup.md) to enable the PN532 reader and assign NFC tags.
-2. **If also using speaker auto-connect:** see [Speaker setup](speaker-setup.md) for BlueALSA + Raspotify integration. (You don't need both Spotifyd and Raspotify; pick one.)
+2. **For Bluetooth auto-connect with PipeWire:** see [Desktop speaker setup](speaker-setup-desktop.md). Do not combine Spotifyd/PipeWire with BlueALSA/Raspotify.
 3. **For live NFC playback:** complete [Using tags](tag-usage.md) and [Raspberry Pi service](raspberry-pi-service.md) to enable the reader and dispatch.
