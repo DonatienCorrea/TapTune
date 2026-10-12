@@ -28,26 +28,29 @@ BT_UNIT_SRC="$SCRIPT_DIR/taptune-bluetooth.service"
 BT_UNIT_DST="/etc/systemd/system/taptune-bluetooth.service"
 RASPOTIFY_CONF="/etc/raspotify/conf"
 RASPOTIFY_INSTALLER="https://dtcooper.github.io/raspotify/install.sh"
+source "$SCRIPT_DIR/install-common.sh"
 
 if [ "$DRY_RUN" -eq 0 ] && [ ! -f "$ENV_FILE" ]; then
   echo "error: $ENV_FILE not found. Copy .env.example to .env and fill it in first." >&2
   exit 1
 fi
 
-env_value() {
-  local value=""
-  if [ -f "$ENV_FILE" ]; then
-    value="$(grep -E "^$1=" "$ENV_FILE" | tail -n 1 | cut -d= -f2- || true)"
-  fi
-  value="${value%\"}"
-  value="${value#\"}"
-  printf '%s' "$value"
-}
-
 DEVICE_NAME="$(env_value SPOTIFY_DEVICE_NAME)"
 DEVICE_NAME="${DEVICE_NAME:-TapTune}"
+MAC="$(env_value BLUETOOTH_SPEAKER_MAC)"
+if [ "$DRY_RUN" -eq 1 ] && [ -z "$MAC" ]; then
+  MAC="AA:BB:CC:DD:EE:FF"
+fi
+if ! printf '%s' "$MAC" | grep -Eq '^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$'; then
+  echo "error: set BLUETOOTH_SPEAKER_MAC in .env to the paired speaker's address" >&2
+  exit 1
+fi
+VOLUME="$(initial_volume)"
 AUDIO_DEVICE="$(env_value AUDIO_OUTPUT_DEVICE)"
 AUDIO_DEVICE="${AUDIO_DEVICE:-bluealsa}"
+if [ "$AUDIO_DEVICE" = "bluealsa" ]; then
+  AUDIO_DEVICE="bluealsa:DEV=$MAC,PROFILE=a2dp"
+fi
 
 case "$DEVICE_NAME$AUDIO_DEVICE" in
   *[\"\\\$\`]*)
@@ -56,26 +59,15 @@ case "$DEVICE_NAME$AUDIO_DEVICE" in
     ;;
 esac
 
-run() {
-  if [ "$DRY_RUN" -eq 1 ]; then
-    printf '%q ' "$@"
-    printf '\n'
-  else
-    "$@"
-  fi
-}
-
 # The block TapTune owns inside /etc/raspotify/conf. Rerunning replaces it.
 RASPOTIFY_BLOCK="# >>> TapTune >>>
 LIBRESPOT_NAME=\"$DEVICE_NAME\"
 LIBRESPOT_BACKEND=alsa
 LIBRESPOT_DEVICE=\"$AUDIO_DEVICE\"
+LIBRESPOT_INITIAL_VOLUME=$VOLUME
 # <<< TapTune <<<"
 
-BT_UNIT=$(sed \
-  -e "s#^ExecStart=.*#ExecStart=$REPO_DIR/systemd/taptune-bluetooth.sh#" \
-  -e "s#^EnvironmentFile=.*#EnvironmentFile=$REPO_DIR/.env#" \
-  "$BT_UNIT_SRC")
+BT_UNIT="$(render_unit "$BT_UNIT_SRC" "$REPO_DIR/systemd/taptune-bluetooth.sh")"
 
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "# Spotify Connect name: $DEVICE_NAME"
@@ -85,11 +77,11 @@ fi
 run sudo apt-get update
 run sudo apt-get install -y bluez bluez-alsa-utils libasound2-plugin-bluez alsa-utils curl
 
-if [ "$DRY_RUN" -eq 1 ] || ! command -v librespot >/dev/null 2>&1; then
+if [ "$DRY_RUN" -eq 1 ] || ! dpkg-query -W -f='${Status}' raspotify 2>/dev/null | grep -q '^install ok installed$'; then
   if [ "$DRY_RUN" -eq 1 ]; then
-    echo "curl -sSL $RASPOTIFY_INSTALLER | sh"
+    echo "curl -fsSL $RASPOTIFY_INSTALLER | sh"
   else
-    curl -sSL "$RASPOTIFY_INSTALLER" | sh
+    curl -fsSL "$RASPOTIFY_INSTALLER" | sh
   fi
 fi
 
@@ -101,6 +93,7 @@ run sudo sed -i \
   -e '/^LIBRESPOT_NAME=/s/^/#/' \
   -e '/^LIBRESPOT_BACKEND=/s/^/#/' \
   -e '/^LIBRESPOT_DEVICE=/s/^/#/' \
+  -e '/^LIBRESPOT_INITIAL_VOLUME=/s/^/#/' \
   "$RASPOTIFY_CONF"
 
 if [ "$DRY_RUN" -eq 1 ]; then
@@ -117,12 +110,13 @@ fi
 
 run sudo systemctl daemon-reload
 run sudo systemctl enable --now bluetooth.service bluealsa.service
-run sudo systemctl enable raspotify.service
-run sudo systemctl restart raspotify.service
+run bluetoothctl trust "$MAC"
 run sudo systemctl enable taptune-bluetooth.service
 run sudo systemctl restart taptune-bluetooth.service
+run sudo systemctl enable raspotify.service
+run sudo systemctl restart raspotify.service
 
 if [ "$DRY_RUN" -eq 0 ]; then
   echo "Installed the '$DEVICE_NAME' Spotify speaker."
-  echo "Next: pair the Bluetooth speaker, then select '$DEVICE_NAME' once in the Spotify app (see docs/speaker-setup.md)."
+  echo "Next: select '$DEVICE_NAME' once in the Spotify app, then restart TapTune (see docs/speaker-setup.md)."
 fi

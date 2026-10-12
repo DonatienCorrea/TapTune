@@ -6,11 +6,13 @@ from typing import Any, Optional
 
 try:
     from spotipy import Spotify, SpotifyException
+    from spotipy.cache_handler import MemoryCacheHandler
     from spotipy.oauth2 import SpotifyOAuth
 except ModuleNotFoundError:  # pragma: no cover - exercised when the optional dependency is absent.
     Spotify = None
     SpotifyOAuth = None
     SpotifyException = None
+    MemoryCacheHandler = None
 
 from .config import settings
 from .bluetooth import BluetoothNotReady, ensure_speaker_connected
@@ -116,10 +118,10 @@ def build_spotify_client() -> Any:
             _fake_spotify_client = FakeSpotifyClient()
         return _fake_spotify_client
 
-    if Spotify is None or SpotifyOAuth is None:
+    if Spotify is None or SpotifyOAuth is None or MemoryCacheHandler is None:
         raise RuntimeError(
             "Spotify support requires the 'spotipy' dependency. "
-            "Install it with 'pip install -r requirements.txt' or 'pip install -r requirements-pi.txt'."
+            "Install it with 'pip install -r requirements.txt'."
         )
 
     auth_manager = SpotifyOAuth(
@@ -127,7 +129,7 @@ def build_spotify_client() -> Any:
         client_secret=settings.SPOTIFY_CLIENT_SECRET,
         redirect_uri=settings.SPOTIFY_REDIRECT_URI,
         scope="user-modify-playback-state user-read-playback-state",
-        cache_path=None,
+        cache_handler=MemoryCacheHandler(),
     )
     auth_manager.refresh_access_token(settings.SPOTIFY_REFRESH_TOKEN)
     return Spotify(auth_manager=auth_manager)

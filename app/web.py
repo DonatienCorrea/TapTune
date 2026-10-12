@@ -2,7 +2,7 @@ from flask import Flask, jsonify, redirect, render_template, request, url_for
 
 from .config import settings
 from .db import get_tag_by_uid, list_tags, record_event, upsert_tag
-from .spotify_service import dispatch_tag_value, get_tag_type
+from .spotify_service import dispatch_tag_value, get_tag_type, is_live_spotify_configured
 
 TRANSLATIONS = {
     "en": {
@@ -104,6 +104,19 @@ def create_app() -> Flask:
     @app.get("/health")
     def health():
         return jsonify({"status": "ok", "app": "TapTune"})
+
+    @app.get("/ready")
+    def ready():
+        reader = app.config.get("NFC_READER_THREAD")
+        reader_ready = not settings.NFC_READER_ENABLED or (reader is not None and reader.is_alive())
+        live = is_live_spotify_configured()
+        ready = bool(reader_ready and live)
+        return jsonify({
+            "status": "ready" if ready else "not_ready",
+            "app": "TapTune",
+            "reader_ready": bool(reader_ready),
+            "spotify_mode": "spotify" if live else "fake",
+        }), 200 if ready else 503
 
     @app.post("/assign")
     def assign_tag_en():

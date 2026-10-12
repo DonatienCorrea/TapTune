@@ -12,8 +12,11 @@ Start with the smallest failing boundary: web process, configuration, Spotify, I
 | Fake mode is unexpected | All three live Spotify values must be non-empty. Remove placeholder values or complete the credentials, then restart. |
 | Spotify reports an authorization error | Recheck the client ID, client secret, refresh-token scopes, and exact redirect URI. |
 | Spotify reports no active device | Complete [Speaker setup](speaker-setup.md) so the Pi is always available, or open Spotify on a Connect-capable device using the same account, start playback once, and retry. |
-| Dispatch returns `speaker_not_ready` | Nothing is playing and the Pi speaker (`SPOTIFY_DEVICE_NAME`) is not signed in to Spotify. See [Speaker setup troubleshooting](speaker-setup.md#troubleshooting). |
-| No ready chime after boot | See [Speaker setup troubleshooting](speaker-setup.md#troubleshooting). |
+| Dispatch returns `speaker_not_ready` | Spotify has no current device and the Pi receiver named by `SPOTIFY_DEVICE_NAME` is not visible. Check the name and receiver's separate Spotify login in the [Lite](speaker-setup.md#troubleshooting) or [Desktop](speaker-setup-desktop.md#troubleshooting) guide. |
+| Dispatch returns `bluetooth_not_ready` | Power on the paired speaker; verify the address in `.env` and `bluetoothctl info <MAC>`. Read the system reconnect log on Lite or the user reconnect log on Desktop. |
+| Music plays on the phone instead of the Pi | Spotify's current device is retained even while paused. Select the Pi in Spotify's device picker before testing local playback. |
+| No music starts automatically at boot | Expected: boot prepares the receiver and volume; a content or play/pause tag starts music. |
+| No ready chime after boot | Set `READY_SOUND_ENABLED=true` in `.env`. Check `/ready`, the Connect name, speaker connection and the [Lite](speaker-setup.md#troubleshooting) or [Desktop user-service](speaker-setup-desktop.md#troubleshooting) logs. |
 | A tag is “unknown” | Assign the complete UID printed by the reader. Avoid extra spaces and preserve the exact value. |
 | PN532 import fails | Activate the Pi virtual environment and rerun `./systemd/install-pi-dependencies.sh`. |
 | `/dev/i2c-1` is missing | Enable I2C with `sudo raspi-config` and reboot. |
@@ -22,7 +25,7 @@ Start with the smallest failing boundary: web process, configuration, Spotify, I
 | The UID changes or looks incomplete | Copy the entire value printed for one card. Do not assume every card has a four-byte UID. |
 | The diagnostic reads a card but service taps do nothing | Set `NFC_READER_ENABLED=true` in the service's `.env`, restart, and inspect `journalctl` for initialization or unassigned-tag warnings. |
 | The same held card plays repeatedly | Update to the current reader loop. It dispatches once and requires card removal before the next tap. |
-| A tag cannot be written | Expected: TapTune does not write tags. A phone app can write NDEF, but the current PN532 path still uses UID mappings. |
+| A tag cannot be written | Expected: TapTune does not write tags. Write NDEF with a phone on a Type 2 tag (NTAG21x), or assign its UID in the UI. The PN532 reads supported NDEF values before falling back to UID mappings. |
 
 ## Web and service checks
 
@@ -34,6 +37,10 @@ ss -ltn | grep ':5000'
 ```
 
 Remember that `/health` proves only that the Flask process responds.
+`/ready` additionally requires live Spotify configuration and the initialized
+reader thread to be alive when enabled. It does not itself contact Spotify or
+check the Bluetooth output; the ready-sound worker performs those checks before
+playing the chime.
 
 ## PN532 checks
 

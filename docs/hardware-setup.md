@@ -46,7 +46,8 @@ Some PN532 firmware and library combinations do not respond reliably to the gene
 
 ## Install Pi-specific dependencies
 
-From the repository root:
+First complete [Install the project](raspberry-pi-service.md#install-the-project)
+so the checkout, `.venv` and base packages exist. From the repository root:
 
 ```bash
 source .venv/bin/activate
@@ -63,7 +64,9 @@ PN532 support is not available; install requirements-pi.txt on the Pi.
 
 This bounded test proves that the Pi, I2C bus, PN532, Python dependency, and one physical card work together.
 
-1. Stop the TapTune service so only one process owns the reader:
+1. Stop any foreground TapTune process with `Ctrl-C`. If the service is already
+   installed, stop it so only one process owns the reader (skip this command on
+   a fresh install):
 
    ```bash
    sudo systemctl stop raspi-spotify-nfc.service

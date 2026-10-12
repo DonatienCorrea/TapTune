@@ -110,11 +110,11 @@ class CallbackHandler(BaseHTTPRequestHandler):
 
 
 authorization_url = oauth.get_authorize_url()
+server = HTTPServer(("127.0.0.1", 8888), CallbackHandler)
 print("Opening Spotify authorization in your browser...")
 if not webbrowser.open(authorization_url):
     print(f"Open this URL manually:\n{authorization_url}")
 
-server = HTTPServer(("127.0.0.1", 8888), CallbackHandler)
 server.handle_request()
 server.server_close()
 
@@ -135,6 +135,18 @@ print(refresh_token)
 The script keeps token data in memory instead of writing a Spotipy cache file.
 
 ## 4. Authorize the account
+
+If you are setting up the Pi over SSH, open the SSH session with a local port
+forward **from your computer** (replace `<user>` and `<pi-ip>`):
+
+```bash
+ssh -L 8888:127.0.0.1:8888 <user>@<pi-ip>
+```
+
+Run the script on the Pi in that session, then open its printed authorization
+URL in your computer's browser. The callback to `127.0.0.1:8888` is forwarded to
+the Pi. Without this tunnel, a browser on your computer cannot reach the Pi's
+loopback callback. On the Pi itself with a desktop browser, no tunnel is needed.
 
 Run:
 
@@ -161,7 +173,7 @@ rm get_spotify_token.py
 python -m app.main
 ```
 
-TapTune needs a Spotify Connect device to play on. For a first test, open Spotify on a phone or computer using the same account and start playback once. To play on the Pi without a phone, complete [Speaker setup](speaker-setup.md). In another terminal, activate the virtual environment and test TapTune:
+TapTune needs a Spotify Connect device to play on. For a first test, open Spotify on a phone or computer using the same account and start playback once. To play on the Pi without a phone, complete [Lite speaker setup](speaker-setup.md) or [Desktop/PipeWire setup](speaker-setup-desktop.md). The receiver has its own login, separate from this refresh token. In another terminal, activate the virtual environment and test TapTune:
 
 ```bash
 source .venv/bin/activate

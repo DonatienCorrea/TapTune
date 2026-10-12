@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from app import config, db, nfc_reader, spotify_service
 from app.db import clear_all_tags, get_tag_by_uid
@@ -38,6 +38,43 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()['status'], 'ok')
 
+    def test_ready_does_not_announce_fake_mode_as_live_readiness(self):
+        with patch.object(config.settings, "NFC_READER_ENABLED", False):
+            response = self.client.get("/ready")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.get_json()["spotify_mode"], "fake")
+
+    def test_ready_requires_initialized_running_reader_when_enabled(self):
+        with patch.multiple(
+            config.settings, NFC_READER_ENABLED=True,
+            SPOTIFY_CLIENT_ID="id", SPOTIFY_CLIENT_SECRET="secret", SPOTIFY_REFRESH_TOKEN="token",
+        ):
+            self.assertEqual(self.client.get("/ready").status_code, 503)
+            reader = Mock()
+            self.app.config["NFC_READER_THREAD"] = reader
+            reader.is_alive.return_value = True
+            self.assertEqual(self.client.get("/ready").status_code, 200)
+            reader.is_alive.return_value = False
+            self.assertEqual(self.client.get("/ready").status_code, 503)
+
+    def test_ready_allows_deliberately_disabled_reader(self):
+        with patch.multiple(
+            config.settings, NFC_READER_ENABLED=False,
+            SPOTIFY_CLIENT_ID="id", SPOTIFY_CLIENT_SECRET="secret", SPOTIFY_REFRESH_TOKEN="token",
+        ):
+            response = self.client.get("/ready")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()["reader_ready"])
+
+    def test_live_oauth_does_not_write_a_shared_disk_token_cache(self):
+        with patch.multiple(
+            config.settings, SPOTIFY_CLIENT_ID="id", SPOTIFY_CLIENT_SECRET="secret", SPOTIFY_REFRESH_TOKEN="token",
+        ), patch.object(spotify_service, "SpotifyOAuth") as oauth, \
+                patch.object(spotify_service, "Spotify"):
+            spotify_service.build_spotify_client()
+        self.assertIsInstance(oauth.call_args.kwargs["cache_handler"], spotify_service.MemoryCacheHandler)
+        self.assertNotIn("cache_path", oauth.call_args.kwargs)
+        oauth.return_value.refresh_access_token.assert_called_once_with("token")
     def test_assign_and_dispatch_playlist(self):
         assign = self.client.post('/assign', data={
             'uid': 'UID-001',

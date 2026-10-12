@@ -66,6 +66,6 @@ def start_reader_thread(reader_factory=PN532Reader) -> threading.Thread:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     if settings.NFC_READER_ENABLED:
-        start_reader_thread()
+        app.config["NFC_READER_THREAD"] = start_reader_thread()
     start_speaker_thread()
     app.run(host=settings.APP_HOST, port=settings.APP_PORT, debug=False)

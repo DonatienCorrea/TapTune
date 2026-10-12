@@ -26,7 +26,7 @@ The web assignment page and command-line simulator join the same storage and dis
 | `app/config.py` | Reads and validates environment settings. |
 | `app/web.py` | Provides the assignment UI, `/health`, `/assign`, and `/dispatch`. |
 | `app/db.py` | Stores tag mappings and event records in SQLite. |
-| `app/nfc_reader.py` | Reads PN532 UIDs and resolves saved mappings. |
+| `app/nfc_reader.py` | Reads PN532 UIDs and Type 2 NDEF memory, falling back to saved mappings. |
 | `app/spotify_service.py` | Validates values and dispatches Spotify content or playback actions. |
 | `app/simulate.py` | Exercises mapping and dispatch without NFC hardware. |
 | `app/ndef.py` | Decodes supported NDEF URI and text records when bytes are supplied. |
@@ -65,12 +65,11 @@ All paths reach `dispatch_tag_value`, which validates and translates the stored 
 
 ## Current boundaries
 
-- The PN532 layer currently returns UID-based mappings only.
-- `app/ndef.py` can decode supported tag memory supplied by another caller, but the hardware path does not yet read that memory.
+- The PN532 reads NDEF on Type 2 tags (such as NTAG21x). Supported embedded Spotify values or actions take precedence over UID mappings; blank, unsupported or unreadable memory falls back to the saved UID mapping.
 - TapTune does not write NFC tags.
 - A successful `/health` response does not prove that Spotify or the reader is healthy.
-- Live playback needs a Spotify Connect device. With [Speaker setup](speaker-setup.md), raspotify makes the Pi that device. TapTune keeps playback on an already active device and otherwise targets the Pi by name (`SPOTIFY_DEVICE_NAME`).
-- A chime plays once the Pi speaker is online after boot; other runtime problems are reported through logs; there are no status LEDs.
+- Live playback needs a Spotify Connect device. Use [Raspotify/BlueALSA on Lite](speaker-setup.md) or [Spotifyd/PipeWire on Desktop](speaker-setup-desktop.md), not both. TapTune keeps playback on Spotify's current device, even while paused, and otherwise targets the Pi by name (`SPOTIFY_DEVICE_NAME`).
+- Boot initializes the local receiver's volume but does not start music. A chime waits for TapTune's `/ready` check (live config and enabled reader thread), Spotify visibility and speaker audio. Lite uses the configured ALSA output; Desktop uses a separate user service and explicitly targets the Bluetooth PipeWire sink. Other runtime problems are reported through logs; there are no status LEDs.
 
 ## Further reading
 
