@@ -79,8 +79,9 @@ The result should include `"status": "ok"` and `"mode": "fake"`.
 
 - The web UI always starts; PN532 polling starts only when `NFC_READER_ENABLED=true`.
 - Self-describing tags: on NTAG21x (Type 2) tags the PN532 reader fetches the NDEF memory and plays the Spotify link or `spotify:` URI written on the tag, for example from a phone with NFC Tools. Share links such as `https://open.spotify.com/playlist/<id>?si=…` are converted automatically. A blank tag, a non-Type-2 tag (MIFARE Classic), or a failed read falls back to the value assigned to the UID in the web UI. The memory is read once each time a tag is presented. TapTune does not write tags.
-- Live playback requires a Spotify Premium account and valid developer credentials. Both the [Lite speaker setup](docs/speaker-setup.md) and the [Desktop/PipeWire setup](docs/speaker-setup-desktop.md) support playback after boot without logging in. Desktop requires the included user-audio installer and a dedicated audio user. If music is already playing on another device, taps control that device.
-- On Lite, a short chime tells you when TapTune is ready after boot. Desktop/PipeWire setup disables the chime because TapTune's system service cannot play into the user's audio session. There is no status LED, and other runtime errors are inspected through logs.
+- Live playback requires a Spotify Premium account and valid developer credentials. Both the [Lite speaker setup](docs/speaker-setup.md) and the [Desktop/PipeWire setup](docs/speaker-setup-desktop.md) support playback after boot without logging in. Desktop requires the included user-audio installer and a dedicated audio user. If Spotify reports a current device, even while paused, taps control that device.
+- Boot prepares the receiver; it does **not** automatically start a playlist or resume music. Playback starts with a content tag or play/pause tag. Both TapTune's Web API authorization and the receiver's separate Spotify login must use the same account.
+- A short chime confirms that TapTune responds, its reader thread is running when enabled, Spotify sees the local receiver, and sound can be played to the speaker. Lite plays it from TapTune; Desktop/PipeWire uses the installed user ready-sound service so it works without logging in. There is no status LED, and other runtime errors are inspected through logs.
 - Hardware-specific Python packages are kept in `requirements-pi.txt` so local development remains hardware-free.
 
 ## Project map
@@ -90,7 +91,7 @@ The result should include `"status": "ok"` and `"mode": "fake"`.
 | `app/web.py` | Flask routes for assignment, health, and dispatch |
 | `app/nfc_reader.py` | PN532 polling and UID lookup |
 | `app/spotify_service.py` | Spotify and fake playback dispatch, including the choice of playback device |
-| `app/readiness.py` | Ready chime once the Pi's Spotify speaker is online |
+| `app/readiness.py` | Ready chime after app, reader, Spotify receiver and speaker-audio checks |
 | `app/db.py` | SQLite assignments and event records |
 | `app/simulate.py` | Hardware-free command-line simulation |
 | `data/schema.sql` | Database schema |

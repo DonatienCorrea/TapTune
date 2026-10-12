@@ -1,0 +1,16 @@
+[Unit]
+Description=TapTune ready chime through the desktop speaker
+After=pipewire-pulse.service wireplumber.service taptune-spotifyd.service taptune-bluetooth.service
+Wants=pipewire-pulse.service wireplumber.service taptune-spotifyd.service taptune-bluetooth.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/pi/TapTune
+ExecStart=/home/pi/TapTune/.venv/bin/python -m app.readiness --desktop
+EnvironmentFile=/home/pi/TapTune/.env
+Environment=PYTHONUNBUFFERED=1
+TimeoutStartSec=660
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target

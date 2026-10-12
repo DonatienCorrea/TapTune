@@ -26,6 +26,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 UNIT_SRC="$SCRIPT_DIR/raspi-spotify-nfc.service"
 UNIT_DST="/etc/systemd/system/raspi-spotify-nfc.service"
+source "$SCRIPT_DIR/install-common.sh"
 
 if [ ! -f "$UNIT_SRC" ]; then
   echo "error: $UNIT_SRC not found" >&2
@@ -44,16 +45,13 @@ if [ "$DRY_RUN" -eq 0 ]; then
   fi
 fi
 
-RENDERED=$(sed \
-  -e "s#^WorkingDirectory=.*#WorkingDirectory=$REPO_DIR#" \
-  -e "s#^ExecStart=.*#ExecStart=$REPO_DIR/.venv/bin/python -m app.main#" \
-  -e "s#^EnvironmentFile=.*#EnvironmentFile=$REPO_DIR/.env#" \
-  "$UNIT_SRC")
+RENDERED="$(render_unit "$UNIT_SRC" "$REPO_DIR/.venv/bin/python" " -m app.main")"
 
 if [ "$DESKTOP" -eq 1 ]; then
   RENDERED="$(printf '%s\n' "$RENDERED" | sed \
     -e 's/^Wants=.*/Wants=network-online.target/' \
     -e 's/^After=.*/After=network-online.target bluetooth.service/')"
+  RENDERED="${RENDERED/Environment=PYTHONUNBUFFERED=1/Environment=PYTHONUNBUFFERED=1$'\n'Environment=READY_SOUND_ENABLED=false}"
 fi
 
 if [ "$DRY_RUN" -eq 1 ]; then
@@ -64,6 +62,7 @@ fi
 printf '%s\n' "$RENDERED" | sudo tee "$UNIT_DST" > /dev/null
 sudo chmod 644 "$UNIT_DST"
 sudo systemctl daemon-reload
-sudo systemctl enable --now raspi-spotify-nfc.service
+sudo systemctl enable raspi-spotify-nfc.service
+sudo systemctl restart raspi-spotify-nfc.service
 
 echo "Installed and started raspi-spotify-nfc.service for checkout: $REPO_DIR"

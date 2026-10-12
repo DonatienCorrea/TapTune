@@ -1,5 +1,6 @@
 import os
 import stat
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -24,14 +25,16 @@ class InstallSpeakerScriptTests(unittest.TestCase):
         self.assertIn("LIBRESPOT_BACKEND=alsa", output)
         self.assertRegex(output, r'LIBRESPOT_NAME="[^"]+"')
         self.assertRegex(output, r'LIBRESPOT_DEVICE="[^"]+"')
+        self.assertIn("LIBRESPOT_INITIAL_VOLUME=30", output)
+        self.assertIn("PROFILE=a2dp", output)
 
     def test_dry_run_reenables_credential_cache_so_login_survives_reboot(self):
         self.assertIn("#LIBRESPOT_DISABLE_CREDENTIAL_CACHE=", self.dry_run())
 
     def test_dry_run_installs_reconnect_service_for_this_checkout(self):
         output = self.dry_run()
-        self.assertIn(f"ExecStart={REPO_ROOT}/systemd/taptune-bluetooth.sh", output)
-        self.assertIn(f"EnvironmentFile={REPO_ROOT}/.env", output)
+        self.assertIn(f'ExecStart="{REPO_ROOT}/systemd/taptune-bluetooth.sh"', output)
+        self.assertIn(f'EnvironmentFile="{REPO_ROOT}/.env"', output)
         self.assertIn("enable taptune-bluetooth.service", output)
         self.assertNotIn("/home/pi/TapTune", output)
 
@@ -39,6 +42,51 @@ class InstallSpeakerScriptTests(unittest.TestCase):
         result = subprocess.run(["bash", str(INSTALLER), "--bogus"], capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("unknown argument", result.stderr)
+
+    def test_both_installers_read_quoted_mac_and_custom_startup_volume(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory) / "TapTune"
+            shutil.copytree(REPO_ROOT / "systemd", repo / "systemd")
+            (repo / ".env").write_text(
+                "BLUETOOTH_SPEAKER_MAC='12:34:56:78:90:AB'\n"
+                'SPOTIFY_INITIAL_VOLUME="42"\n'
+                "SPOTIFY_DEVICE_NAME='My TapTune'\n"
+            )
+            for installer in ("install-speaker.sh", "install-desktop-speaker.sh"):
+                with self.subTest(installer=installer):
+                    env = dict(os.environ)
+                    env.pop("XDG_CONFIG_HOME", None)
+                    result = subprocess.run(
+                        ["bash", str(repo / "systemd" / installer), "--dry-run"],
+                        env=env, capture_output=True, text=True, check=True,
+                    )
+                    self.assertIn("12:34:56:78:90:AB", result.stdout)
+                    if installer == "install-speaker.sh":
+                        self.assertIn('LIBRESPOT_NAME="My TapTune"', result.stdout)
+                        self.assertIn('LIBRESPOT_DEVICE="bluealsa:DEV=12:34:56:78:90:AB,PROFILE=a2dp"', result.stdout)
+                        self.assertIn("LIBRESPOT_INITIAL_VOLUME=42", result.stdout)
+                    else:
+                        self.assertIn("initial_volume\\ =\\ 42", result.stdout)
+
+    def test_invalid_mac_and_volume_fail_before_installing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory) / "TapTune"
+            shutil.copytree(REPO_ROOT / "systemd", repo / "systemd")
+            for content, message in (
+                ("BLUETOOTH_SPEAKER_MAC=invalid\n", "paired speaker"),
+                ("BLUETOOTH_SPEAKER_MAC=AA:BB:CC:DD:EE:FF\nSPOTIFY_INITIAL_VOLUME=101\n", "0 to 100"),
+            ):
+                (repo / ".env").write_text(content)
+                for installer in ("install-speaker.sh", "install-desktop-speaker.sh"):
+                    env = dict(os.environ)
+                    env.pop("XDG_CONFIG_HOME", None)
+                    result = subprocess.run(
+                        ["bash", str(repo / "systemd" / installer), "--dry-run"],
+                        env=env, capture_output=True, text=True,
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(message, result.stderr)
+                    self.assertNotIn("apt-get", result.stdout)
 
 
 class BluetoothReconnectScriptTests(unittest.TestCase):
@@ -130,6 +178,9 @@ class DesktopInstallerTests(unittest.TestCase):
                     self.assertIn("pipewire.socket pipewire-pulse.socket wireplumber.service", result.stdout)
                     self.assertIn("taptune-bluetooth.user.service", result.stdout)
                     self.assertIn("taptune-spotifyd.user.service", result.stdout)
+                    self.assertIn("taptune-ready-sound.service", result.stdout)
+                    self.assertIn(f'ExecStart="{REPO_ROOT}/.venv/bin/python" -m app.readiness --desktop', result.stdout)
+                    self.assertIn("--no-block restart taptune-ready-sound.service", result.stdout)
                     self.assertNotIn("bluealsa", result.stdout)
                     if version.startswith("0.4"):
                         self.assertIn('bluez_monitor.properties["with-logind"] = false', result.stdout)

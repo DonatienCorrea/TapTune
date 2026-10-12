@@ -4,7 +4,7 @@ After=pipewire-pulse.service
 Wants=pipewire-pulse.service wireplumber.service
 
 [Service]
-ExecStart=/usr/local/bin/spotifyd --no-daemon
+ExecStart=/usr/local/bin/spotifyd --no-daemon --config-path "%h/.config/spotifyd/spotifyd.conf"
 Restart=on-failure
 RestartSec=12
 
