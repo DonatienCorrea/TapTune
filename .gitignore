@@ -17,3 +17,6 @@ venv/
 # OS/editor
 .DS_Store
 .vscode/
+
+# TapTune update backups
+data/backups/

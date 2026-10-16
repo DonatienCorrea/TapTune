@@ -41,6 +41,9 @@ PHONE_DEVICE = {"id": "phone-1", "name": "Pixel", "is_active": True}
 
 class DeviceSelectionTests(unittest.TestCase):
     def setUp(self):
+        delay = patch.object(spotify_service, "RETRY_DELAY_SECONDS", 0)
+        delay.start()
+        self.addCleanup(delay.stop)
         patcher = patch.object(config.settings, "SPOTIFY_DEVICE_NAME", "TapTune")
         patcher.start()
         self.addCleanup(patcher.stop)

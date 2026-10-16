@@ -97,6 +97,8 @@ while true; do
     was_connected="no"
     if ! "$BLUETOOTHCTL" --timeout 10 connect "$MAC"; then
       echo "Could not connect speaker $MAC; will retry." >&2
+      # At boot the adapter can still be off or blocked; power it on for the next try.
+      "$BLUETOOTHCTL" power on >/dev/null 2>&1 || true
     fi
   fi
 

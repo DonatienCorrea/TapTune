@@ -8,6 +8,9 @@ from test_device_selection import PI_DEVICE, PHONE_DEVICE, RecordingClient
 
 class BluetoothTests(unittest.TestCase):
     def setUp(self):
+        delay = patch.object(spotify_service, "RETRY_DELAY_SECONDS", 0)
+        delay.start()
+        self.addCleanup(delay.stop)
         patcher = patch.object(config.settings, "BLUETOOTH_SPEAKER_MAC", "AA:BB:CC:DD:EE:FF")
         patcher.start()
         self.addCleanup(patcher.stop)

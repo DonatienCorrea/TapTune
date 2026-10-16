@@ -2,6 +2,7 @@
 Description=TapTune ready chime through the desktop speaker
 After=pipewire-pulse.service wireplumber.service taptune-spotifyd.service taptune-bluetooth.service
 Wants=pipewire-pulse.service wireplumber.service taptune-spotifyd.service taptune-bluetooth.service
+StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot
@@ -11,6 +12,11 @@ EnvironmentFile=/home/pi/TapTune/.env
 Environment=PYTHONUNBUFFERED=1
 TimeoutStartSec=660
 RemainAfterExit=yes
+# Keep waiting after a timeout; status 2 means .env is incomplete.
+Restart=on-failure
+RestartSec=30
+RestartPreventExitStatus=2
+SyslogIdentifier=taptune-ready
 
 [Install]
 WantedBy=default.target

@@ -27,7 +27,11 @@ SAMPLE_RATE = 44100
 CHIME_NOTES = ((659.25, 0.14), (880.0, 0.22))
 
 
-def build_chime_wav(sample_rate: int = SAMPLE_RATE, volume: float = 0.35) -> bytes:
+# Half of the original 0.35 amplitude: audible without startling anyone.
+CHIME_VOLUME = 0.175
+
+
+def build_chime_wav(sample_rate: int = SAMPLE_RATE, volume: float = CHIME_VOLUME) -> bytes:
     frames = bytearray()
     for frequency, duration in CHIME_NOTES:
         count = int(sample_rate * duration)
@@ -241,13 +245,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Play TapTune's startup ready sound once.")
     parser.add_argument("--desktop", action="store_true", help="Play through the current user's PipeWire session.")
     args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     if not settings.READY_SOUND_ENABLED:
         logger.info("Ready sound disabled.")
         return 0
     if not should_announce_ready():
         logger.error("Ready sound requires live Spotify credentials and SPOTIFY_DEVICE_NAME.")
-        return 1
+        # Configuration error: systemd must not retry it (RestartPreventExitStatus=2).
+        return 2
     play = play_desktop_sound if args.desktop else play_sound
     return 0 if wait_until_ready_then_chime(play=play) else 1
 

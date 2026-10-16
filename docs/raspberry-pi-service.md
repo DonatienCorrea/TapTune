@@ -124,26 +124,57 @@ Preview the generated unit without root or installation:
 
 ## Operate the service
 
-```bash
-sudo systemctl status raspi-spotify-nfc.service --no-pager
-curl http://127.0.0.1:5000/health
-```
-
-Common operations:
+The installer links the `taptune` command (also runnable as `./taptune` from
+the checkout). Run it as your normal user, not with `sudo`; it asks for `sudo`
+when needed. It detects the Lite or Desktop setup automatically (force it with
+`--lite` or `--desktop`).
 
 ```bash
-sudo systemctl restart raspi-spotify-nfc.service
-sudo systemctl stop raspi-spotify-nfc.service
-sudo systemctl disable raspi-spotify-nfc.service
+taptune status    # every service's state, plus /health and /ready
+taptune restart   # restart Bluetooth, the Spotify receiver and TapTune in order
+taptune help
 ```
 
-The service restarts after failures. With `NFC_READER_ENABLED=false`, it serves only the web UI. With the setting enabled, it also polls the PN532 and dispatches assigned tags.
+Every service restarts on its own and never stops retrying:
+
+- TapTune restarts after any crash. Inside it, the PN532 is reopened with
+  increasing delays (2 s up to 30 s) after I2C errors at boot or later; after
+  20 failures in a row TapTune restarts as a whole. `/ready` stays `503` until
+  the reader has actually opened.
+- A Spotify token refresh that fails because the network is not up yet is
+  retried, and a tap during a network outage reports `network_error` instead
+  of stopping the reader. The Pi receiver is looked up three times before a
+  tap reports `speaker_not_ready`.
+- Raspotify (Lite) waits for the network and always restarts. Spotifyd
+  (Desktop) waits for DNS before starting and restarts even after a clean exit.
+- The Bluetooth reconnect services power the adapter on if a connection fails.
+- The Desktop ready-sound service tries again after its ten-minute wait.
+
+With `NFC_READER_ENABLED=false`, TapTune serves only the web UI. With the
+setting enabled, it also polls the PN532 and dispatches assigned tags.
 
 ## Logs and inspection
 
+All TapTune services log to the systemd journal. `taptune logs` shows them
+merged in time order: TapTune, the Bluetooth reconnect, Raspotify or Spotifyd,
+the ready chime, BlueALSA or PipeWire/WirePlumber and BlueZ.
+
+```bash
+taptune logs                 # last 200 lines of this boot
+taptune logs -f              # follow live (Ctrl-C to stop)
+taptune logs -b -1           # the previous boot, after a failed start
+taptune logs --since "10 min ago"
+taptune logs -- -p warning   # only warnings and errors
+taptune logs --save          # status + logs in taptune-logs-<date>.txt
+```
+
+The installer keeps the journal across reboots
+(`/etc/systemd/journald.conf.d/taptune.conf`, at most 200 MB) so earlier boots
+stay readable. Single services can still be read directly:
+
 ```bash
 sudo journalctl -u raspi-spotify-nfc.service -n 100 --no-pager
-sudo journalctl -u raspi-spotify-nfc.service -f
+journalctl --user -u taptune-spotifyd.service -n 100 --no-pager   # Desktop
 ss -ltn | grep ':5000'
 ```
 
@@ -161,32 +192,36 @@ visibility and speaker audio before announcing readiness.
 
 ## Safe updates
 
-Back up the database and `.env` before updating:
-
-For Desktop/PipeWire, replace the `install-service.sh` command below with
-`bash systemd/install-service.sh --desktop`, and rerun
-`bash systemd/install-desktop-speaker.sh` as the Spotifyd user to update its
-installed reconnect script and user units.
+One command updates everything:
 
 ```bash
-cd "$HOME/TapTune"  # or the checkout path used during installation
-cp data/raspi_spotify_nfc.db "data/raspi_spotify_nfc.db.$(date +%Y%m%d%H%M%S).bak"
-cp .env ".env.$(date +%Y%m%d%H%M%S).bak"
-sudo systemctl stop raspi-spotify-nfc.service
-git fetch --prune
-git pull --ff-only
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python -m pip install -r requirements-pi.txt
-python -m unittest discover -s tests -v
-bash systemd/install-speaker.sh  # Lite only; Desktop: use install-desktop-speaker.sh
-bash systemd/install-service.sh
-sudo systemctl status raspi-spotify-nfc.service --no-pager
-curl http://127.0.0.1:5000/health
+taptune update
 ```
 
-If `git pull --ff-only` reports local changes, stop and resolve them instead of overwriting `.env` or the database. Restore the database only while the service is stopped.
+It:
+
+1. backs up `.env` and the tag database to `data/backups/` (last 10 kept);
+2. runs `git pull --ff-only`, and stops without changing anything if local
+   changes are in the way;
+3. installs the Python dependencies;
+4. runs the test suite and stops before restarting anything if it fails;
+5. reruns the speaker installer for your setup (`install-speaker.sh` on Lite,
+   `install-desktop-speaker.sh` on Desktop) and `install-service.sh`, which
+   restart every service; and
+6. waits until TapTune answers on `/health`.
+
+Options: `--no-pull` reinstalls the current checkout, `--skip-tests` skips the
+tests and `--dry-run` (before `update`) prints the commands without running
+them. Run it as the Spotifyd audio user on Desktop.
+
+The first time, the command is not yet linked: run `./taptune update` from the
+checkout. Restore a backup only while the service is stopped:
+
+```bash
+sudo systemctl stop raspi-spotify-nfc.service
+cp data/backups/tags.<date>.db.bak data/raspi_spotify_nfc.db
+taptune restart
+```
 
 Do not recopy `.env.example` over an existing `.env` during updates. After an
 update, repeat the cold-boot check in your chosen speaker guide with no Pi login.

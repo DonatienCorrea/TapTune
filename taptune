@@ -1,0 +1,392 @@
+#!/usr/bin/env bash
+# TapTune's operating command: update, restart, inspect and read the logs of
+# every TapTune service (app, Bluetooth reconnect, Spotify receiver, chime).
+# install-service.sh links it as /usr/local/bin/taptune. Run it as the normal
+# Pi user (the Spotifyd audio user on Desktop); it asks for sudo when needed.
+set -euo pipefail
+
+SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
+REPO_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+SCRIPT_DIR="$REPO_DIR/systemd"
+PYTHON="$REPO_DIR/.venv/bin/python"
+APP_UNIT="raspi-spotify-nfc.service"
+LOG_SYSTEM_UNITS=(
+  raspi-spotify-nfc.service taptune-bluetooth.service raspotify.service
+  bluealsa.service bluetooth.service
+)
+LOG_USER_UNITS=(
+  taptune-spotifyd.service taptune-bluetooth.service taptune-ready-sound.service
+  pipewire.service pipewire-pulse.service wireplumber.service
+)
+DRY_RUN=0
+MODE=""
+
+# shellcheck source=systemd/install-common.sh
+source "$SCRIPT_DIR/install-common.sh"
+
+usage() {
+  cat <<'EOF'
+Usage: taptune [--dry-run] [--lite|--desktop|--app-only] <command> [options]
+
+Commands:
+  update     Back up, pull the latest code, reinstall dependencies and every
+             service, restart them and check that TapTune answers.
+               --no-pull      reinstall the current checkout without git pull
+               --skip-tests   do not run the test suite before restarting
+  restart    Restart every TapTune service in the right order.
+  status     Show whether each service is running, plus /health and /ready.
+  logs       Show the logs of all TapTune services, merged in time order.
+               -f, --follow       keep printing new lines (Ctrl-C to stop)
+               -n, --lines N      number of lines to show (default 200)
+               -b, --boot [N]     only this boot (0, default) or an earlier one
+                                  (-1 = previous boot, useful after a failed start)
+               --since TIME       e.g. "10 min ago", "today", "2026-10-16 08:00"
+               --save [FILE]      write status and logs to a file to share
+               -- ARGS            extra journalctl options, e.g. -- -p warning
+  help       Show this help.
+
+Setup type is detected automatically; force it with --lite (Raspotify +
+BlueALSA), --desktop (PipeWire + Spotifyd) or --app-only (no speaker services).
+EOF
+}
+
+info() { printf '==> %s\n' "$*"; }
+die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+detect_mode() {
+  if [ -n "$MODE" ]; then
+    return
+  fi
+  if [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/taptune-spotifyd.service" ]; then
+    MODE=desktop
+  elif [ -f /etc/systemd/system/taptune-bluetooth.service ]; then
+    MODE=lite
+  else
+    MODE=app
+  fi
+}
+
+app_url() {
+  local port
+  port="$(env_value APP_PORT)"
+  printf 'http://127.0.0.1:%s' "${port:-5000}"
+}
+
+wait_for_health() {
+  local url
+  url="$(app_url)/health"
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "# wait for $url"
+    return 0
+  fi
+  info "Waiting for TapTune to answer on $url"
+  for _ in $(seq 1 30); do
+    if curl -fsS --max-time 3 "$url" >/dev/null 2>&1; then
+      info "TapTune is running."
+      return 0
+    fi
+    sleep 2
+  done
+  echo "warning: TapTune did not answer after 60 seconds; run 'taptune logs -n 100'." >&2
+  return 1
+}
+
+require_normal_user() {
+  if [ "$DRY_RUN" -eq 0 ] && [ "$(id -u)" -eq 0 ]; then
+    die "run taptune as your normal user, without sudo; it asks for sudo when needed"
+  fi
+}
+
+backup() {
+  local stamp dir db
+  stamp="$(date +%Y%m%d%H%M%S)"
+  dir="$REPO_DIR/data/backups"
+  db="$(env_value DATABASE_PATH)"
+  db="${db:-./data/raspi_spotify_nfc.db}"
+  case "$db" in
+    /*) ;;
+    *) db="$REPO_DIR/${db#./}" ;;
+  esac
+  info "Backing up .env and the tag database to data/backups/"
+  run mkdir -p "$dir"
+  if [ -f "$REPO_DIR/.env" ] || [ "$DRY_RUN" -eq 1 ]; then
+    run cp "$REPO_DIR/.env" "$dir/env.$stamp.bak"
+    run chmod 600 "$dir/env.$stamp.bak"
+  fi
+  if [ -f "$db" ]; then
+    if command -v sqlite3 >/dev/null 2>&1; then
+      run sqlite3 "$db" ".backup '$dir/tags.$stamp.db.bak'"
+    else
+      run cp "$db" "$dir/tags.$stamp.db.bak"
+    fi
+  fi
+  if [ "$DRY_RUN" -eq 0 ]; then
+    # Keep the 10 most recent backups of each kind.
+    local kind
+    for kind in env tags; do
+      find "$dir" -maxdepth 1 -name "$kind.*.bak" -print | sort -r | tail -n +11 | while IFS= read -r old; do
+        rm -f "$old"
+      done
+    done
+  fi
+}
+
+cmd_update() {
+  local pull=1 tests=1 after_pull=0 arg
+  for arg in "$@"; do
+    case "$arg" in
+      --no-pull) pull=0 ;;
+      --skip-tests) tests=0 ;;
+      --after-pull) after_pull=1 ;;
+      *) die "unknown update option '$arg'" ;;
+    esac
+  done
+  require_normal_user
+  detect_mode
+  if [ "$DRY_RUN" -eq 0 ]; then
+    [ -x "$PYTHON" ] || die "$PYTHON not found; create it first (docs/raspberry-pi-service.md)"
+    [ -f "$REPO_DIR/.env" ] || die "$REPO_DIR/.env not found; copy .env.example to .env first"
+  fi
+  info "Updating TapTune ($MODE setup) in $REPO_DIR"
+
+  if [ "$after_pull" -eq 0 ]; then
+    backup
+    if [ "$pull" -eq 1 ]; then
+      info "Downloading the latest version"
+      if ! run git -C "$REPO_DIR" pull --ff-only; then
+        die "git pull failed. Local changes? Check 'git -C \"$REPO_DIR\" status'; nothing was reinstalled"
+      fi
+      if [ "$DRY_RUN" -eq 0 ]; then
+        # Continue with the freshly downloaded version of this script.
+        local mode_flag="--$MODE" next=(update --after-pull)
+        [ "$MODE" != app ] || mode_flag="--app-only"
+        [ "$tests" -eq 1 ] || next+=(--skip-tests)
+        exec bash "$REPO_DIR/taptune" "$mode_flag" "${next[@]}"
+      fi
+    fi
+  fi
+
+  info "Installing Python dependencies"
+  run "$PYTHON" -m pip install --quiet --upgrade pip
+  run "$PYTHON" -m pip install --quiet -r "$REPO_DIR/requirements.txt"
+  if [ -f /proc/device-tree/model ] && grep -qi 'raspberry' /proc/device-tree/model 2>/dev/null; then
+    run "$PYTHON" -m pip install --quiet -r "$REPO_DIR/requirements-pi.txt"
+  elif [ "$DRY_RUN" -eq 1 ]; then
+    run "$PYTHON" -m pip install --quiet -r "$REPO_DIR/requirements-pi.txt"
+  fi
+
+  if [ "$tests" -eq 1 ]; then
+    info "Running the test suite"
+    if ! (cd "$REPO_DIR" && run "$PYTHON" -m unittest discover -s tests -q); then
+      die "tests failed; services were not reinstalled or restarted (the previous version keeps running)"
+    fi
+  fi
+
+  info "Reinstalling and restarting the services"
+  case "$MODE" in
+    lite)
+      run bash "$SCRIPT_DIR/install-speaker.sh"
+      run bash "$SCRIPT_DIR/install-service.sh"
+      ;;
+    desktop)
+      run bash "$SCRIPT_DIR/install-desktop-speaker.sh"
+      run bash "$SCRIPT_DIR/install-service.sh" --desktop
+      run systemctl --user --no-block restart taptune-ready-sound.service
+      ;;
+    app)
+      run bash "$SCRIPT_DIR/install-service.sh"
+      ;;
+  esac
+  wait_for_health || true
+  info "Update finished. Check everything with 'taptune status'; follow logs with 'taptune logs -f'."
+}
+
+cmd_restart() {
+  [ "$#" -eq 0 ] || die "restart takes no options"
+  require_normal_user
+  detect_mode
+  info "Restarting TapTune ($MODE setup)"
+  case "$MODE" in
+    lite)
+      run sudo systemctl restart bluetooth.service bluealsa.service taptune-bluetooth.service raspotify.service
+      run sudo systemctl restart "$APP_UNIT"
+      ;;
+    desktop)
+      run sudo systemctl restart bluetooth.service
+      run systemctl --user restart wireplumber.service taptune-bluetooth.service taptune-spotifyd.service
+      run sudo systemctl restart "$APP_UNIT"
+      run systemctl --user --no-block restart taptune-ready-sound.service
+      ;;
+    app)
+      run sudo systemctl restart "$APP_UNIT"
+      ;;
+  esac
+  wait_for_health || true
+}
+
+unit_state() {
+  local state
+  state="$("$@" 2>/dev/null || true)"
+  printf '%s' "${state:-unknown}"
+}
+
+cmd_status() {
+  [ "$#" -eq 0 ] || die "status takes no options"
+  detect_mode
+  local unit url
+  echo "TapTune checkout: $REPO_DIR ($MODE setup)"
+  echo "Version: $(git -C "$REPO_DIR" log -1 --format='%h %cd %s' --date=short 2>/dev/null || echo unknown)"
+  echo
+  echo "System services:"
+  local system_units=("$APP_UNIT" bluetooth.service)
+  [ "$MODE" != lite ] || system_units+=(bluealsa.service taptune-bluetooth.service raspotify.service)
+  for unit in "${system_units[@]}"; do
+    printf '  %-32s %s\n' "$unit" "$(unit_state systemctl is-active "$unit")"
+  done
+  if [ "$MODE" = desktop ]; then
+    echo "User audio services ($(id -un)):"
+    for unit in pipewire.service pipewire-pulse.service wireplumber.service \
+        taptune-bluetooth.service taptune-spotifyd.service taptune-ready-sound.service; do
+      printf '  %-32s %s\n' "$unit" "$(unit_state systemctl --user is-active "$unit")"
+    done
+  fi
+  echo
+  for url in "$(app_url)/health" "$(app_url)/ready"; do
+    printf '%s -> %s\n' "$url" "$(curl -sS --max-time 3 "$url" 2>&1 | tr -d '\n' || true)"
+  done
+  local mac
+  mac="$(env_value BLUETOOTH_SPEAKER_MAC)"
+  if [ -n "$mac" ] && command -v bluetoothctl >/dev/null 2>&1; then
+    printf 'Bluetooth speaker %s: %s\n' "$mac" \
+      "$(bluetoothctl info "$mac" 2>/dev/null | sed -n 's/^[[:space:]]*Connected: //p' | head -n 1 | sed 's/yes/connected/;s/no/disconnected/')"
+  fi
+}
+
+journal_command() {
+  JOURNAL=()
+  if [ "$(id -u)" -ne 0 ] && ! id -nG | tr ' ' '\n' | grep -qxE 'adm|systemd-journal|wheel'; then
+    JOURNAL+=(sudo)
+  fi
+  JOURNAL+=(journalctl --no-hostname)
+  local unit
+  # One query: matches on the same field are alternatives, '+' joins groups.
+  local first=1 field
+  for field in _SYSTEMD_UNIT UNIT; do
+    [ "$first" -eq 1 ] || JOURNAL+=(+)
+    first=0
+    for unit in "${LOG_SYSTEM_UNITS[@]}"; do
+      JOURNAL+=("$field=$unit")
+    done
+  done
+  for field in _SYSTEMD_USER_UNIT USER_UNIT; do
+    JOURNAL+=(+)
+    for unit in "${LOG_USER_UNITS[@]}"; do
+      JOURNAL+=("$field=$unit")
+    done
+  done
+}
+
+cmd_logs() {
+  local follow=0 lines=200 boot="0" since="" save="" save_requested=0 extra=()
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -f|--follow) follow=1 ;;
+      -n|--lines)
+        [ "$#" -ge 2 ] || die "$1 needs a number"
+        lines="$2"
+        shift
+        ;;
+      -b|--boot)
+        if [ "$#" -ge 2 ] && printf '%s' "$2" | grep -Eq '^-?[0-9]+$'; then
+          boot="$2"
+          shift
+        else
+          boot="0"
+        fi
+        ;;
+      --since)
+        [ "$#" -ge 2 ] || die "--since needs a time"
+        since="$2"
+        boot=""
+        shift
+        ;;
+      --all-boots) boot="" ;;
+      --save)
+        save_requested=1
+        if [ "$#" -ge 2 ] && [ "${2#-}" = "$2" ]; then
+          save="$2"
+          shift
+        fi
+        ;;
+      --)
+        shift
+        extra=("$@")
+        break
+        ;;
+      *) die "unknown logs option '$1' (see 'taptune help')" ;;
+    esac
+    shift
+  done
+  printf '%s' "$lines" | grep -Eq '^[0-9]+$' || die "--lines needs a number"
+
+  journal_command
+  JOURNAL+=(--lines "$lines")
+  [ -z "$boot" ] || JOURNAL+=(--boot "$boot")
+  [ -z "$since" ] || JOURNAL+=(--since "$since")
+  if [ "$save_requested" -eq 1 ]; then
+    JOURNAL+=(--no-pager)
+    save="${save:-taptune-logs-$(date +%Y%m%d-%H%M%S).txt}"
+  elif [ "$follow" -eq 1 ]; then
+    JOURNAL+=(--follow)
+  else
+    JOURNAL+=(--no-pager)
+  fi
+  JOURNAL+=(${extra[@]+"${extra[@]}"})
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    run "${JOURNAL[@]}"
+    return
+  fi
+  if [ "$save_requested" -eq 1 ]; then
+    {
+      cmd_status
+      echo
+      echo "----- logs -----"
+      "${JOURNAL[@]}"
+    } > "$save" 2>&1 || true
+    info "Saved status and logs to $save"
+    return
+  fi
+  "${JOURNAL[@]}"
+}
+
+main() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --dry-run) DRY_RUN=1 ;;
+      --lite) MODE=lite ;;
+      --desktop) MODE=desktop ;;
+      --app-only|--app) MODE=app ;;
+      -h|--help|help)
+        usage
+        return 0
+        ;;
+      -*) die "unknown option '$1' (see 'taptune help')" ;;
+      *) break ;;
+    esac
+    shift
+  done
+  [ "$#" -gt 0 ] || { usage; return 1; }
+  local command="$1"
+  shift
+  case "$command" in
+    update) cmd_update "$@" ;;
+    restart) cmd_restart "$@" ;;
+    status) cmd_status "$@" ;;
+    logs|log) cmd_logs "$@" ;;
+    *) die "unknown command '$command' (see 'taptune help')" ;;
+  esac
+}
+
+# Everything runs from main so `git pull` can safely replace this file mid-update.
+main "$@"

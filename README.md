@@ -29,8 +29,9 @@ TapTune provides:
 - a 30% startup volume for the Pi receiver;
 - SQLite storage for assignments and event records;
 - a fake mode and simulator for testing without Spotify or NFC hardware;
-- a PN532 reader path over Raspberry Pi I2C; and
-- a `systemd` service installer for running TapTune continuously on a Pi.
+- a PN532 reader path over Raspberry Pi I2C;
+- a `systemd` service installer for running TapTune continuously on a Pi, with services that retry on their own; and
+- a `taptune` command to update everything, restart, check status and read all logs in one place.
 
 ## Choose your path
 
@@ -81,7 +82,7 @@ The result should include `"status": "ok"` and `"mode": "fake"`.
 - Self-describing tags: on NTAG21x (Type 2) tags the PN532 reader fetches the NDEF memory and plays the Spotify link or `spotify:` URI written on the tag, for example from a phone with NFC Tools. Share links such as `https://open.spotify.com/playlist/<id>?si=…` are converted automatically. A blank tag, a non-Type-2 tag (MIFARE Classic), or a failed read falls back to the value assigned to the UID in the web UI. The memory is read once each time a tag is presented. TapTune does not write tags.
 - Live playback requires a Spotify Premium account and valid developer credentials. Both the [Lite speaker setup](docs/speaker-setup.md) and the [Desktop/PipeWire setup](docs/speaker-setup-desktop.md) support playback after boot without logging in. Desktop requires the included user-audio installer and a dedicated audio user. If Spotify reports a current device, even while paused, taps control that device.
 - Boot prepares the receiver; it does **not** automatically start a playlist or resume music. Playback starts with a content tag or play/pause tag. Both TapTune's Web API authorization and the receiver's separate Spotify login must use the same account.
-- A short chime confirms that TapTune responds, its reader thread is running when enabled, Spotify sees the local receiver, and sound can be played to the speaker. Lite plays it from TapTune; Desktop/PipeWire uses the installed user ready-sound service so it works without logging in. There is no status LED, and other runtime errors are inspected through logs.
+- A short chime confirms that TapTune responds, its reader thread is running when enabled, Spotify sees the local receiver, and sound can be played to the speaker. Lite plays it from TapTune; Desktop/PipeWire uses the installed user ready-sound service so it works without logging in. There is no status LED; run `taptune status` and `taptune logs` to inspect runtime errors.
 - Hardware-specific Python packages are kept in `requirements-pi.txt` so local development remains hardware-free.
 
 ## Project map
@@ -95,6 +96,7 @@ The result should include `"status": "ok"` and `"mode": "fake"`.
 | `app/db.py` | SQLite assignments and event records |
 | `app/simulate.py` | Hardware-free command-line simulation |
 | `data/schema.sql` | Database schema |
+| `taptune` | Update, restart, status and merged logs for every service |
 | `systemd/` | Raspberry Pi dependency, service, and speaker installers |
 | `docs/` | Public landing page and task-focused guides |
 | `tests/` | Hardware-free unit and integration coverage |

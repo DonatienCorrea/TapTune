@@ -12,6 +12,9 @@ class VolumeClient(RecordingClient):
 
 class VolumeTests(unittest.TestCase):
     def setUp(self):
+        delay = patch.object(spotify_service, "RETRY_DELAY_SECONDS", 0)
+        delay.start()
+        self.addCleanup(delay.stop)
         patcher = patch.multiple(
             config.settings, SPOTIFY_DEVICE_NAME="TapTune", SPOTIFY_INITIAL_VOLUME=30,
             SPOTIFY_CLIENT_ID="", SPOTIFY_CLIENT_SECRET="", SPOTIFY_REFRESH_TOKEN="",
