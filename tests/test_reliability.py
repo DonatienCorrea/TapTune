@@ -64,13 +64,20 @@ class SpotifyRetryTests(unittest.TestCase):
 class ServiceUnitTests(unittest.TestCase):
     def test_every_unit_keeps_restarting_and_never_hits_the_start_limit(self):
         for name in (
-            "raspi-spotify-nfc.service", "taptune-bluetooth.service", "taptune-bluetooth.user.service",
-            "taptune-spotifyd.user.service", "taptune-ready-sound.user.service", "raspotify-taptune.conf",
+            "raspi-spotify-nfc.service", "taptune-spotifyd.user.service", "raspotify-taptune.conf",
         ):
             with self.subTest(unit=name):
                 text = (SYSTEMD / name).read_text()
                 self.assertIn("StartLimitIntervalSec=0", text)
                 self.assertRegex(text, r"\nRestart=(always|on-failure)\n")
+
+    def test_periodic_reconnect_and_chime_services_are_gone(self):
+        units = sorted(path.name for path in SYSTEMD.iterdir() if path.suffix in {".service", ".conf"})
+        self.assertEqual(units, [
+            "journald-taptune.conf", "raspi-spotify-nfc.service", "raspotify-taptune.conf",
+            "taptune-spotifyd.user.service",
+        ])
+        self.assertFalse((SYSTEMD / "taptune-bluetooth.sh").exists())
 
     def test_spotifyd_waits_for_network_and_restarts_after_clean_exit(self):
         text = (SYSTEMD / "taptune-spotifyd.user.service").read_text()
@@ -96,14 +103,14 @@ class TaptuneCliTests(unittest.TestCase):
         self.assertIn("requirements.txt", out)
         self.assertIn("unittest discover", out)
         self.assertLess(out.index("install-desktop-speaker.sh"), out.index("install-service.sh --desktop"))
-        self.assertIn("--no-block restart taptune-ready-sound.service", out)
+        self.assertNotIn("taptune-ready-sound", out)
         self.assertNotIn("install-speaker.sh ", out)
 
     def test_update_lite_backs_up_pulls_then_reinstalls(self):
         out = self.cli("--lite", "update", "--skip-tests").stdout
         self.assertLess(out.index("data/backups"), out.index("pull --ff-only"))
         self.assertLess(out.index("pull --ff-only"), out.index("install-speaker.sh"))
-        self.assertIn("install-service.sh", out)
+        self.assertIn("install-service.sh --lite", out)
         self.assertNotIn("unittest discover", out)
         self.assertNotIn("install-desktop-speaker.sh", out)
 
@@ -117,6 +124,19 @@ class TaptuneCliTests(unittest.TestCase):
         self.assertIn("--boot -1", out)
         self.assertIn("--lines 50", out)
         self.assertTrue(out.rstrip().endswith("-p warning"))
+
+    def test_update_app_only_never_installs_a_receiver(self):
+        out = self.cli("--app-only", "update", "--no-pull", "--skip-tests").stdout
+        self.assertIn("install-service.sh --app-only", out)
+        self.assertNotIn("install-speaker.sh", out)
+        self.assertNotIn("install-desktop-speaker.sh", out)
+
+    def test_restart_and_status_do_not_use_removed_services(self):
+        for mode in ("--lite", "--desktop"):
+            with self.subTest(mode=mode):
+                out = self.cli(mode, "restart").stdout
+                self.assertNotIn("taptune-bluetooth", out)
+                self.assertNotIn("taptune-ready-sound", out)
 
     def test_logs_follow(self):
         self.assertIn("--follow", self.cli("logs", "-f").stdout)

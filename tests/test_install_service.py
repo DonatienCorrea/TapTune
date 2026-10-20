@@ -54,7 +54,33 @@ class InstallServiceScriptTests(unittest.TestCase):
         self.assertIn("After=network-online.target bluetooth.service\n", result.stdout)
         self.assertNotIn("raspotify", result.stdout)
         self.assertNotIn("bluealsa", result.stdout)
-        self.assertIn("Environment=READY_SOUND_ENABLED=false", result.stdout)
+        self.assertNotIn("READY_SOUND_ENABLED", result.stdout)
+        self.assertRegex(result.stdout, r"\nEnvironment=DESKTOP_AUDIO_USER=[a-z_][a-z0-9_-]*\n")
+
+    def test_app_only_is_the_default_and_never_pulls_receivers(self):
+        for args in ([], ["--app-only"]):
+            with self.subTest(args=args):
+                result = subprocess.run(
+                    ["bash", str(SCRIPT_PATH), *args, "--dry-run"], capture_output=True, text=True, check=True,
+                )
+                self.assertIn("# app-only setup:", result.stdout)
+                self.assertIn("Wants=network-online.target\n", result.stdout)
+                self.assertNotIn("raspotify", result.stdout)
+                self.assertNotIn("bluealsa", result.stdout)
+                self.assertNotIn("DESKTOP_AUDIO_USER", result.stdout)
+
+    def test_lite_orders_the_app_after_its_receiver(self):
+        result = subprocess.run(
+            ["bash", str(SCRIPT_PATH), "--lite", "--dry-run"], capture_output=True, text=True, check=True,
+        )
+        self.assertIn("Wants=network-online.target raspotify.service\n", result.stdout)
+        self.assertIn("After=network-online.target bluetooth.service bluealsa.service raspotify.service\n", result.stdout)
+        self.assertNotIn("DESKTOP_AUDIO_USER", result.stdout)
+
+    def test_dry_run_shows_removal_of_the_periodic_reconnect_service(self):
+        output = self.run_dry_run(REPO_ROOT)
+        self.assertIn("sudo systemctl disable --now taptune-bluetooth.service", output)
+        self.assertIn("sudo rm -f /etc/systemd/system/taptune-bluetooth.service", output)
 
     def test_paths_escape_systemd_specifiers_and_exec_environment_variables(self):
         with tempfile.TemporaryDirectory() as directory:

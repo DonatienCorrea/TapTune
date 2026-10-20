@@ -24,7 +24,7 @@ except ModuleNotFoundError:  # pragma: no cover - requests ships with spotipy.
     NETWORK_ERRORS = ()
 
 from .config import settings
-from .bluetooth import BluetoothNotReady, ensure_speaker_connected
+from .bluetooth import BluetoothNotReady, prepare_speaker
 
 SPOTIFY_URI_PATTERN = re.compile(r"^spotify:(track|playlist|album):([A-Za-z0-9]+)$")
 SUPPORTED_ACTIONS = frozenset({
@@ -218,7 +218,6 @@ def resolve_target_device(spotify: Any, current: Optional[dict]) -> Optional[str
     Returns ``None`` to let Spotify use the active device, a device id for the Pi,
     or raises ``SpeakerNotReady`` when nothing can play.
     """
-    _prepare_local_speaker(current)
     if current:
         return None
     if not settings.SPOTIFY_DEVICE_NAME:
@@ -306,6 +305,7 @@ def play_content(uri: str, position_ms: int = 0) -> dict:
     try:
         spotify = build_spotify_client()
         current = spotify.current_playback()
+        _prepare_local_speaker(current)
         device_id = resolve_target_device(spotify, current)
         if match.group(1) == "track":
             return spotify.start_playback(device_id=device_id, uris=[uri], position_ms=position_ms)
@@ -370,13 +370,14 @@ def toggle_playback() -> dict:
     try:
         spotify = build_spotify_client()
         current = spotify.current_playback()
-        device_id = resolve_target_device(spotify, current)
         if _believed_playing(current):
             logger.info("Play/pause: pausing.")
             result = spotify.pause_playback()
             _remember_playback(False)
             return result
         logger.info("Play/pause: resuming.")
+        _prepare_local_speaker(current)
+        device_id = resolve_target_device(spotify, current)
         result = _resume(spotify, current, device_id)
         _remember_playback(True)
         return result
@@ -400,12 +401,17 @@ def get_current_playback() -> Optional[dict]:
 
 
 def _prepare_local_speaker(current: Optional[dict]) -> None:
+    """Before starting/resuming music on the Pi's receiver, connect and route its speaker.
+
+    Pause, next and volume never reconnect: a speaker that went to sleep while
+    nothing played is only woken when music should come out of it.
+    """
     if not is_live_spotify_configured() or not settings.BLUETOOTH_SPEAKER_MAC:
         return
     device = (current or {}).get("device") or {}
     local_name = settings.SPOTIFY_DEVICE_NAME.casefold()
     if local_name and (not current or (device.get("name") or "").strip().casefold() == local_name):
-        ensure_speaker_connected()
+        prepare_speaker()
 
 
 def _believed_volume(device_id: str, reported: int) -> int:
@@ -435,7 +441,6 @@ def change_volume(step: int) -> dict:
         spotify = build_spotify_client()
         with _volume_lock:
             current = spotify.current_playback()
-            _prepare_local_speaker(current)
             device = current.get("device") if current else None
             if not device and not current:
                 device = find_device_with_retries(spotify)

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # TapTune's operating command: update, restart, inspect and read the logs of
-# every TapTune service (app, Bluetooth reconnect, Spotify receiver, chime).
+# every TapTune service (the app, which also connects the Bluetooth speaker and
+# plays the ready sound, and the Spotify receiver).
 # install-service.sh links it as /usr/local/bin/taptune. Run it as the normal
 # Pi user (the Spotifyd audio user on Desktop); it asks for sudo when needed.
 set -Eeuo pipefail
@@ -19,13 +20,15 @@ REPO_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 SCRIPT_DIR="$REPO_DIR/systemd"
 PYTHON="$REPO_DIR/.venv/bin/python"
 APP_UNIT="raspi-spotify-nfc.service"
+# taptune-bluetooth/taptune-ready-sound were removed; they stay in the log
+# query so `taptune logs --boot -1` still explains a boot before the update.
 LOG_SYSTEM_UNITS=(
-  raspi-spotify-nfc.service taptune-bluetooth.service raspotify.service
-  bluealsa.service bluetooth.service
+  raspi-spotify-nfc.service raspotify.service bluealsa.service bluetooth.service
+  taptune-bluetooth.service
 )
 LOG_USER_UNITS=(
-  taptune-spotifyd.service taptune-bluetooth.service taptune-ready-sound.service
-  pipewire.service pipewire-pulse.service wireplumber.service
+  taptune-spotifyd.service pipewire.service pipewire-pulse.service wireplumber.service
+  taptune-bluetooth.service taptune-ready-sound.service
 )
 DRY_RUN=0
 MODE=""
@@ -56,6 +59,9 @@ Commands:
 
 Setup type is detected automatically; force it with --lite (Raspotify +
 BlueALSA), --desktop (PipeWire + Spotifyd) or --app-only (no speaker services).
+Updating with --lite or --desktop also stops the other setup's receiver.
+The app connects the Bluetooth speaker at boot and when a tag starts or
+resumes music; there is no background reconnect service.
 EOF
 }
 
@@ -68,7 +74,8 @@ detect_mode() {
   fi
   if [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/taptune-spotifyd.service" ]; then
     MODE=desktop
-  elif [ -f /etc/systemd/system/taptune-bluetooth.service ]; then
+  elif [ -f /etc/systemd/system/raspotify.service.d/taptune.conf ] ||
+      [ -f /etc/systemd/system/taptune-bluetooth.service ]; then
     MODE=lite
   else
     MODE=app
@@ -213,15 +220,14 @@ cmd_update() {
   case "$MODE" in
     lite)
       run bash "$SCRIPT_DIR/install-speaker.sh"
-      run bash "$SCRIPT_DIR/install-service.sh"
+      run bash "$SCRIPT_DIR/install-service.sh" --lite
       ;;
     desktop)
       run bash "$SCRIPT_DIR/install-desktop-speaker.sh"
       run bash "$SCRIPT_DIR/install-service.sh" --desktop
-      run systemctl --user --no-block restart taptune-ready-sound.service
       ;;
     app)
-      run bash "$SCRIPT_DIR/install-service.sh"
+      run bash "$SCRIPT_DIR/install-service.sh" --app-only
       ;;
   esac
   wait_for_health || true
@@ -238,20 +244,40 @@ cmd_restart() {
   info "Restarting TapTune ($MODE setup)"
   case "$MODE" in
     lite)
-      run sudo systemctl restart bluetooth.service bluealsa.service taptune-bluetooth.service raspotify.service
+      run sudo systemctl restart bluetooth.service bluealsa.service raspotify.service
       run sudo systemctl restart "$APP_UNIT"
       ;;
     desktop)
       run sudo systemctl restart bluetooth.service
-      run systemctl --user restart wireplumber.service taptune-bluetooth.service taptune-spotifyd.service
+      run systemctl --user restart wireplumber.service taptune-spotifyd.service
       run sudo systemctl restart "$APP_UNIT"
-      run systemctl --user --no-block restart taptune-ready-sound.service
       ;;
     app)
       run sudo systemctl restart "$APP_UNIT"
       ;;
   esac
   wait_for_health || true
+}
+
+# Mixed or outdated stacks: two "TapTune" receivers, or the old 10 s reconnect loop.
+status_warnings() {
+  local raspotify spotifyd legacy unit
+  raspotify="$(unit_state systemctl is-active raspotify.service)"
+  spotifyd="$(unit_state systemctl --user is-active taptune-spotifyd.service)"
+  if [ "$raspotify" = active ] && [ "$spotifyd" = active ]; then
+    echo "warning: Raspotify and Spotifyd both run: two receivers compete for the speaker."
+    echo "         Keep one: 'taptune --lite update' or 'taptune --desktop update'."
+  fi
+  legacy=""
+  for unit in taptune-bluetooth.service taptune-ready-sound.service; do
+    if [ "$(unit_state systemctl is-active "$unit")" = active ] ||
+        [ "$(unit_state systemctl --user is-active "$unit")" = active ]; then
+      legacy="$legacy $unit"
+    fi
+  done
+  if [ -n "$legacy" ]; then
+    echo "warning: obsolete service(s) still running:$legacy. Run 'taptune update' to remove them."
+  fi
 }
 
 unit_state() {
@@ -269,17 +295,17 @@ cmd_status() {
   echo
   echo "System services:"
   local system_units=("$APP_UNIT" bluetooth.service)
-  [ "$MODE" != lite ] || system_units+=(bluealsa.service taptune-bluetooth.service raspotify.service)
+  [ "$MODE" != lite ] || system_units+=(bluealsa.service raspotify.service)
   for unit in "${system_units[@]}"; do
     printf '  %-32s %s\n' "$unit" "$(unit_state systemctl is-active "$unit")"
   done
   if [ "$MODE" = desktop ]; then
     echo "User audio services ($(id -un)):"
-    for unit in pipewire.service pipewire-pulse.service wireplumber.service \
-        taptune-bluetooth.service taptune-spotifyd.service taptune-ready-sound.service; do
+    for unit in pipewire.service pipewire-pulse.service wireplumber.service taptune-spotifyd.service; do
       printf '  %-32s %s\n' "$unit" "$(unit_state systemctl --user is-active "$unit")"
     done
   fi
+  status_warnings
   echo
   for url in "$(app_url)/health" "$(app_url)/ready"; do
     printf '%s -> %s\n' "$url" "$(http_get "$url" | tr -d '\n' || true)"

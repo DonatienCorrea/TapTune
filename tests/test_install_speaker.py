@@ -1,5 +1,4 @@
 import os
-import stat
 import shutil
 import subprocess
 import tempfile
@@ -9,7 +8,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INSTALLER = REPO_ROOT / "systemd" / "install-speaker.sh"
-RECONNECT = REPO_ROOT / "systemd" / "taptune-bluetooth.sh"
+COMMON = REPO_ROOT / "systemd" / "install-common.sh"
 
 
 class InstallSpeakerScriptTests(unittest.TestCase):
@@ -31,12 +30,16 @@ class InstallSpeakerScriptTests(unittest.TestCase):
     def test_dry_run_reenables_credential_cache_so_login_survives_reboot(self):
         self.assertIn("#LIBRESPOT_DISABLE_CREDENTIAL_CACHE=", self.dry_run())
 
-    def test_dry_run_installs_reconnect_service_for_this_checkout(self):
+    def test_dry_run_has_no_reconnect_loop_and_stops_the_desktop_stack(self):
         output = self.dry_run()
-        unit_path = str(REPO_ROOT).replace(" ", "\\x20")
-        self.assertIn(f'ExecStart="{unit_path}/systemd/taptune-bluetooth.sh"', output)
-        self.assertIn(f"EnvironmentFile={unit_path}/.env", output)
-        self.assertIn("enable taptune-bluetooth.service", output)
+        self.assertNotIn("systemd/taptune-bluetooth.sh", output)
+        self.assertNotIn("enable taptune-bluetooth.service", output)
+        self.assertIn("systemctl --user disable --now taptune-spotifyd.service", output)
+        self.assertIn("sudo systemctl disable --now spotifyd.service", output)
+        self.assertIn("sudo systemctl disable --now taptune-bluetooth.service", output)
+        self.assertIn("sudo rm -f /etc/systemd/system/taptune-bluetooth.service", output)
+        self.assertIn("systemctl --user disable --now taptune-ready-sound.service", output)
+        self.assertLess(output.index("disable --now taptune-spotifyd.service"), output.index("restart raspotify.service"))
         self.assertNotIn("/home/pi/TapTune", output)
 
     def test_rejects_unknown_argument(self):
@@ -90,102 +93,85 @@ class InstallSpeakerScriptTests(unittest.TestCase):
                     self.assertNotIn("apt-get", result.stdout)
 
 
-class BluetoothReconnectScriptTests(unittest.TestCase):
+class CleanupHelperTests(unittest.TestCase):
+    """Mode switches and upgrades only stop units that are really installed."""
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
-        self.log = Path(self.directory.name) / "calls.log"
-        fake = Path(self.directory.name) / "bluetoothctl"
-        fake.write_text(
+        self.root = Path(self.directory.name)
+        self.log = self.root / "calls.log"
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "systemctl").write_text(
             "#!/usr/bin/env bash\n"
-            f'echo "$@" >> "{self.log}"\n'
-            'if [ "$1" = info ]; then echo "Connected: ${FAKE_CONNECTED:-no}"; fi\n'
-        )
-        fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
-        self.fake = fake
-        self.amixer_log = Path(self.directory.name) / "amixer.log"
-        amixer = Path(self.directory.name) / "amixer"
-        amixer.write_text(
-            "#!/usr/bin/env bash\n"
-            f'echo "$@" >> "{self.amixer_log}"\n'
-            'case "$*" in *scontrols) echo "Simple mixer control \'JBL Flip 5 A2DP\',0" ;; esac\n'
-        )
-        amixer.chmod(0o755)
-        self.amixer = amixer
-
-    def run_once(self, mac, connected="no"):
-        env = dict(
-            os.environ, BLUETOOTHCTL=str(self.fake), AMIXER=str(self.amixer),
-            BLUETOOTH_SPEAKER_MAC=mac, FAKE_CONNECTED=connected, AUDIO_BACKEND="alsa",
-        )
-        return subprocess.run(["bash", str(RECONNECT), "--once"], env=env, capture_output=True, text=True)
-
-    def calls(self):
-        return self.log.read_text().splitlines() if self.log.exists() else []
-
-    def test_connects_when_speaker_is_disconnected(self):
-        result = self.run_once("aa:bb:cc:dd:ee:ff")
-        self.assertEqual(result.returncode, 0)
-        self.assertEqual(self.calls(), ["info AA:BB:CC:DD:EE:FF", "--timeout 10 connect AA:BB:CC:DD:EE:FF"])
-
-    def test_does_nothing_when_already_connected(self):
-        result = self.run_once("AA:BB:CC:DD:EE:FF", connected="yes")
-        self.assertEqual(result.returncode, 0)
-        self.assertEqual(self.calls(), ["info AA:BB:CC:DD:EE:FF"])
-
-    def test_connected_lite_speaker_output_is_set_to_full_volume(self):
-        result = self.run_once("AA:BB:CC:DD:EE:FF", connected="yes")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(
-            "-q -D bluealsa:DEV=AA:BB:CC:DD:EE:FF,PROFILE=a2dp sset JBL Flip 5 A2DP 100% unmute",
-            self.amixer_log.read_text().splitlines(),
-        )
-        self.assertIn("set to 100%", result.stdout)
-
-    def test_disconnected_lite_speaker_volume_is_not_touched(self):
-        self.run_once("AA:BB:CC:DD:EE:FF", connected="no")
-        self.assertFalse(self.amixer_log.exists())
-
-    def test_empty_mac_exits_cleanly(self):
-        result = self.run_once("")
-        self.assertEqual(result.returncode, 0)
-        self.assertEqual(self.calls(), [])
-
-    def test_invalid_mac_fails(self):
-        result = self.run_once("not-a-mac")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("not a Bluetooth address", result.stderr)
-
-    def test_desktop_routes_default_output_and_existing_streams(self):
-        fake = Path(self.directory.name) / "pactl"
-        fake.write_text(
-            "#!/usr/bin/env bash\n"
-            f'echo "$@" >> "{self.log}"\n'
+            f'echo "systemctl $*" >> "{self.log}"\n'
             'case "$*" in\n'
-            '  "list short sinks") printf "1\\talsa_output.hdmi\\n2\\tbluez_output.AA_BB_CC_DD_EE_FF.1\\n" ;;\n'
-            '  "get-default-sink") echo alsa_output.hdmi ;;\n'
-            '  "list short sink-inputs") printf "5\\t1\\t42\\n6\\t2\\t43\\n" ;;\n'
+            '  *show-environment*) [ "$FAKE_USER_MANAGER" = yes ] ;;\n'
+            '  *list-unit-files*)\n'
+            '    unit="${@: -1}"\n'
+            '    for installed in $FAKE_INSTALLED; do\n'
+            '      [ "$installed" = "$unit" ] && echo "$unit enabled enabled"\n'
+            '    done; exit 0 ;;\n'
             'esac\n'
         )
-        fake.chmod(0o755)
-        env = dict(
-            os.environ, BLUETOOTHCTL=str(self.fake), PACTL=str(fake),
-            BLUETOOTH_SPEAKER_MAC="AA:BB:CC:DD:EE:FF",
-            FAKE_CONNECTED="yes", AUDIO_BACKEND="pulseaudio",
-        )
-        result = subprocess.run(["bash", str(RECONNECT), "--once"], env=env, capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("set-default-sink bluez_output.AA_BB_CC_DD_EE_FF.1", self.calls())
-        self.assertIn("move-sink-input 5 bluez_output.AA_BB_CC_DD_EE_FF.1", self.calls())
-        self.assertNotIn("move-sink-input 6 bluez_output.AA_BB_CC_DD_EE_FF.1", self.calls())
-        self.assertIn("set-sink-volume bluez_output.AA_BB_CC_DD_EE_FF.1 100%", self.calls())
-        self.assertIn("set-sink-mute bluez_output.AA_BB_CC_DD_EE_FF.1 0", self.calls())
+        (bin_dir / "sudo").write_text('#!/usr/bin/env bash\n"$@"\n')
+        for tool in bin_dir.iterdir():
+            tool.chmod(0o755)
+        self.env = dict(os.environ, PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}", HOME=str(self.root),
+                        XDG_CONFIG_HOME=str(self.root / "config"), FAKE_USER_MANAGER="yes")
 
-    def test_invalid_interval_fails_instead_of_spinning(self):
-        with patch.dict(os.environ, BLUETOOTH_RECONNECT_INTERVAL="0"):
-            result = self.run_once("AA:BB:CC:DD:EE:FF")
+    def run_helpers(self, script, **env):
+        result = subprocess.run(
+            ["bash", "-c", f'DRY_RUN=0; source "{COMMON}"; {script}'],
+            env={**self.env, **env}, capture_output=True, text=True,
+        )
+        calls = self.log.read_text().splitlines() if self.log.exists() else []
+        return result, [call for call in calls if "list-unit-files" not in call and "show-environment" not in call]
+
+    def test_only_installed_conflicting_units_are_disabled(self):
+        result, calls = self.run_helpers(
+            "disable_system_unit raspotify.service test; disable_system_unit bluealsa.service test; "
+            "disable_user_unit spotifyd.service test; disable_user_unit taptune-spotifyd.service test",
+            FAKE_INSTALLED="raspotify.service taptune-spotifyd.service",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls, [
+            "systemctl disable --now raspotify.service",
+            "systemctl --user disable --now taptune-spotifyd.service",
+        ])
+
+    def test_legacy_user_units_and_files_are_removed(self):
+        units = self.root / "config/systemd/user"
+        units.mkdir(parents=True)
+        for name in ("taptune-bluetooth.service", "taptune-ready-sound.service"):
+            (units / name).write_text("[Unit]\n")
+        script = self.root / ".local/lib/taptune/taptune-bluetooth.sh"
+        script.parent.mkdir(parents=True)
+        script.write_text("")
+        result, calls = self.run_helpers(
+            "remove_legacy_user_units",
+            FAKE_INSTALLED="taptune-bluetooth.service taptune-ready-sound.service",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("systemctl --user disable --now taptune-bluetooth.service", calls)
+        self.assertIn("systemctl --user disable --now taptune-ready-sound.service", calls)
+        self.assertEqual(list(units.iterdir()), [])
+        self.assertFalse(script.parent.exists())
+
+    def test_fresh_install_has_nothing_to_clean(self):
+        result, calls = self.run_helpers("remove_legacy_user_units; remove_legacy_system_units", FAKE_INSTALLED="")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls, [])
+
+    def test_owned_unit_without_user_manager_fails_instead_of_staying_enabled(self):
+        units = self.root / "config/systemd/user"
+        units.mkdir(parents=True)
+        (units / "taptune-bluetooth.service").write_text("[Unit]\n")
+        result, calls = self.run_helpers("remove_legacy_user_units", FAKE_USER_MANAGER="no")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("positive integer", result.stderr)
+        self.assertIn("not reachable", result.stderr)
+        self.assertTrue((units / "taptune-bluetooth.service").exists())
 
 
 class DesktopInstallerTests(unittest.TestCase):
@@ -204,15 +190,17 @@ class DesktopInstallerTests(unittest.TestCase):
                     )
                     self.assertIn("loginctl enable-linger", result.stdout)
                     self.assertIn("pipewire.socket pipewire-pulse.socket wireplumber.service", result.stdout)
-                    self.assertIn("taptune-bluetooth.user.service", result.stdout)
                     self.assertIn("taptune-spotifyd.user.service", result.stdout)
-                    self.assertIn("taptune-ready-sound.service", result.stdout)
-                    unit_path = str(REPO_ROOT).replace(" ", "\\x20")
-                    self.assertIn(f"WorkingDirectory={unit_path}", result.stdout)
-                    self.assertIn(f"EnvironmentFile={unit_path}/.env", result.stdout)
-                    self.assertIn(f'ExecStart="{unit_path}/.venv/bin/python" -m app.readiness --desktop', result.stdout)
-                    self.assertIn("--no-block restart taptune-ready-sound.service", result.stdout)
-                    self.assertNotIn("bluealsa", result.stdout)
+                    self.assertNotIn("taptune-bluetooth.user.service", result.stdout)
+                    self.assertNotIn("app.readiness", result.stdout)
+                    self.assertNotIn("restart taptune-ready-sound", result.stdout)
+                    self.assertIn("systemctl --user disable --now taptune-bluetooth.service", result.stdout)
+                    self.assertIn("systemctl --user disable --now taptune-ready-sound.service", result.stdout)
+                    self.assertIn("sudo systemctl disable --now raspotify.service", result.stdout)
+                    self.assertIn("sudo systemctl disable --now bluealsa.service", result.stdout)
+                    self.assertIn("sudo rm -f /etc/systemd/system/raspotify.service.d/taptune.conf", result.stdout)
+                    self.assertNotIn("apt-get", result.stdout)
+                    self.assertNotIn("enable --now bluetooth.service bluealsa", result.stdout)
                     if version.startswith("0.4"):
                         self.assertIn('bluez_monitor.properties["with-logind"] = false', result.stdout)
                     else:

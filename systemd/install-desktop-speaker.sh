@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# Run as the Spotifyd user, not with sudo. Keeps that user's audio stack alive at boot.
+# Run as the Spotifyd user, not with sudo. Keeps that user's audio stack alive at
+# boot and runs Spotifyd as its only TapTune user service. The TapTune app
+# (install-service.sh --desktop) connects the speaker, routes this user's
+# PipeWire output to it and plays the ready sound: once at boot, then only
+# when a tag starts or resumes music. Lite's Raspotify/BlueALSA are stopped.
 set -euo pipefail
 
 DRY_RUN=0
@@ -27,7 +31,7 @@ if [ "$DRY_RUN" -eq 0 ]; then
     echo "error: run as the user who authenticated Spotifyd, without sudo" >&2
     exit 1
   fi
-  for command in wireplumber pactl paplay bluetoothctl; do
+  for command in wireplumber pactl pacat bluetoothctl; do
     if ! command -v "$command" >/dev/null 2>&1; then
       echo "error: $command missing; install wireplumber, pulseaudio-utils and bluez first" >&2
       exit 1
@@ -85,42 +89,38 @@ case "$VERSION" in
     ;;
 esac
 
-run mkdir -p "$(dirname "$WP_FILE")" "$CONFIG_DIR/systemd/user" "$CONFIG_DIR/taptune" "$HOME/.local/lib/taptune"
+run mkdir -p "$(dirname "$WP_FILE")" "$CONFIG_DIR/systemd/user"
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "# write $WP_FILE:"
   printf '%s\n' "$WP_CONFIG"
-  echo "# write $CONFIG_DIR/taptune/bluetooth.env:"
-  printf 'BLUETOOTH_SPEAKER_MAC=%s\n' "$MAC"
 else
   printf '%s\n' "$WP_CONFIG" > "$WP_FILE"
-  printf 'BLUETOOTH_SPEAKER_MAC=%s\n' "$MAC" > "$CONFIG_DIR/taptune/bluetooth.env"
 fi
-run install -m 755 "$SCRIPT_DIR/taptune-bluetooth.sh" "$HOME/.local/lib/taptune/taptune-bluetooth.sh"
-run install -m 644 "$SCRIPT_DIR/taptune-bluetooth.user.service" "$CONFIG_DIR/systemd/user/taptune-bluetooth.service"
 run install -m 644 "$SCRIPT_DIR/taptune-spotifyd.user.service" "$CONFIG_DIR/systemd/user/taptune-spotifyd.service"
-READY_UNIT="$(render_unit "$SCRIPT_DIR/taptune-ready-sound.user.service" "$REPO_DIR/.venv/bin/python" " -m app.readiness --desktop")"
-if [ "$DRY_RUN" -eq 1 ]; then
-  echo "# write $CONFIG_DIR/systemd/user/taptune-ready-sound.service:"
-  printf '%s\n' "$READY_UNIT"
-else
-  printf '%s\n' "$READY_UNIT" > "$CONFIG_DIR/systemd/user/taptune-ready-sound.service"
-  chmod 644 "$CONFIG_DIR/systemd/user/taptune-ready-sound.service"
-fi
+remove_legacy_user_units
 run sed -i \
   -e '/^[[:space:]]*initial_volume[[:space:]]*=/d' \
   -e "/^[[:space:]]*\\[global\\][[:space:]]*$/a initial_volume = $VOLUME" \
   "$CONFIG_DIR/spotifyd/spotifyd.conf"
 run sudo loginctl enable-linger "$(id -un)"
+# BlueALSA and PipeWire both claim the speaker's A2DP link, and a Raspotify
+# receiver with the same name makes a second "TapTune" in Spotify.
+disable_system_unit raspotify.service "Desktop uses Spotifyd, not Raspotify"
+disable_system_unit bluealsa.service "PipeWire handles Bluetooth audio on Desktop"
+if [ "$DRY_RUN" -eq 1 ] || [ -f /etc/systemd/system/raspotify.service.d/taptune.conf ]; then
+  run sudo rm -f /etc/systemd/system/raspotify.service.d/taptune.conf
+  run sudo systemctl daemon-reload
+fi
+remove_legacy_system_units
 run sudo systemctl enable --now bluetooth.service
 run bluetoothctl trust "$MAC"
 run systemctl --user daemon-reload
 run systemctl --user enable --now pipewire.socket pipewire-pulse.socket wireplumber.service
 run systemctl --user restart wireplumber.service
-run systemctl --user enable taptune-bluetooth.service taptune-spotifyd.service taptune-ready-sound.service
-run systemctl --user restart taptune-bluetooth.service taptune-spotifyd.service
-run systemctl --user --no-block restart taptune-ready-sound.service
+run systemctl --user enable taptune-spotifyd.service
+run systemctl --user restart taptune-spotifyd.service
 
 echo "Desktop speaker configured for boot without login. Keep this Pi dedicated to this audio user."
-echo "Match SPOTIFY_DEVICE_NAME to Spotifyd's device_name and install TapTune with --desktop."
-echo "The user ready-sound service honors READY_SOUND_ENABLED in .env and waits for TapTune, Spotify and the Bluetooth output."
+echo "Match SPOTIFY_DEVICE_NAME to Spotifyd's device_name and install TapTune with 'systemd/install-service.sh --desktop' as this user."
+echo "TapTune then plays the ready sound (READY_SOUND_ENABLED) through this user's Bluetooth output."
 echo "Reboot, then check playback before logging in (see docs/speaker-setup-desktop.md)."
