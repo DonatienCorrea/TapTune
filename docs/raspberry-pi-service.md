@@ -2,22 +2,21 @@
 
 [Documentation index](README.md)
 
-Use this as the fresh-install checklist. Prepare the software first, prove fake
-mode and the hardware separately, then authorize Spotify, configure **one**
-speaker stack and enable continuous reader polling.
+**This is the start-to-finish installation checklist.** Use Raspberry Pi OS
+**Lite** for the shortest standalone-player setup. Use **Desktop** only if you
+need PipeWire and can install/authenticate Spotifyd. Pick one route and keep it
+throughout; do not run both audio stacks.
 
-## Requirements
-
-- Raspberry Pi OS Lite or another Raspberry Pi OS installation;
-- SSH access;
-- Python 3.10 or newer;
-- a PN532 configured for I2C;
-- an NFC tag whose UID has passed the first-card test; and
-- a Spotify Premium account and Spotify Developer app for live playback.
+You need a networked Raspberry Pi, SSH or terminal access, Python 3.10+, a PN532
+in I2C mode, a compatible tag, a Bluetooth speaker, Spotify Premium and a Spotify
+Developer app. A phone/computer with Spotify is needed for initial authorization,
+not for everyday tag use. For a software-only trial, use the separate
+[fake-mode guide](getting-started.md).
 
 ## Install the project
 
-From an SSH session:
+Run as your normal user, **not with sudo**. On Desktop, use the one dedicated
+audio user who will authenticate Spotifyd.
 
 ```bash
 sudo apt update
@@ -25,218 +24,210 @@ sudo apt install -y git python3-venv sqlite3
 cd "$HOME"
 git clone https://github.com/DonatienCorrea/TapTune.git
 cd TapTune
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-./systemd/install-pi-dependencies.sh
-cp .env.example .env
-chmod 600 .env
+./install.sh --lite
 ```
 
-The dependency script installs the base packages and Pi-only reader packages. It is safe to rerun inside an existing virtual environment when upgrading.
+For Desktop, replace `--lite` with `--desktop`. Preparation creates or reuses
+`.venv`, installs base and PN532 Python dependencies, and creates `.env` with
+mode `600` **only if absent**. It starts no services, changes no audio stack,
+and does not overwrite existing settings or permissions. If an old `.env` is
+too open, run `chmod 600 .env` before completion. Do not source `.env` in a shell.
 
-Edit `.env`:
+Preview either phase without modifying the machine:
 
 ```bash
-nano .env
+./install.sh --lite --dry-run
+./install.sh --lite --configure --dry-run
+./install.sh --help
 ```
 
-Keep `DATABASE_PATH=./data/raspi_spotify_nfc.db` unless you deliberately need another location. Leave `NFC_READER_ENABLED=false` during setup.
+Paths containing spaces are supported: use the installers, which rewrite and
+quote the actual checkout paths in systemd units. Do not copy a unit unchanged
+from the repository; its `/home/pi/TapTune` paths are placeholders.
 
-## Prove the software works
+## Finish the manual prerequisites
 
-Before installing the service:
+These steps cannot safely be automated by the installer. Stay in this checklist;
+return here after each linked reference.
+
+1. **Wire and prove the reader.** Power down before wiring, select I2C mode,
+   enable I2C and reboot as described in [Hardware setup](hardware-setup.md).
+   Run `.venv/bin/python -m app.pn532_diag --seconds 30` and obtain a reliable
+   complete UID. Then set `NFC_READER_ENABLED=true` in `.env`.
+2. **Authorize TapTune's Spotify Web API client.** Follow
+   [Spotify authorization](spotify-authorization.md), including the SSH callback
+   tunnel if needed. Fill in the client ID, secret and refresh token in `.env`.
+   The dashboard redirect URI and `.env` must match **exactly**.
+3. **Prepare the selected speaker path.** On **Lite**, complete
+   [speaker pairing](speaker-setup.md#1-pair-the-bluetooth-speaker) and save its
+   MAC in `.env`; the next checklist step installs the receiver. On **Desktop**,
+   complete [Desktop prerequisites](speaker-setup-desktop.md) through Spotifyd
+   authentication and audio packages, but do not install services separately.
+4. **Review `.env`.** Keep `SPOTIFY_DEVICE_NAME=TapTune` consistent with the
+   receiver name, `SPOTIFY_INITIAL_VOLUME=30` for a safe starting level, and
+   `DATABASE_PATH=./data/raspi_spotify_nfc.db` unless intentionally relocating
+   the database. Set your real `BLUETOOTH_SPEAKER_MAC`.
+
+The two Spotify authorizations are different: the Web API token controls
+playback; Raspotify/Spotifyd must also log into **the same account** to receive
+audio. On Lite the receiver login happens just after its installation below.
+
+## Configure and start services
+
+From the checkout, after the manual prerequisites:
 
 ```bash
-source .venv/bin/activate
-python -m unittest discover -s tests -v
-python -m app.main
+./install.sh --lite --configure
 ```
 
-From another machine on the same network:
+Use `--desktop --configure` for Desktop. Completion requires existing `.venv`
+and a private `.env`, populated live credential fields, enabled reader and a
+paired/trusted speaker. These checks do **not** validate Spotify tokens online,
+prove wiring or detect whether Spotifyd's cached account is correct.
 
-```bash
-curl http://<pi-ip>:5000/health
-```
+The command runs the matching speaker installer, then installs and restarts the
+TapTune unit with the correct mode. It invokes `sudo` only for system changes.
+**Do not run another service installer afterwards.**
 
-Stop the foreground app with `Ctrl-C`. Complete the
-[hardware first-card test](hardware-setup.md#read-the-first-card), then follow
-[Spotify authorization](spotify-authorization.md) for live playback. If you are
-connected over SSH, use that guide's SSH port-forwarding instructions for the
-browser callback.
+Lite installs BlueALSA plus the managed Raspotify package. Its installer may
+download and execute the upstream Raspotify installer from
+`https://dtcooper.github.io/raspotify/install.sh`; inspect
+`systemd/install-speaker.sh` before granting permission if that matters for your
+deployment. Desktop does not download Spotifyd automatically: you supply a
+compatible binary and authenticate it first. The chosen installer disables
+competing receiver services and removes obsolete TapTune reconnect/chime units;
+it does not uninstall packages or manage other users' audio sessions.
 
-A Web API token is not enough: the Pi needs a separately authenticated Spotify
-Connect receiver. Choose **one** path before enabling the TapTune service:
+On a **first Lite install**, now open Spotify on a phone/computer on the same
+network and choose **TapTune** in the device picker. This caches Raspotify's
+account login. Confirm music plays on the Bluetooth speaker, then pause it.
+No chime during this account setup is a reason to inspect the receiver login,
+not to install a second receiver.
 
-| Pi audio stack | Receiver setup | TapTune service installer |
-| --- | --- | --- |
-| OS Lite without PipeWire | [BlueALSA + Raspotify](speaker-setup.md) | `bash systemd/install-service.sh` |
-| OS Desktop with PipeWire (Bookworm/Trixie) | [Desktop + Spotifyd](speaker-setup-desktop.md) | `bash systemd/install-service.sh --desktop` |
-
-Both paths prepare playback after boot without login. Neither automatically
-starts music at boot; a tag starts or resumes playback. Use the same Spotify
-account for TapTune and the receiver. Return here after sound works from the
-Spotify app, and run `python -m app.main` again for tag assignment.
+If the startup check expired while completing the receiver login, run
+`taptune restart` to request a fresh bounded check and chime.
 
 ## Assign and verify a tag
 
-1. Open `http://<pi-ip>:5000/`.
-2. Save the exact UID from the first-card test with a supported value.
-3. Verify it before enabling hardware polling:
-
-   ```bash
-   curl -X POST -d 'uid=04A7B2F1' http://127.0.0.1:5000/dispatch
-   ```
-
-4. Stop TapTune.
-5. Set `NFC_READER_ENABLED=true` in `.env`.
-
-See [Using tags](tag-usage.md) for supported values and behavior.
-
-## Install the systemd service
-
-The checked-in unit uses `/home/pi/TapTune` as a placeholder. Installing it unchanged from another directory causes `systemctl enable --now` to fail because `WorkingDirectory`, `ExecStart`, and `EnvironmentFile` point to missing paths.
-
-Run the installer from the repository root after `.venv` and `.env` exist:
+Open `http://<pi-ip>:5000/`. Assign the UID from the diagnostic to a playlist,
+album, track or action, then lift and tap the physical tag. See
+[Using tags](tag-usage.md) for supported values and self-describing NDEF tags.
+Test the mapping without the reader if needed:
 
 ```bash
-bash systemd/install-service.sh
+curl -X POST -d 'uid=04A7B2F1' http://127.0.0.1:5000/dispatch
 ```
 
-The installer invokes `sudo` for system changes, rewrites and quotes those three
-paths (including paths with spaces), and restarts TapTune even if it is already
-running. With the Lite speaker setup, the unit starts after `raspotify` and the
-Bluetooth services, but this ordering does not mean the network, Spotify account
-or speaker is ready yet.
-On Desktop/PipeWire, use `bash systemd/install-service.sh --desktop` instead:
-this removes the Lite audio dependencies. The separate Spotifyd user services
-must already be enabled with the [PipeWire desktop setup](speaker-setup-desktop.md).
-Desktop mode also suppresses the system process's ALSA chime; its ready-sound
-**user** service reads `READY_SOUND_ENABLED` from `.env` and plays through PipeWire.
-After installing or updating the Desktop system unit, run
-`systemctl --user --no-block restart taptune-ready-sound.service` as the audio
-user so it performs a fresh readiness check.
+The UI and dispatch endpoint have **no authentication**. Use a trusted local
+network; do not forward port 5000 from the internet. `.env`, receiver caches and
+backups contain account secrets: never commit or attach them to an issue.
 
-Preview the generated unit without root or installation:
+Reboot with the speaker powered on. **Before logging into the Pi**, wait for
+the single ready chime and tap a music tag. Confirm sound comes from the
+Bluetooth speaker rather than HDMI. This cold-boot check is necessary on real
+hardware; software tests alone cannot prove it.
 
-```bash
-./systemd/install-service.sh --dry-run
-```
+## Startup and Bluetooth behavior
+
+TapTune owns one bounded boot connection/readiness phase and at most one chime
+per app start. It waits for the app, initialized reader when enabled, Spotify
+receiver visibility and speaker audio; there is no guarantee of a fixed boot
+time. Boot prepares volume and the receiver but **does not start music**.
+
+After that phase there is **no periodic Bluetooth reconnect**, periodic sound
+or repeated readiness chime. A local content/start/resume tag may reconnect and
+route audio. Pause, volume and commands for another active Spotify device do
+not reconnect. If a speaker powers itself off, turn it back on and tap a local
+music/start tag; software cannot wake an unreachable powered-off speaker.
+Spotify's current device is retained even while paused, so select TapTune in
+Spotify's device picker when testing the local receiver.
+
+TapTune and the receiver can restart after process failures; that is different
+from continuously trying Bluetooth. Reader initialization retries are also
+separate from Bluetooth policy. See [Service boundaries](architecture.md#why-not-one-service)
+for the remaining services and why they cannot all be merged.
 
 ## Operate the service
 
-The installer links the `taptune` command (also runnable as `./taptune` from
-the checkout). Run it as your normal user, not with `sudo`; it asks for `sudo`
-when needed. It detects the Lite or Desktop setup automatically (force it with
-`--lite` or `--desktop`).
+`install.sh --configure` links `taptune` into `/usr/local/bin`; it is also
+runnable as `./taptune`. Run it as your normal user (the audio user on Desktop).
+It detects the setup; explicit `--lite`, `--desktop` or `--app-only` before the
+command overrides detection.
 
 ```bash
-taptune status    # every service's state, plus /health and /ready
-taptune restart   # restart Bluetooth, the Spotify receiver and TapTune in order
+taptune status
+taptune restart
 taptune help
 ```
 
-Every service restarts on its own and never stops retrying:
+Rerunning preparation does not start services or reset credentials. Rerunning
+`--configure` reapplies the selected service/audio configuration and restarts
+the app, so use it after changing the speaker MAC, receiver name or startup
+volume, or when deliberately changing stack. Back up first. Do not move the
+checkout after installation without reconfiguring its unit paths.
 
-- TapTune restarts after any crash. Inside it, the PN532 is reopened with
-  increasing delays (2 s up to 30 s) after I2C errors at boot or later; after
-  20 failures in a row TapTune restarts as a whole. `/ready` stays `503` until
-  the reader has actually opened.
-- A Spotify token refresh that fails because the network is not up yet is
-  retried, and a tap during a network outage reports `network_error` instead
-  of stopping the reader. The Pi receiver is looked up three times before a
-  tap reports `speaker_not_ready`.
-- Raspotify (Lite) waits for the network and always restarts. Spotifyd
-  (Desktop) waits for DNS before starting and restarts even after a clean exit.
-- The Bluetooth reconnect services power the adapter on if a connection fails.
-- Each time the speaker connects, the Pi's own output (the PipeWire sink on
-  Desktop, the BlueALSA mixer on Lite) is set to 100% and unmuted. Music level
-  is controlled only by Spotify (30% at startup, then volume tags), and the
-  ready chime is a quieter sound file, so it does not lower the music.
-- The Desktop ready-sound service tries again after its ten-minute wait.
-
-With `NFC_READER_ENABLED=false`, TapTune serves only the web UI. With the
-setting enabled, it also polls the PN532 and dispatches assigned tags.
+**Advanced app-only deployment:** `./install.sh --app-only` prepares only base
+Python dependencies. `--app-only --configure` installs only TapTune and requires
+live credentials; it does not install a local receiver or Bluetooth stack.
+Use another authenticated Spotify Connect device, disable local targeting with
+`SPOTIFY_DEVICE_NAME=` and the local chime with `READY_SOUND_ENABLED=false` when
+there is no Pi receiver. Leave NFC disabled unless you have
+separately installed Pi dependencies and passed the reader diagnostic.
 
 ## Logs and inspection
 
-All TapTune services log to the systemd journal. `taptune logs` shows them
-merged in time order: TapTune, the Bluetooth reconnect, Raspotify or Spotifyd,
-the ready chime, BlueALSA or PipeWire/WirePlumber and BlueZ.
-
 ```bash
-taptune logs                 # last 200 lines of this boot
-taptune logs -f              # follow live (Ctrl-C to stop)
-taptune logs -b -1           # the previous boot, after a failed start
+taptune logs
+taptune logs -f
+taptune logs -b -1
 taptune logs --since "10 min ago"
-taptune logs -- -p warning   # only warnings and errors
-taptune logs --save          # status + logs in taptune-logs-<date>.txt
+taptune logs -- -p warning
+taptune logs --save
 ```
 
-Each start logs one summary line (version, Spotify live or **FAKE** mode,
-receiver name, reader, speaker) and warns about fake mode or a disabled reader.
-Failed taps are logged as warnings with the reason, and a readiness timeout
-names the last problem it saw, so `taptune logs -- -p warning` usually points
-straight at the cause.
-
-The installer keeps the journal across reboots
-(`/etc/systemd/journald.conf.d/taptune.conf`, at most 200 MB) so earlier boots
-stay readable. Single services can still be read directly:
+Logs cover TapTune (including boot/chime/Bluetooth decisions), the selected
+receiver and OS audio services. The installer enables persistent journaling
+(up to 200 MB) so earlier boots remain inspectable. Review and redact saved logs
+before sharing them.
 
 ```bash
 sudo journalctl -u raspi-spotify-nfc.service -n 100 --no-pager
-journalctl --user -u taptune-spotifyd.service -n 100 --no-pager   # Desktop
-ss -ltn | grep ':5000'
+journalctl --user -u taptune-spotifyd.service -n 100 --no-pager  # Desktop only
+curl http://127.0.0.1:5000/health
+curl http://127.0.0.1:5000/ready
 ```
 
-Inspect mappings safely:
-
-```bash
-sqlite3 data/raspi_spotify_nfc.db \
-  'select uid, tag_type, value, label, updated_at from tags order by updated_at desc;'
-```
-
-`/health` is a lightweight process check. It does not validate Spotify credentials, Connect-device availability, PN532/I2C wiring, reader-thread health, or database contents.
-`/ready` checks live configuration and whether the initialized reader thread is
-alive when enabled. The ready-sound worker separately waits for Spotify
-visibility and speaker audio before announcing readiness.
+`/health` proves only that Flask responds. `/ready` checks live configuration
+and the initialized reader thread when enabled; Spotify visibility and audio
+are checked separately by the startup worker. None of these can guarantee
+future card reads or Spotify requests. Use [Troubleshooting](troubleshooting.md)
+for the first failing boundary rather than repeatedly reinstalling.
 
 ## Safe updates
 
-One command updates everything:
+Fresh install uses `install.sh`; a deployed installation uses:
 
 ```bash
 taptune update
 ```
 
-It:
+The command backs up `.env` and the SQLite tag database to `data/backups/`
+(last 10 kept), pulls with `git pull --ff-only`, installs dependencies, runs
+tests, reapplies the selected installers, restarts and checks `/health`.
+A health response does not prove that Bluetooth or Spotify playback is ready.
 
-1. backs up `.env` and the tag database to `data/backups/` (last 10 kept);
-2. runs `git pull --ff-only`, and stops without changing anything if local
-   changes are in the way;
-3. installs the Python dependencies;
-4. runs the test suite and stops before restarting anything if it fails;
-5. reruns the speaker installer for your setup (`install-speaker.sh` on Lite,
-   `install-desktop-speaker.sh` on Desktop) and `install-service.sh`, which
-   restart every service; and
-6. waits until TapTune answers on `/health`.
+Run as the audio user on Desktop. Options include `--no-pull` to reinstall the
+current checkout, `--skip-tests` to intentionally bypass tests, and
+`taptune --dry-run update` to preview. If upgrading an old installation without
+the linked command, run `git pull --ff-only` and `./taptune update` from its
+checkout. Do not use a new clone or recopy `.env.example` over your live `.env`.
 
-Options: `--no-pull` reinstalls the current checkout, `--skip-tests` skips the
-tests and `--dry-run` (before `update`) prints the commands without running
-them. Run it as the Spotifyd audio user on Desktop.
-
-The first time, the command does not exist yet. Download it once, then run it
-from the checkout:
-
-```bash
-cd "$HOME/TapTune"   # or your checkout path
-git pull --ff-only
-./taptune update
-```
-
-If a step fails, `taptune` stops, names the step and the command that failed,
-and leaves the running services untouched when the failure happens before the
-reinstall step. Restore a backup only while the service is stopped:
+Keep a separate secure backup before changing audio stacks or restoring data.
+If update fails, it reports the failed step and stops; there is no automatic
+rollback. Failures before service installation leave the running services
+alone; a later failure can leave partially updated configuration. Read the
+error before retrying. Inspect `data/backups/` for the actual dated filenames.
+For a database restore, stop TapTune first:
 
 ```bash
 sudo systemctl stop raspi-spotify-nfc.service
@@ -244,5 +235,6 @@ cp data/backups/tags.<date>.db.bak data/raspi_spotify_nfc.db
 taptune restart
 ```
 
-Do not recopy `.env.example` over an existing `.env` during updates. After an
-update, repeat the cold-boot check in your chosen speaker guide with no Pi login.
+Never overwrite a custom `DATABASE_PATH` with this default-path example.
+Restore `.env` only from a trusted backup, keep mode `600`, and reconfigure if
+restoring audio settings. Repeat the no-login cold-boot check after updates.

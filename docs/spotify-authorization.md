@@ -4,6 +4,11 @@
 
 TapTune needs a Spotify client ID, client secret, and refresh token to control playback. This guide creates the refresh token with a one-time local Python script. A Spotify Premium account is required for playback control.
 
+Start from the [installation checklist](raspberry-pi-service.md): its preparation
+command has already created `.venv` and `.env` and installed Spotipy. This is
+the **controller** authorization, not the receiver login; Raspotify/Spotifyd
+must separately sign into the same account.
+
 ## 1. Create and configure a Spotify app
 
 1. Sign in to the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
@@ -26,11 +31,12 @@ From the TapTune repository:
 
 ```bash
 source .venv/bin/activate
-python -m pip install -r requirements.txt
-cp .env.example .env
 ```
 
-Skip the `cp` command if `.env` already exists. Add the Spotify app credentials to `.env`:
+Normal guided preparation has already installed the dependencies. If Spotipy
+is missing, rerun preparation with your selected `./install.sh` mode and use
+the venv Python. Never copy `.env.example` over an existing `.env`.
+Add the Spotify app credentials to `.env`:
 
 ```dotenv
 SPOTIFY_CLIENT_ID=your_client_id
@@ -163,6 +169,8 @@ SPOTIFY_REFRESH_TOKEN=your_refresh_token
 ```
 
 Treat the refresh token like a password. Do not commit `.env`, paste the token into an issue, or include it in logs.
+Keep `.env` at mode `600` (`chmod 600 .env`). Do not share terminal output from
+the authorization script: it contains the refresh token.
 
 ## 5. Remove the script and test playback
 
@@ -170,10 +178,15 @@ The script is no longer needed after the token has been copied:
 
 ```bash
 rm get_spotify_token.py
-python -m app.main
 ```
 
-TapTune needs a Spotify Connect device to play on. For a first test, open Spotify on a phone or computer using the same account and start playback once. To play on the Pi without a phone, complete [Lite speaker setup](speaker-setup.md) or [Desktop/PipeWire setup](speaker-setup-desktop.md). The receiver has its own login, separate from this refresh token. In another terminal, activate the virtual environment and test TapTune:
+Return to the [manual prerequisites checklist](raspberry-pi-service.md#finish-the-manual-prerequisites)
+to pair the speaker and complete installation. Do not start a second foreground
+app while the system service is using the reader.
+
+For an optional controller-only test, open Spotify on a phone/computer using
+the same account and play something once. The simulator does not require the
+Flask server; run it from the prepared checkout:
 
 ```bash
 source .venv/bin/activate
@@ -182,14 +195,17 @@ python -m app.simulate \
   --payload 'spotify:track:4cOdK2wGLETKBW3PvgPWqT'
 ```
 
-A successful result reports `"status": "ok"` and `"mode": "spotify"`. If the result reports `"mode": "fake"`, stop TapTune and confirm that all three credential values in `.env` are non-empty before restarting it.
+A successful simulator result is a printed Python dictionary with nested
+`'status': 'ok'` and `'mode': 'spotify'`. If it reports `'mode': 'fake'`,
+confirm all three credential values are non-empty.
+An already running app must be restarted to load changed credentials.
 
 ## Troubleshooting
 
 | Problem | Check |
 | --- | --- |
 | Spotify reports an invalid redirect URI | Confirm the dashboard and `.env` both use exactly `http://127.0.0.1:8888/callback`. |
-| The callback page does not load | Confirm no other process is using port `8888`, then run the script again. |
+| The callback page does not load | Over SSH, use the port-8888 tunnel above; confirm no other process is using the port, then rerun the script. |
 | The browser does not open | Copy the authorization URL printed in the terminal into a browser. |
 | Spotify returns no active device or `speaker_not_ready` | Complete [Speaker setup](speaker-setup.md), or open Spotify on the target device, play something once, and retry. |
 | TapTune still uses fake mode | Confirm the client ID, client secret, and refresh token are all present, then restart TapTune. |

@@ -2,7 +2,8 @@
 
 [Documentation index](README.md)
 
-TapTune currently uses each physical tag's UID as the lookup key. The UID is mapped to one Spotify value or playback action in SQLite.
+TapTune reads supported NDEF content on Type 2 tags first, or uses a tag's UID
+to look up its saved Spotify value or action in SQLite.
 
 ## Supported values
 
@@ -40,10 +41,12 @@ explicit. It does not reset another active device's volume or reset the volume
 on every tap. For Spotifyd, also use `initial_volume = 30` in its `[global]`
 configuration so the receiver starts safely even before TapTune reaches it.
 
-When `BLUETOOTH_SPEAKER_MAC` is configured, local receiver commands check the
-Bluetooth connection first and try reconnecting if necessary. An unreachable
-speaker produces `bluetooth_not_ready`; turn it on and tap again. Fake mode and
-commands directed to another active Spotify device do not touch Bluetooth.
+When `BLUETOOTH_SPEAKER_MAC` is configured, **local music start/resume** checks
+the Bluetooth connection and may reconnect if necessary. An unreachable
+speaker produces `bluetooth_not_ready`; turn it on and tap a music/start tag
+again. Pause and volume taps never reconnect, nor do fake mode or commands
+directed to another active Spotify device. After one bounded boot phase,
+there is no periodic reconnection, keepalive or repeated chime.
 
 ## Assign the first tag
 

@@ -88,7 +88,7 @@
           <div class="loop-arrow" aria-hidden="true">→</div>
           <article class="loop-step"><div class="step-number">02</div><div class="step-glyph glyph-map" aria-hidden="true">⌁</div><h3>Tap the reader</h3><p>Bring the object close to the reader. There is no phone workflow for the listener.</p></article>
           <div class="loop-arrow" aria-hidden="true">→</div>
-          <article class="loop-step"><div class="step-number">03</div><div class="step-glyph glyph-play" aria-hidden="true">▶</div><h3>Hear the music</h3><p>TapTune finds the saved choice and asks Spotify to play it, by default through the speaker connected to the Pi. A short chime after switching on means it is ready.</p></article>
+          <article class="loop-step"><div class="step-number">03</div><div class="step-glyph glyph-play" aria-hidden="true">▶</div><h3>Hear the music</h3><p>TapTune asks Spotify to play the chosen music. It keeps Spotify’s current device, even while paused, or targets the Pi when none is current. A single startup chime confirms readiness checks passed.</p></article>
         </div>
       </section>
 
@@ -121,9 +121,9 @@
           <article class="path path-maker" id="build">
             <span class="path-number">B</span>
             <h3>Build the current version</h3>
-            <p>Try the software without hardware first, then follow focused guides for the PN532, Spotify, Raspberry Pi, and service setup.</p>
-            <a class="button button-dark" href="getting-started.html">Open the build guide <span aria-hidden="true">→</span></a>
-            <a class="path-secondary" href="README.md">Browse all documentation</a>
+            <p>Start with one installation checklist. The guided installer prepares Python, then configures the chosen audio stack after wiring, speaker pairing and Spotify authorization. Raspberry Pi OS Lite is the shortest route; Desktop uses PipeWire and a separately installed Spotifyd.</p>
+            <a class="button button-dark" href="raspberry-pi-service.html">Open the installation checklist <span aria-hidden="true">→</span></a>
+            <a class="path-secondary" href="README.html">Browse all documentation</a>
           </article>
         </div>
       </section>
@@ -133,7 +133,7 @@
           <div class="section-heading blueprint-heading">
             <p class="section-index">For technical readers</p>
             <h2>A short,<br /><span>inspectable path.</span></h2>
-            <p>A tag UID becomes a saved instruction, then a playback request. Each concern can be tested independently.</p>
+            <p>A tag supplies supported NDEF content or a saved UID instruction, then a playback request. One bounded startup connection and chime are followed by no periodic Bluetooth reconnect. Only a local music start/resume tap can reconnect; pause and volume taps do not.</p>
             <a class="text-link light-link" href="architecture.html">Read the architecture guide <span aria-hidden="true">→</span></a>
           </div>
           <figure class="architecture-figure">

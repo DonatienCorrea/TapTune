@@ -1,4 +1,4 @@
-# Install Spotifyd on Raspberry Pi 5
+# Optional: build Spotifyd on Raspberry Pi
 
 [Documentation index](README.md)
 
@@ -10,8 +10,8 @@ when a downloaded binary cannot run on your Pi.
 
 ## Prerequisites
 
-- Raspberry Pi 5 with **2+ GB RAM** (the 8 GB model is ideal)
-- **Official Raspberry Pi 27 W USB-C power supply** (5.1 V / 5 A minimum)
+- A Raspberry Pi with enough memory/storage for a Rust build (2+ GB RAM recommended)
+- A power supply appropriate for that Pi model (for Pi 5, the official 27 W USB-C supply is recommended)
 - Raspberry Pi OS Desktop with PipeWire (Bookworm/Trixie)
 - SSH access or terminal access
 - Spotify Premium account
@@ -26,9 +26,9 @@ release requires the same OpenSSL version.
 ## 1. Check memory and swap
 
 Rust compilation is memory-intensive. Check `free -h` and `swapon --show` first.
-If your Pi has 2 GB RAM and insufficient swap, create additional swap below.
-Do not overwrite an existing `/swapfile`, and do not append a duplicate fstab
-entry when repeating the setup.
+If your Pi has limited RAM and insufficient swap, additional swap can help.
+This is an optional host administration step, not a TapTune requirement.
+Do not overwrite an existing `/swapfile`.
 
 ```bash
 # Create a 4 GB swapfile
@@ -39,10 +39,11 @@ sudo swapon /swapfile
 
 # Verify it's active
 free -h
-
-# Make it permanent (survive reboot)
-echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 ```
+
+The temporary swap is not persisted across reboots. After the build, disable
+and remove only the file you created: `sudo swapoff /swapfile` then
+`sudo rm /swapfile`. Do not remove pre-existing OS swap.
 
 ## 2. Install build dependencies
 
@@ -81,7 +82,7 @@ git clone --depth 1 --branch v0.4.2 \
 cd spotifyd-source
 ```
 
-Build with reduced parallelism to avoid memory pressure. This takes 30–45 minutes:
+Build with reduced parallelism to avoid memory pressure. Build time varies by model, memory and storage:
 
 ```bash
 CARGO_BUILD_JOBS=1 \
@@ -121,10 +122,12 @@ That guide is the single configuration reference for:
 - the `TapTune` device name and PulseAudio backend;
 - Spotifyd's own account authentication (separate from TapTune's Web API token);
 - lingering, Bluetooth recovery and PipeWire audio before login;
-- the user ready-sound service and `READY_SOUND_ENABLED=true`; and
-- TapTune's `install-service.sh --desktop` unit and the cold-boot test.
+- the app-owned bounded startup/chime and `READY_SOUND_ENABLED=true`; and
+- the guided `install.sh --desktop --configure` step and cold-boot test.
 
 Do not run another `spotifyd.service` or Raspotify alongside that receiver.
+There is no periodic Bluetooth reconnect or separate user chime service;
+after startup, local music start/resume taps are the reconnection trigger.
 
 ## Troubleshooting
 

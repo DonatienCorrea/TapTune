@@ -16,18 +16,29 @@ Fake mode is the recommended first experience. It verifies the database, tag-ass
 ```bash
 git clone https://github.com/DonatienCorrea/TapTune.git
 cd TapTune
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-cp .env.example .env
-python -m unittest discover -s tests -v
-python -m app.main
+./install.sh --app-only
+.venv/bin/python -m app.main
 ```
 
 Open `http://127.0.0.1:5000/` in a browser. Stop the server with `Ctrl-C`.
 
-The example environment deliberately leaves `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, and `SPOTIFY_REFRESH_TOKEN` empty. If any one of those values is blank, TapTune uses its in-memory fake Spotify client and does not contact Spotify.
+Preparation does not install or start system services. The example environment
+leaves `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, and `SPOTIFY_REFRESH_TOKEN`
+empty. If any one is blank, TapTune uses its fake Spotify client.
+
+The installer reuses `.venv` and never overwrites `.env`. If you already have live
+credentials, use a separate clone for fake experiments, or explicitly override
+the live client and reader **for this process only**:
+
+```bash
+SPOTIFY_CLIENT_ID= NFC_READER_ENABLED=false .venv/bin/python -m app.main
+```
+
+Use the same overrides on simulator commands when testing an existing live
+checkout. Fake mode still writes mappings to the configured SQLite database;
+use a separate clone if you must preserve deployed tag assignments. The web UI
+is unauthenticated; keep it on a trusted network, never expose port 5000 to the
+internet. For a computer-only run, prefix the command with `APP_HOST=127.0.0.1`.
 
 ## Verify the service
 
@@ -62,7 +73,8 @@ The simulator:
 2. saves or updates its UID mapping;
 3. records an event;
 4. sends the value through the same dispatch service used by a real tap; and
-5. prints a result containing `"mode": "fake"`.
+5. prints a Python dictionary whose nested `result` contains `'status': 'ok'`
+   and `'mode': 'fake'` (not a JSON response).
 
 The simulator runs as its own command; it does not call the Flask server. The health request verifies the server, while the simulator verifies mapping and dispatch. Both should succeed before adding Spotify or hardware.
 

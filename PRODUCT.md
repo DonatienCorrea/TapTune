@@ -20,11 +20,11 @@ The project makes Spotify playback tangible by connecting inexpensive, programma
 
 ## Operating Context
 
-The service runs on Raspberry Pi OS with a PN532 reader over I2C. A local Flask web UI assigns tag UIDs, SQLite persists mappings, and systemd keeps the service running. Playback uses a shared Spotify Premium account and Spotify Connect; Raspotify/BlueALSA on Lite or Spotifyd/PipeWire on Desktop makes the Pi its own Bluetooth speaker receiver without login. Boot prepares the receiver; a tag starts music. Reader polling is disabled by default for hardware-free setup and joins the service dispatch loop when `NFC_READER_ENABLED=true`.
+The service runs on Raspberry Pi OS with a PN532 reader over I2C. A local Flask web UI assigns tag UIDs, SQLite persists mappings, and systemd keeps the service running. Playback uses a shared Spotify Premium account and Spotify Connect; Raspotify/BlueALSA on Lite or Spotifyd/PipeWire on Desktop makes the Pi its own Bluetooth speaker receiver without login. Boot prepares the receiver; a tag starts music. One bounded boot connection/chime is followed by no periodic Bluetooth reconnect; only local music start/resume taps may reconnect, never pause or volume. Reader polling is disabled by default for hardware-free setup and joins the service dispatch loop when `NFC_READER_ENABLED=true`.
 
 ## Capabilities and Constraints
 
-Supports Spotify playlist, album, and track URIs plus play/pause, next and volume actions. Reads supported NDEF values from Type 2 tags before falling back to UID assignments. Includes fake mode and a CLI simulator. A chime signals app, enabled-reader, Spotify receiver and audio readiness after boot; Desktop uses a user sound service. There are no status LEDs, and other errors are logged and inspected over SSH. Hardware-specific dependencies are separate from base development dependencies.
+Supports Spotify playlist, album, and track URIs plus play/pause, next and volume actions. Reads supported NDEF values from Type 2 tags before falling back to UID assignments. Includes fake mode and a CLI simulator. The app owns startup connection/readiness and one chime; Desktop uses the dedicated audio user's PipeWire session, not a separate sound service. There are no status LEDs, and other errors are logged and inspected over SSH. Hardware-specific dependencies are separate from base development dependencies. One guided installer prepares Python and then explicitly configures live services after manual wiring, pairing and authorization; Lite is the shortest standalone route.
 
 ## Brand Commitments
 
