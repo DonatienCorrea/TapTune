@@ -3,7 +3,16 @@
 # every TapTune service (app, Bluetooth reconnect, Spotify receiver, chime).
 # install-service.sh links it as /usr/local/bin/taptune. Run it as the normal
 # Pi user (the Spotifyd audio user on Desktop); it asks for sudo when needed.
-set -euo pipefail
+set -Eeuo pipefail
+
+on_error() {
+  local status="$1" command="$2"
+  [ "$command" != '"$@"' ] || command="${LAST_RUN:-$command}"
+  printf '\nerror: taptune stopped during "%s": "%s" failed with status %s.\n' "${STEP:-start}" "$command" "$status" >&2
+  printf 'The messages above show why. For service details run: taptune status; taptune logs -n 100\n' >&2
+  exit "$status"
+}
+trap 'on_error $? "$BASH_COMMAND"' ERR
 
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")"
 REPO_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
@@ -50,7 +59,7 @@ BlueALSA), --desktop (PipeWire + Spotifyd) or --app-only (no speaker services).
 EOF
 }
 
-info() { printf '==> %s\n' "$*"; }
+info() { STEP="$*"; printf '==> %s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 detect_mode() {
@@ -72,6 +81,24 @@ app_url() {
   printf 'http://127.0.0.1:%s' "${port:-5000}"
 }
 
+# Uses TapTune's Python so curl is not required. Prints the body, even for 503.
+http_get() {
+  local python="$PYTHON"
+  [ -x "$python" ] || python=python3
+  "$python" - "$1" <<'PY' 2>&1
+import sys, urllib.error, urllib.request
+try:
+    with urllib.request.urlopen(sys.argv[1], timeout=3) as response:
+        print(response.read().decode(errors="replace").strip())
+except urllib.error.HTTPError as error:
+    print(f"HTTP {error.code}: {error.read().decode(errors='replace').strip()}")
+    sys.exit(1)
+except Exception as error:
+    print(f"not answering ({error})")
+    sys.exit(1)
+PY
+}
+
 wait_for_health() {
   local url
   url="$(app_url)/health"
@@ -81,7 +108,7 @@ wait_for_health() {
   fi
   info "Waiting for TapTune to answer on $url"
   for _ in $(seq 1 30); do
-    if curl -fsS --max-time 3 "$url" >/dev/null 2>&1; then
+    if http_get "$url" >/dev/null; then
       info "TapTune is running."
       return 0
     fi
@@ -198,7 +225,10 @@ cmd_update() {
       ;;
   esac
   wait_for_health || true
-  info "Update finished. Check everything with 'taptune status'; follow logs with 'taptune logs -f'."
+  echo
+  cmd_status
+  echo
+  info "Update finished. If something above is not 'active' or not ready, run 'taptune logs -n 200'."
 }
 
 cmd_restart() {
@@ -252,7 +282,7 @@ cmd_status() {
   fi
   echo
   for url in "$(app_url)/health" "$(app_url)/ready"; do
-    printf '%s -> %s\n' "$url" "$(curl -sS --max-time 3 "$url" 2>&1 | tr -d '\n' || true)"
+    printf '%s -> %s\n' "$url" "$(http_get "$url" | tr -d '\n' || true)"
   done
   local mac
   mac="$(env_value BLUETOOTH_SPEAKER_MAC)"
@@ -357,7 +387,8 @@ cmd_logs() {
     info "Saved status and logs to $save"
     return
   fi
-  "${JOURNAL[@]}"
+  # journalctl prints its own errors; Ctrl-C while following is not a failure.
+  "${JOURNAL[@]}" || return 0
 }
 
 main() {

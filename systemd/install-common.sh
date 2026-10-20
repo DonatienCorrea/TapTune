@@ -6,6 +6,7 @@ run() {
     printf '%q ' "$@"
     printf '\n'
   else
+    LAST_RUN="$*"
     "$@"
   fi
 }

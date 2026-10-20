@@ -235,6 +235,19 @@ def _speaker_not_ready_response() -> dict:
 
 
 def _handle_error(error: Exception) -> dict:
+    try:
+        response = _error_response(error)
+    except Exception:
+        logger.exception("Unexpected Spotify playback error.")
+        raise
+    logger.warning(
+        "Playback command failed (%s): %s", response.get("reason") or response["error"], response["message"],
+        exc_info=response["error"] in {"network_error", "spotify_auth_error"},
+    )
+    return response
+
+
+def _error_response(error: Exception) -> dict:
     if isinstance(error, BluetoothNotReady):
         return {"status": "error", "error": "bluetooth_not_ready", "message": str(error)}
     if isinstance(error, SpeakerNotReady):

@@ -14,6 +14,7 @@ import threading
 import time
 import wave
 from typing import Callable, Optional
+from urllib.error import HTTPError
 from urllib.request import urlopen
 
 from .bluetooth import BluetoothNotReady, ensure_speaker_connected
@@ -54,6 +55,35 @@ def build_chime_wav(sample_rate: int = SAMPLE_RATE, volume: float = CHIME_VOLUME
 _last_play_failure = [None]
 
 
+class _WaitLog:
+    """Log each waiting reason once (and again every minute), not every 5 seconds.
+
+    The last reason is kept so a timeout says what was still wrong.
+    """
+
+    REPEAT_SECONDS = 60.0
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.last = None
+        self.last_logged_at = 0.0
+
+    def __call__(self, message: str, *args) -> None:
+        text = message % args if args else message
+        now = time.monotonic()
+        if text != self.last or now - self.last_logged_at >= self.REPEAT_SECONDS:
+            logger.info("%s", text)
+            self.last_logged_at = now
+        else:
+            logger.debug("%s", text)
+        self.last = text
+
+
+_wait_log = _WaitLog()
+
+
 def _summarize_aplay_error(stderr: str) -> str:
     lines = [line.strip() for line in stderr.splitlines() if line.strip()]
     # aplay's own error line is the useful one; BlueALSA debug lines are noise.
@@ -86,7 +116,8 @@ def play_sound(wav: bytes, audio_device: Optional[str] = None, runner=subprocess
         # Retried every few seconds while the speaker connects: log each distinct reason once.
         level = logging.INFO if reason != _last_play_failure[0] else logging.DEBUG
         _last_play_failure[0] = reason
-        logger.log(level, "Ready sound not played yet (speaker not connected?): %s", reason)
+        _wait_log.last = f"Ready sound not played yet (speaker not connected?): {reason}"
+        logger.log(level, "%s", _wait_log.last)
         return False
     return True
 
@@ -101,7 +132,7 @@ def play_desktop_sound(wav: bytes, runner=subprocess.run) -> bool:
         ensure_speaker_connected(runner=runner)
         result = runner(["pactl", "list", "short", "sinks"], capture_output=True, text=True, timeout=5)
         if result.returncode != 0:
-            logger.info("Waiting for PipeWire sinks: %s", result.stderr.strip())
+            _wait_log("Waiting for PipeWire sinks: %s", result.stderr.strip())
             return False
         prefix = "bluez_output." + mac.replace(":", "_").casefold()
         sink = next((
@@ -111,7 +142,13 @@ def play_desktop_sound(wav: bytes, runner=subprocess.run) -> bool:
         ), None)
         default = runner(["pactl", "get-default-sink"], capture_output=True, text=True, timeout=5)
         if not sink or default.returncode != 0 or default.stdout.strip() != sink:
-            logger.info("Waiting for the Bluetooth reconnect service to route audio to %s.", mac)
+            if not sink:
+                _wait_log("Waiting for speaker %s to appear as a PipeWire output (is it on and connected?).", mac)
+            else:
+                _wait_log(
+                    "Waiting for the Bluetooth reconnect service to route audio to %s (default output: %s).",
+                    sink, default.stdout.strip() or default.stderr.strip(),
+                )
             return False
         with tempfile.NamedTemporaryFile(suffix=".wav") as sound:
             sound.write(wav)
@@ -121,11 +158,11 @@ def play_desktop_sound(wav: bytes, runner=subprocess.run) -> bool:
                 capture_output=True, text=True, timeout=10,
             )
         if result.returncode != 0:
-            logger.info("Desktop ready sound not played yet: %s", result.stderr.strip())
+            _wait_log("Desktop ready sound not played yet: %s", result.stderr.strip())
             return False
         return True
     except (BluetoothNotReady, OSError, subprocess.SubprocessError) as error:
-        logger.info("Waiting for the desktop speaker: %s", error)
+        _wait_log("Waiting for the desktop speaker: %s", error)
         return False
 
 
@@ -139,17 +176,36 @@ def app_ready() -> bool:
         with urlopen(f"http://{host}:{settings.APP_PORT}/ready", timeout=3) as response:
             payload = json.load(response)
         return isinstance(payload, dict) and payload.get("app") == "TapTune" and payload.get("status") == "ready"
+    except HTTPError as error:
+        try:
+            payload = json.load(error)
+        except (OSError, ValueError):
+            payload = {}
+        if payload.get("spotify_mode") == "fake":
+            _wait_log("Waiting for TapTune: it runs in fake Spotify mode; check the Spotify values in .env.")
+        elif payload.get("reader_ready") is False:
+            _wait_log("Waiting for TapTune: the NFC reader is not open yet (see the PN532 errors in the logs).")
+        else:
+            _wait_log("Waiting for TapTune: /ready answered %s.", error.code)
+        return False
     except (OSError, ValueError) as error:
-        logger.info("Waiting for TapTune and its enabled reader: %s", error)
+        _wait_log("Waiting for TapTune to answer on port %s: %s", settings.APP_PORT, error)
         return False
 
 
 def speaker_device_visible() -> bool:
     try:
-        return find_device_id(build_spotify_client()) is not None
+        visible = find_device_id(build_spotify_client()) is not None
     except Exception as error:  # noqa: BLE001 - network may not be up yet during boot.
-        logger.info("Waiting for Spotify: %s", error)
+        _wait_log("Waiting for Spotify: %r", error)
         return False
+    if not visible:
+        _wait_log(
+            "Waiting for the Spotify receiver '%s' to appear in Spotify's device list "
+            "(is Spotifyd/Raspotify running and logged in to the same account?).",
+            settings.SPOTIFY_DEVICE_NAME,
+        )
+    return visible
 
 
 def wait_until_ready_then_chime(
@@ -165,6 +221,7 @@ def wait_until_ready_then_chime(
     waited = 0.0
     device_seen = False
     wav = build_chime_wav()
+    _wait_log.reset()
     while waited <= timeout_seconds:
         if stop_event is not None and stop_event.is_set():
             return False
@@ -183,9 +240,8 @@ def wait_until_ready_then_chime(
         sleep(interval_seconds)
         waited += interval_seconds
     logger.warning(
-        "Readiness timed out; check TapTune, its enabled reader, Spotifyd/Raspotify, "
-        "the network and speaker audio (receiver: '%s').",
-        settings.SPOTIFY_DEVICE_NAME,
+        "Readiness timed out after %.0f s; no ready sound. Last problem: %s",
+        timeout_seconds, _wait_log.last or "unknown",
     )
     return False
 
@@ -202,6 +258,7 @@ def initialize_speaker(
 ) -> bool:
     """Set only the Pi receiver's startup volume, even when its chime is disabled."""
     waited = 0.0
+    _wait_log.reset()
     while waited <= timeout_seconds:
         if stop_event is not None and stop_event.is_set():
             return False
@@ -209,7 +266,13 @@ def initialize_speaker(
         try:
             spotify = build_spotify_client()
             device_id = find_device_id(spotify)
-            if device_id is not None:
+            if device_id is None:
+                _wait_log(
+                    "Waiting for the Spotify receiver '%s' before setting the startup volume "
+                    "(is Spotifyd/Raspotify running and logged in?).",
+                    settings.SPOTIFY_DEVICE_NAME,
+                )
+            else:
                 spotify.volume(settings.SPOTIFY_INITIAL_VOLUME, device_id=device_id)
                 logger.info("Set '%s' startup volume to %s%%.", settings.SPOTIFY_DEVICE_NAME, settings.SPOTIFY_INITIAL_VOLUME)
                 if should_announce_ready():
@@ -217,13 +280,16 @@ def initialize_speaker(
                     return wait_until_ready_then_chime(stop_event=stop_event, timeout_seconds=remaining)
                 return True
         except Exception as error:  # noqa: BLE001 - the receiver/network may still be starting.
-            logger.info("Waiting to set startup volume: %s", error)
+            _wait_log("Waiting to set startup volume: %r", error)
         waited += time.monotonic() - attempt_started
         if waited >= timeout_seconds:
             break
         sleep(interval_seconds)
         waited += interval_seconds
-    logger.warning("Could not set startup volume; check Spotifyd/Raspotify and the network.")
+    logger.warning(
+        "Could not set the startup volume after %.0f s. Last problem: %s",
+        timeout_seconds, _wait_log.last or "unknown",
+    )
     return False
 
 

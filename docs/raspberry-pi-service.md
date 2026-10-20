@@ -148,6 +148,10 @@ Every service restarts on its own and never stops retrying:
 - Raspotify (Lite) waits for the network and always restarts. Spotifyd
   (Desktop) waits for DNS before starting and restarts even after a clean exit.
 - The Bluetooth reconnect services power the adapter on if a connection fails.
+- Each time the speaker connects, the Pi's own output (the PipeWire sink on
+  Desktop, the BlueALSA mixer on Lite) is set to 100% and unmuted. Music level
+  is controlled only by Spotify (30% at startup, then volume tags), and the
+  ready chime is a quieter sound file, so it does not lower the music.
 - The Desktop ready-sound service tries again after its ten-minute wait.
 
 With `NFC_READER_ENABLED=false`, TapTune serves only the web UI. With the
@@ -167,6 +171,12 @@ taptune logs --since "10 min ago"
 taptune logs -- -p warning   # only warnings and errors
 taptune logs --save          # status + logs in taptune-logs-<date>.txt
 ```
+
+Each start logs one summary line (version, Spotify live or **FAKE** mode,
+receiver name, reader, speaker) and warns about fake mode or a disabled reader.
+Failed taps are logged as warnings with the reason, and a readiness timeout
+names the last problem it saw, so `taptune logs -- -p warning` usually points
+straight at the cause.
 
 The installer keeps the journal across reboots
 (`/etc/systemd/journald.conf.d/taptune.conf`, at most 200 MB) so earlier boots
@@ -214,8 +224,18 @@ Options: `--no-pull` reinstalls the current checkout, `--skip-tests` skips the
 tests and `--dry-run` (before `update`) prints the commands without running
 them. Run it as the Spotifyd audio user on Desktop.
 
-The first time, the command is not yet linked: run `./taptune update` from the
-checkout. Restore a backup only while the service is stopped:
+The first time, the command does not exist yet. Download it once, then run it
+from the checkout:
+
+```bash
+cd "$HOME/TapTune"   # or your checkout path
+git pull --ff-only
+./taptune update
+```
+
+If a step fails, `taptune` stops, names the step and the command that failed,
+and leaves the running services untouched when the failure happens before the
+reinstall step. Restore a backup only while the service is stopped:
 
 ```bash
 sudo systemctl stop raspi-spotify-nfc.service
