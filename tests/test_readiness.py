@@ -268,6 +268,18 @@ class ReadySoundTests(unittest.TestCase):
         prepare.assert_called_with(connect_attempts=1)
         self.assertEqual(sleep.call_count, 2)
 
+    def test_boot_connects_speaker_when_the_adapter_starts_off(self):
+        from test_bluetooth import FakeSystem
+
+        system = FakeSystem(connected=False, powered=False)
+        prepare = lambda connect_attempts: readiness.prepare_speaker(  # noqa: E731
+            runner=system, sleep=Mock(), connect_attempts=connect_attempts, desktop=False,
+        )
+        with patch.multiple(config.settings, BLUETOOTH_SPEAKER_MAC="AA:BB:CC:DD:EE:FF", AUDIO_OUTPUT_DEVICE="hw:0"):
+            self.assertTrue(readiness.connect_speaker_at_boot(prepare=prepare, sleep=Mock()))
+        self.assertTrue(system.connected)
+        self.assertEqual(system.count("bluetoothctl", "power", "on"), 1)
+
     def test_boot_connection_stops_once_connected_or_unconfigured(self):
         prepare = Mock(side_effect=[readiness.BluetoothNotReady("off"), "device"])
         with patch.object(config.settings, "BLUETOOTH_SPEAKER_MAC", "AA:BB:CC:DD:EE:FF"):

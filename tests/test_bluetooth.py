@@ -22,8 +22,9 @@ class FakeSystem:
     """Answers bluetoothctl/pactl/amixer like a Pi, recording every command."""
 
     def __init__(self, connected=True, connect_works=True, sinks=None, default="alsa_output.hdmi",
-                 inputs="5\t1\t42\n6\t2\t43\n", mixer=True):
+                 inputs="5\t1\t42\n6\t2\t43\n", mixer=True, powered=True):
         self.connected = connected
+        self.powered = powered
         self.connect_works = connect_works
         self.sinks = f"1\talsa_output.hdmi\n2\t{SINK}\n" if sinks is None else sinks
         self.default = default
@@ -35,7 +36,12 @@ class FakeSystem:
         self.commands.append(command)
         if command[:2] == ["bluetoothctl", "info"]:
             return done(f"Connected: {'yes' if self.connected else 'no'}")
+        if command[1:] == ["power", "on"]:
+            self.powered = True
+            return done("Changing power on succeeded")
         if command[0] == "bluetoothctl" and "connect" in command:
+            if not self.powered:
+                return done(code=1, stderr="org.bluez.Error.NotReady")
             self.connected = self.connect_works
             return done("Connection successful" if self.connect_works else "", 0 if self.connect_works else 1,
                         "" if self.connect_works else "org.bluez.Error.Failed")
@@ -75,25 +81,26 @@ class EnsureConnectedTests(unittest.TestCase):
 
     def test_disconnected_speaker_reconnects_and_verifies_link(self):
         runner = Mock(side_effect=[
-            done("Connected: no"), done("Connection successful"),
+            done("Connected: no"), done(), done("Connection successful"),
             done("Connected: no"), done("Connected: yes"),
         ])
         sleep = Mock()
         self.assertTrue(bluetooth.ensure_speaker_connected(runner=runner, sleep=sleep))
-        self.assertEqual(runner.call_args_list[1].args[0], ["bluetoothctl", "--timeout", "10", "connect", MAC])
+        self.assertEqual(runner.call_args_list[1].args[0], ["bluetoothctl", "power", "on"])
+        self.assertEqual(runner.call_args_list[2].args[0], ["bluetoothctl", "--timeout", "10", "connect", MAC])
         sleep.assert_called_once_with(1)
 
     def test_speaker_reconnecting_by_itself_can_succeed(self):
-        runner = Mock(side_effect=[done("Connected: no"), done("InProgress", 1), done("Connected: yes")])
+        runner = Mock(side_effect=[done("Connected: no"), done(), done("InProgress", 1), done("Connected: yes")])
         self.assertTrue(bluetooth.ensure_speaker_connected(runner=runner, sleep=Mock()))
 
-    def test_retry_is_bounded_and_powers_adapter_between_attempts(self):
+    def test_retry_is_bounded_and_powers_adapter_before_each_attempt(self):
         system = FakeSystem(connected=False, connect_works=False)
         sleep = Mock()
         with self.assertRaisesRegex(bluetooth.BluetoothNotReady, "Turn it on and tap again.*Failed"):
             bluetooth.ensure_speaker_connected(runner=system, sleep=sleep)
         self.assertEqual(system.count("bluetoothctl", "--timeout"), bluetooth.CONNECT_ATTEMPTS)
-        self.assertEqual(system.count("bluetoothctl", "power", "on"), bluetooth.CONNECT_ATTEMPTS - 1)
+        self.assertEqual(system.count("bluetoothctl", "power", "on"), bluetooth.CONNECT_ATTEMPTS)
         self.assertEqual(system.count("bluetoothctl", "info"), 1 + bluetooth.CONNECT_ATTEMPTS * bluetooth.LINK_CHECKS)
         self.assertEqual(sleep.call_count, bluetooth.CONNECT_ATTEMPTS * (bluetooth.LINK_CHECKS - 1))
 
@@ -102,7 +109,19 @@ class EnsureConnectedTests(unittest.TestCase):
         with self.assertRaises(bluetooth.BluetoothNotReady):
             bluetooth.ensure_speaker_connected(runner=system, sleep=Mock(), attempts=1)
         self.assertEqual(system.count("bluetoothctl", "--timeout"), 1)
-        self.assertEqual(system.count("bluetoothctl", "power", "on"), 0)
+        self.assertEqual(system.count("bluetoothctl", "power", "on"), 1)
+
+    def test_boot_attempt_powers_on_an_adapter_that_starts_off(self):
+        system = FakeSystem(connected=False, powered=False)
+        self.assertTrue(bluetooth.ensure_speaker_connected(runner=system, sleep=Mock(), attempts=1))
+        power = system.commands.index(["bluetoothctl", "power", "on"])
+        connect = system.commands.index(["bluetoothctl", "--timeout", "10", "connect", MAC])
+        self.assertLess(power, connect)
+
+    def test_connected_speaker_never_touches_the_adapter(self):
+        system = FakeSystem(connected=True, powered=False)
+        self.assertFalse(bluetooth.ensure_speaker_connected(runner=system, sleep=Mock()))
+        self.assertEqual(system.commands, [["bluetoothctl", "info", MAC]])
 
     def test_missing_tool_and_timeouts_are_reported(self):
         for error in (FileNotFoundError("bluetoothctl"), subprocess.TimeoutExpired("bluetoothctl", 5)):

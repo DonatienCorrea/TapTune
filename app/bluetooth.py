@@ -99,6 +99,10 @@ def ensure_speaker_connected(runner=subprocess.run, sleep=time.sleep, attempts: 
         detail = ""
         for attempt in range(1, attempts + 1):
             logger.info("Bluetooth speaker %s is disconnected; connecting (attempt %d/%d).", mac, attempt, attempts)
+            # After boot or rfkill the adapter can be off; a no-op when it is already on.
+            power = runner(["bluetoothctl", "power", "on"], capture_output=True, text=True, timeout=5)
+            if power.returncode != 0:
+                logger.info("Bluetooth adapter power on failed: %s", ((power.stderr or "") + (power.stdout or "")).strip())
             result = runner(
                 ["bluetoothctl", "--timeout", str(CONNECT_TIMEOUT_SECONDS), "connect", mac],
                 capture_output=True, text=True, timeout=CONNECT_TIMEOUT_SECONDS + 2,
@@ -111,9 +115,6 @@ def ensure_speaker_connected(runner=subprocess.run, sleep=time.sleep, attempts: 
                 if check < LINK_CHECKS - 1:
                     sleep(1)
             detail = ((result.stderr or "") + (result.stdout or "")).strip()
-            if attempt < attempts:
-                # After boot or rfkill the adapter can be off; power it on for the next try.
-                runner(["bluetoothctl", "power", "on"], capture_output=True, text=True, timeout=5)
         raise BluetoothNotReady(
             f"Bluetooth speaker {mac} is disconnected. Turn it on and tap again."
             + (f" Bluetooth reported: {detail}" if detail else "")
