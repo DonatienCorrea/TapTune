@@ -21,6 +21,7 @@ MAC="${BLUETOOTH_SPEAKER_MAC:-}"
 INTERVAL="${BLUETOOTH_RECONNECT_INTERVAL:-10}"
 BLUETOOTHCTL="${BLUETOOTHCTL:-bluetoothctl}"
 PACTL="${PACTL:-pactl}"
+AMIXER="${AMIXER:-amixer}"
 AUDIO_BACKEND="${AUDIO_BACKEND:-alsa}"
 
 if ! printf '%s' "$INTERVAL" | grep -Eq '^[1-9][0-9]*$'; then
@@ -47,6 +48,35 @@ if ! printf '%s' "$MAC" | grep -Eq '^([0-9A-F]{2}:){5}[0-9A-F]{2}$'; then
 fi
 
 was_connected=""
+# Spotify (softvol) sets the music level, so the Pi's own output stays at 100%.
+# Set once per connection, so a manual change lasts until the next reconnect.
+OUTPUT_VOLUME="100%"
+volume_set_for=""
+
+set_alsa_volume() {
+  local device="bluealsa:DEV=$MAC,PROFILE=a2dp" controls control done=0
+  if ! controls="$("$AMIXER" -D "$device" scontrols 2>&1)"; then
+    echo "Speaker $MAC has no BlueALSA mixer yet; will retry: $controls" >&2
+    return
+  fi
+  controls="$(printf '%s\n' "$controls" | sed -n "s/^Simple mixer control '\(.*\)',[0-9]*\$/\1/p")"
+  while IFS= read -r control; do
+    [ -n "$control" ] || continue
+    if "$AMIXER" -q -D "$device" sset "$control" "$OUTPUT_VOLUME" unmute; then
+      done=1
+    else
+      echo "Could not set BlueALSA control '$control' to $OUTPUT_VOLUME; will retry." >&2
+      return
+    fi
+  done <<< "$controls"
+  if [ "$done" -eq 1 ]; then
+    echo "Pi output for speaker $MAC set to $OUTPUT_VOLUME."
+  else
+    echo "BlueALSA has no volume control for speaker $MAC; the speaker keeps its own level."
+  fi
+  volume_set_for="$MAC"
+}
+
 route_speaker() {
   local sinks sink sink_id inputs input_id input_sink rest default_sink
   if ! sinks="$("$PACTL" list short sinks)"; then
@@ -60,6 +90,14 @@ route_speaker() {
     return
   fi
   sink_id="$(printf '%s\n' "$sinks" | awk -v name="$sink" '$2 == name { print $1; exit }')"
+  if [ "$volume_set_for" != "$sink" ]; then
+    if "$PACTL" set-sink-volume "$sink" "$OUTPUT_VOLUME" && "$PACTL" set-sink-mute "$sink" 0; then
+      echo "Pi output $sink set to $OUTPUT_VOLUME."
+      volume_set_for="$sink"
+    else
+      echo "Could not set $sink to $OUTPUT_VOLUME; will retry." >&2
+    fi
+  fi
   if ! default_sink="$("$PACTL" get-default-sink)"; then
     echo "Could not read the default audio sink; will retry." >&2
     return
@@ -95,13 +133,18 @@ while true; do
       echo "Speaker $MAC disconnected; retrying."
     fi
     was_connected="no"
+    volume_set_for=""
     if ! "$BLUETOOTHCTL" --timeout 10 connect "$MAC"; then
       echo "Could not connect speaker $MAC; will retry." >&2
+      # At boot the adapter can still be off or blocked; power it on for the next try.
+      "$BLUETOOTHCTL" power on >/dev/null 2>&1 || true
     fi
   fi
 
   if [ "$AUDIO_BACKEND" = "pulseaudio" ]; then
     route_speaker
+  elif [ "$was_connected" = "yes" ] && [ "$volume_set_for" != "$MAC" ]; then
+    set_alsa_volume
   fi
 
   if [ "$ONCE" -eq 1 ]; then

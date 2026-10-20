@@ -2,6 +2,7 @@
 Description=TapTune Bluetooth speaker auto-reconnect
 Wants=bluetooth.target
 After=bluetooth.target bluetooth.service
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -9,6 +10,9 @@ ExecStart=/home/pi/TapTune/systemd/taptune-bluetooth.sh
 EnvironmentFile=/home/pi/TapTune/.env
 Restart=on-failure
 RestartSec=10
+# Exit status 2 is a configuration error in .env: retrying cannot fix it.
+RestartPreventExitStatus=2
+SyslogIdentifier=taptune-bluetooth
 
 [Install]
 WantedBy=multi-user.target

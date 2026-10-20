@@ -1,12 +1,18 @@
 [Unit]
 Description=TapTune Spotify Connect receiver
-After=pipewire-pulse.service
+After=pipewire-pulse.service wireplumber.service
 Wants=pipewire-pulse.service wireplumber.service
+# User services cannot wait for network-online.target, so ExecStartPre waits
+# for DNS instead, and the receiver is restarted however it stops.
+StartLimitIntervalSec=0
 
 [Service]
+ExecStartPre=/bin/sh -c 'i=0; until getent hosts apresolve.spotify.com >/dev/null 2>&1; do i=$$((i+1)); if [ $$i -ge 90 ]; then echo "Network still unavailable; starting Spotifyd anyway."; exit 0; fi; sleep 2; done'
 ExecStart=/usr/local/bin/spotifyd --no-daemon --config-path "%h/.config/spotifyd/spotifyd.conf"
-Restart=on-failure
-RestartSec=12
+TimeoutStartSec=240
+Restart=always
+RestartSec=10
+SyslogIdentifier=spotifyd
 
 [Install]
 WantedBy=default.target

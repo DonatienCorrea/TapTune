@@ -2,6 +2,7 @@
 Description=TapTune desktop Bluetooth reconnect and audio routing
 After=pipewire-pulse.service wireplumber.service
 Wants=pipewire-pulse.service wireplumber.service
+StartLimitIntervalSec=0
 
 [Service]
 ExecStart=/bin/bash "%h/.local/lib/taptune/taptune-bluetooth.sh"
@@ -9,6 +10,8 @@ EnvironmentFile=%h/.config/taptune/bluetooth.env
 Environment=AUDIO_BACKEND=pulseaudio
 Restart=on-failure
 RestartSec=10
+RestartPreventExitStatus=2
+SyslogIdentifier=taptune-bluetooth
 
 [Install]
 WantedBy=default.target

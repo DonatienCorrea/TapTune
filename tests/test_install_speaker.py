@@ -102,9 +102,21 @@ class BluetoothReconnectScriptTests(unittest.TestCase):
         )
         fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
         self.fake = fake
+        self.amixer_log = Path(self.directory.name) / "amixer.log"
+        amixer = Path(self.directory.name) / "amixer"
+        amixer.write_text(
+            "#!/usr/bin/env bash\n"
+            f'echo "$@" >> "{self.amixer_log}"\n'
+            'case "$*" in *scontrols) echo "Simple mixer control \'JBL Flip 5 A2DP\',0" ;; esac\n'
+        )
+        amixer.chmod(0o755)
+        self.amixer = amixer
 
     def run_once(self, mac, connected="no"):
-        env = dict(os.environ, BLUETOOTHCTL=str(self.fake), BLUETOOTH_SPEAKER_MAC=mac, FAKE_CONNECTED=connected, AUDIO_BACKEND="alsa")
+        env = dict(
+            os.environ, BLUETOOTHCTL=str(self.fake), AMIXER=str(self.amixer),
+            BLUETOOTH_SPEAKER_MAC=mac, FAKE_CONNECTED=connected, AUDIO_BACKEND="alsa",
+        )
         return subprocess.run(["bash", str(RECONNECT), "--once"], env=env, capture_output=True, text=True)
 
     def calls(self):
@@ -119,6 +131,19 @@ class BluetoothReconnectScriptTests(unittest.TestCase):
         result = self.run_once("AA:BB:CC:DD:EE:FF", connected="yes")
         self.assertEqual(result.returncode, 0)
         self.assertEqual(self.calls(), ["info AA:BB:CC:DD:EE:FF"])
+
+    def test_connected_lite_speaker_output_is_set_to_full_volume(self):
+        result = self.run_once("AA:BB:CC:DD:EE:FF", connected="yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "-q -D bluealsa:DEV=AA:BB:CC:DD:EE:FF,PROFILE=a2dp sset JBL Flip 5 A2DP 100% unmute",
+            self.amixer_log.read_text().splitlines(),
+        )
+        self.assertIn("set to 100%", result.stdout)
+
+    def test_disconnected_lite_speaker_volume_is_not_touched(self):
+        self.run_once("AA:BB:CC:DD:EE:FF", connected="no")
+        self.assertFalse(self.amixer_log.exists())
 
     def test_empty_mac_exits_cleanly(self):
         result = self.run_once("")
@@ -152,6 +177,8 @@ class BluetoothReconnectScriptTests(unittest.TestCase):
         self.assertIn("set-default-sink bluez_output.AA_BB_CC_DD_EE_FF.1", self.calls())
         self.assertIn("move-sink-input 5 bluez_output.AA_BB_CC_DD_EE_FF.1", self.calls())
         self.assertNotIn("move-sink-input 6 bluez_output.AA_BB_CC_DD_EE_FF.1", self.calls())
+        self.assertIn("set-sink-volume bluez_output.AA_BB_CC_DD_EE_FF.1 100%", self.calls())
+        self.assertIn("set-sink-mute bluez_output.AA_BB_CC_DD_EE_FF.1 0", self.calls())
 
     def test_invalid_interval_fails_instead_of_spinning(self):
         with patch.dict(os.environ, BLUETOOTH_RECONNECT_INTERVAL="0"):

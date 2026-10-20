@@ -41,6 +41,11 @@ PHONE_DEVICE = {"id": "phone-1", "name": "Pixel", "is_active": True}
 
 class DeviceSelectionTests(unittest.TestCase):
     def setUp(self):
+        spotify_service.reset_state_memory()
+        self.addCleanup(spotify_service.reset_state_memory)
+        delay = patch.object(spotify_service, "RETRY_DELAY_SECONDS", 0)
+        delay.start()
+        self.addCleanup(delay.stop)
         patcher = patch.object(config.settings, "SPOTIFY_DEVICE_NAME", "TapTune")
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -102,6 +107,40 @@ class DeviceSelectionTests(unittest.TestCase):
         client = RecordingClient(current={"is_playing": False}, devices=[PI_DEVICE])
         self.run_with(client, spotify_service.toggle_playback)
         self.assertEqual(client.calls, [("start_playback", {})])
+
+    def test_play_pause_resumes_on_the_paused_device(self):
+        client = RecordingClient(current={"is_playing": False, "device": PI_DEVICE}, devices=[PI_DEVICE])
+        self.run_with(client, spotify_service.toggle_playback)
+        self.assertEqual(client.calls, [("start_playback", {"device_id": "pi-123"})])
+
+    def test_second_tap_resumes_even_if_spotify_still_reports_playing(self):
+        client = RecordingClient(current={"is_playing": True, "device": PI_DEVICE}, devices=[PI_DEVICE])
+        self.run_with(client, spotify_service.toggle_playback)
+        self.run_with(client, spotify_service.toggle_playback)  # Spotify has not caught up yet
+        self.assertEqual(client.calls, [("pause_playback", {}), ("start_playback", {"device_id": "pi-123"})])
+
+    def test_stale_memory_is_ignored_after_the_window(self):
+        client = RecordingClient(current={"is_playing": True, "device": PI_DEVICE}, devices=[PI_DEVICE])
+        now = [1000.0]
+        with patch.object(spotify_service, "_clock", lambda: now[0]):
+            self.run_with(client, spotify_service.toggle_playback)
+            now[0] += spotify_service.PLAYBACK_MEMORY_SECONDS + 1
+            self.run_with(client, spotify_service.toggle_playback)
+        self.assertEqual([call[0] for call in client.calls], ["pause_playback", "pause_playback"])
+
+    def test_resume_falls_back_to_the_pi_when_spotify_refuses_the_device(self):
+        from spotipy import SpotifyException
+
+        class RefusingClient(RecordingClient):
+            def start_playback(self, **kwargs):
+                self.calls.append(("start_playback", kwargs))
+                raise SpotifyException(404, -1, "Device not found")
+
+        client = RefusingClient(current={"is_playing": False, "device": PHONE_DEVICE}, devices=[PI_DEVICE])
+        with self.assertLogs("app.spotify_service", "WARNING"):
+            result = self.run_with(client, spotify_service.toggle_playback)
+        self.assertEqual(result, {"status": "ok"})
+        self.assertEqual(client.calls[-1], ("transfer_playback", {"device_id": "pi-123", "force_play": True}))
 
     def test_next_with_nothing_active_targets_the_pi(self):
         client = RecordingClient(current=None, devices=[PI_DEVICE])

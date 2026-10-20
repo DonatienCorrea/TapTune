@@ -1,3 +1,5 @@
+import threading
+
 from flask import Flask, jsonify, redirect, render_template, request, url_for
 
 from .config import settings
@@ -108,7 +110,11 @@ def create_app() -> Flask:
     @app.get("/ready")
     def ready():
         reader = app.config.get("NFC_READER_THREAD")
-        reader_ready = not settings.NFC_READER_ENABLED or (reader is not None and reader.is_alive())
+        reader_event = getattr(reader, "reader_ready", None)
+        reader_ready = not settings.NFC_READER_ENABLED or (
+            reader is not None and reader.is_alive()
+            and (not isinstance(reader_event, threading.Event) or reader_event.is_set())
+        )
         live = is_live_spotify_configured()
         ready = bool(reader_ready and live)
         return jsonify({

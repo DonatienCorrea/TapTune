@@ -61,8 +61,22 @@ fi
 
 printf '%s\n' "$RENDERED" | sudo tee "$UNIT_DST" > /dev/null
 sudo chmod 644 "$UNIT_DST"
+
+# Keep logs across reboots so an unreliable boot can be inspected afterwards.
+JOURNALD_SRC="$SCRIPT_DIR/journald-taptune.conf"
+JOURNALD_DST="/etc/systemd/journald.conf.d/taptune.conf"
+if ! cmp -s "$JOURNALD_SRC" "$JOURNALD_DST"; then
+  sudo mkdir -p "$(dirname "$JOURNALD_DST")"
+  sudo install -m 644 "$JOURNALD_SRC" "$JOURNALD_DST"
+  sudo systemctl restart systemd-journald.service
+fi
+
+# Make `taptune update|logs|status|restart` available from anywhere.
+sudo ln -sfn "$REPO_DIR/taptune" /usr/local/bin/taptune
+
 sudo systemctl daemon-reload
 sudo systemctl enable raspi-spotify-nfc.service
 sudo systemctl restart raspi-spotify-nfc.service
 
 echo "Installed and started raspi-spotify-nfc.service for checkout: $REPO_DIR"
+echo "Use 'taptune status', 'taptune logs -f' and 'taptune update' from now on."

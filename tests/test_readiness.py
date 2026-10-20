@@ -79,6 +79,14 @@ class ReadySoundTests(unittest.TestCase):
         self.assertGreater(duration, 0.2)
         self.assertLess(duration, 1.0)
 
+    def test_chime_plays_at_half_its_original_volume(self):
+        import array
+        with wave.open(io.BytesIO(readiness.build_chime_wav())) as sound:
+            samples = array.array("h", sound.readframes(sound.getnframes()))
+        peak = max(abs(sample) for sample in samples)
+        self.assertLessEqual(peak, int(0.35 / 2 * 32767))
+        self.assertGreater(peak, int(0.35 / 2 * 32767 * 0.9))
+
     def test_waits_for_device_then_plays_once(self):
         visible = iter([False, False, True])
         played = []
@@ -253,7 +261,7 @@ class ReadySoundTests(unittest.TestCase):
                 self.assertEqual(readiness.main(), 0)
             with patch.multiple(config.settings, READY_SOUND_ENABLED=True, SPOTIFY_CLIENT_ID=""), \
                     self.assertLogs(readiness.logger, level="ERROR"):
-                self.assertEqual(readiness.main(), 1)
+                self.assertEqual(readiness.main(), 2)
         wait.assert_not_called()
 
     def test_aplay_error_summary_drops_bluealsa_noise(self):

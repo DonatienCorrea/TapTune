@@ -2,6 +2,8 @@
 Description=TapTune service
 Wants=network-online.target raspotify.service
 After=network-online.target raspotify.service bluealsa.service taptune-bluetooth.service
+# Never give up restarting: a slow boot must not leave TapTune stopped.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -11,6 +13,7 @@ Restart=always
 RestartSec=5
 EnvironmentFile=/home/pi/TapTune/.env
 Environment=PYTHONUNBUFFERED=1
+SyslogIdentifier=taptune
 
 [Install]
 WantedBy=multi-user.target

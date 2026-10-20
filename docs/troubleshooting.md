@@ -4,11 +4,24 @@
 
 Start with the smallest failing boundary: web process, configuration, Spotify, I2C, reader initialization, card read, assignment, then dispatch.
 
+First look at everything in one place:
+
+```bash
+taptune status          # is each service running? does TapTune answer?
+taptune logs -n 200     # merged logs of every TapTune service, this boot
+taptune logs -b -1      # the previous boot, e.g. after a start that failed
+taptune logs --save     # write status + logs to a file you can share
+```
+
+`taptune` is linked by `install-service.sh`; from a checkout you can also run
+`./taptune`. See [Raspberry Pi service](raspberry-pi-service.md#logs-and-inspection).
+
 | Symptom | What to check |
 | --- | --- |
 | `curl` cannot connect | Confirm `systemctl status`, port `5000`, `APP_HOST`, and the Pi IP. |
 | `systemctl enable --now` fails with “unavailable resources or another system error” | The unit paths probably do not match the checkout. Rerun `sudo ./systemd/install-service.sh` from the repository root. |
-| The service exits immediately | Confirm `.env` exists, the unit paths match it, and `journalctl` shows the Python error. |
+| The service exits immediately | Confirm `.env` exists, the unit paths match it, and `taptune logs` shows the Python error. |
+| Startup works only sometimes | Every service now retries on its own: wait a minute after boot, then run `taptune status`. If something is still down, read `taptune logs -b 0` (or `-b -1` for the previous boot) and look for the first error. `taptune restart` restarts everything in order. |
 | Fake mode is unexpected | All three live Spotify values must be non-empty. Remove placeholder values or complete the credentials, then restart. |
 | Spotify reports an authorization error | Recheck the client ID, client secret, refresh-token scopes, and exact redirect URI. |
 | Spotify reports no active device | Complete [Speaker setup](speaker-setup.md) so the Pi is always available, or open Spotify on a Connect-capable device using the same account, start playback once, and retry. |
@@ -23,7 +36,7 @@ Start with the smallest failing boundary: web process, configuration, Spotify, I
 | `i2cdetect -y 1` does not show `24` | Power down, confirm I2C mode, and recheck 3.3 V, ground, SDA on physical pin 3, and SCL on pin 5. Then use the first-card test because generic probing is not definitive for every board. |
 | The reader command waits forever | Stop the service and other reader processes, place a known Type A card directly over the antenna, and run `python -m app.pn532_diag --seconds 30`. |
 | The UID changes or looks incomplete | Copy the entire value printed for one card. Do not assume every card has a four-byte UID. |
-| The diagnostic reads a card but service taps do nothing | Set `NFC_READER_ENABLED=true` in the service's `.env`, restart, and inspect `journalctl` for initialization or unassigned-tag warnings. |
+| The diagnostic reads a card but service taps do nothing | Set `NFC_READER_ENABLED=true` in the service's `.env`, restart, and inspect `taptune logs` for reader retries or unassigned-tag warnings. |
 | The same held card plays repeatedly | Update to the current reader loop. It dispatches once and requires card removal before the next tap. |
 | A tag cannot be written | Expected: TapTune does not write tags. Write NDEF with a phone on a Type 2 tag (NTAG21x), or assign its UID in the UI. The PN532 reads supported NDEF values before falling back to UID mappings. |
 
@@ -77,6 +90,16 @@ curl -X POST -d 'uid=04A7B2F1' http://127.0.0.1:5000/dispatch
 
 - If this fails, correct the mapping or playback configuration before debugging hardware.
 - If it succeeds but a physical tap does not, focus on `NFC_READER_ENABLED`, reader initialization, UID output, and service logs.
+
+Repeated action taps:
+
+- A tag acts once per tap. Lift it away from the reader before tapping again;
+  holding it in place does not repeat the action.
+- Spotify reports volume and play/pause state a few seconds late. TapTune
+  remembers what it just did, so repeated volume taps keep stepping and a
+  second play/pause tap resumes. The log shows each decision, for example
+  `Volume 40% -> 50%` or `Play/pause: resuming.`; if Spotify refuses to resume
+  on a device, TapTune moves playback to the Pi and logs a warning.
 
 ## Spotify authorization checks
 

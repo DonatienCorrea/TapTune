@@ -4,7 +4,8 @@
 #   - installs raspotify (librespot), a Spotify Connect receiver, and configures
 #     it to play through the Bluetooth speaker and remember its Spotify login
 #     so it is available right after every boot;
-#   - installs taptune-bluetooth.service, which keeps the speaker connected.
+#   - installs taptune-bluetooth.service, which keeps the speaker connected;
+#   - makes raspotify wait for the network and always restart.
 # Run it from the repository after .env exists. Use --dry-run to preview.
 set -euo pipefail
 
@@ -108,6 +109,8 @@ else
   sudo chmod 644 "$BT_UNIT_DST"
 fi
 
+run sudo mkdir -p /etc/systemd/system/raspotify.service.d
+run sudo install -m 644 "$SCRIPT_DIR/raspotify-taptune.conf" /etc/systemd/system/raspotify.service.d/taptune.conf
 run sudo systemctl daemon-reload
 run sudo systemctl enable --now bluetooth.service bluealsa.service
 run bluetoothctl trust "$MAC"

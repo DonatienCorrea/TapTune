@@ -12,6 +12,11 @@ class VolumeClient(RecordingClient):
 
 class VolumeTests(unittest.TestCase):
     def setUp(self):
+        spotify_service.reset_state_memory()
+        self.addCleanup(spotify_service.reset_state_memory)
+        delay = patch.object(spotify_service, "RETRY_DELAY_SECONDS", 0)
+        delay.start()
+        self.addCleanup(delay.stop)
         patcher = patch.multiple(
             config.settings, SPOTIFY_DEVICE_NAME="TapTune", SPOTIFY_INITIAL_VOLUME=30,
             SPOTIFY_CLIENT_ID="", SPOTIFY_CLIENT_SECRET="", SPOTIFY_REFRESH_TOKEN="",
@@ -29,10 +34,38 @@ class VolumeTests(unittest.TestCase):
             (5, "down", 0), (100, "up", 100), (0, "down", 0),
         ):
             with self.subTest(volume=volume, action=action):
+                spotify_service.reset_state_memory()
                 client = VolumeClient(current={"device": PI_DEVICE | {"volume_percent": volume}})
                 result = self.dispatch(client, f"action:volume_{action}")
                 self.assertEqual(result, {"status": "ok", "volume_percent": expected})
                 self.assertEqual(client.calls, [("volume", {"volume_percent": expected, "device_id": "pi-123"})])
+
+    def test_repeated_taps_keep_climbing_while_spotify_reports_a_stale_volume(self):
+        client = VolumeClient(current={"device": PI_DEVICE | {"volume_percent": 30}})
+        for expected in (40, 50, 60):
+            self.dispatch(client, "action:volume_up")
+            self.assertEqual(client.calls[-1][1]["volume_percent"], expected)
+        client.current["device"]["volume_percent"] = 40  # Spotify catching up slowly
+        self.dispatch(client, "action:volume_up")
+        self.assertEqual(client.calls[-1][1]["volume_percent"], 70)
+        self.dispatch(client, "action:volume_down")
+        self.assertEqual(client.calls[-1][1]["volume_percent"], 60)
+
+    def test_volume_changed_elsewhere_is_respected(self):
+        client = VolumeClient(current={"device": PI_DEVICE | {"volume_percent": 30}})
+        self.dispatch(client, "action:volume_up")
+        client.current["device"]["volume_percent"] = 75  # changed on the phone
+        self.dispatch(client, "action:volume_up")
+        self.assertEqual(client.calls[-1][1]["volume_percent"], 85)
+
+    def test_volume_memory_expires(self):
+        client = VolumeClient(current={"device": PI_DEVICE | {"volume_percent": 30}})
+        now = [1000.0]
+        with patch.object(spotify_service, "_clock", lambda: now[0]):
+            self.dispatch(client, "action:volume_up")
+            now[0] += spotify_service.STATE_MEMORY_SECONDS + 1
+            self.dispatch(client, "action:volume_up")
+        self.assertEqual(client.calls[-1][1]["volume_percent"], 40)
 
     def test_volume_targets_the_current_device_not_the_pi(self):
         client = VolumeClient(current={"device": PHONE_DEVICE | {"volume_percent": 50}})
