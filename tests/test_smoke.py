@@ -11,6 +11,8 @@ from app.web import create_app
 
 class SmokeTests(unittest.TestCase):
     def setUp(self):
+        spotify_service.reset_state_memory()
+        self.addCleanup(spotify_service.reset_state_memory)
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.database_path = str(Path(self.temporary_directory.name) / "taptune.db")
         self.original_database_path = config.settings.DATABASE_PATH

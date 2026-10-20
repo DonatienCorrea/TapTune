@@ -91,6 +91,16 @@ curl -X POST -d 'uid=04A7B2F1' http://127.0.0.1:5000/dispatch
 - If this fails, correct the mapping or playback configuration before debugging hardware.
 - If it succeeds but a physical tap does not, focus on `NFC_READER_ENABLED`, reader initialization, UID output, and service logs.
 
+Repeated action taps:
+
+- A tag acts once per tap. Lift it away from the reader before tapping again;
+  holding it in place does not repeat the action.
+- Spotify reports volume and play/pause state a few seconds late. TapTune
+  remembers what it just did, so repeated volume taps keep stepping and a
+  second play/pause tap resumes. The log shows each decision, for example
+  `Volume 40% -> 50%` or `Play/pause: resuming.`; if Spotify refuses to resume
+  on a device, TapTune moves playback to the Pi and logs a warning.
+
 ## Spotify authorization checks
 
 See the dedicated [Spotify authorization troubleshooting table](spotify-authorization.md#troubleshooting) for callback, redirect URI, account, and refresh-token problems.

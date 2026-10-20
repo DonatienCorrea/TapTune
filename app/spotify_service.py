@@ -40,6 +40,15 @@ TOKEN_REFRESH_ATTEMPTS = 3
 # Spotifyd/Raspotify can briefly drop out of Spotify's device list.
 DEVICE_LOOKUP_ATTEMPTS = 3
 RETRY_DELAY_SECONDS = 1.0
+# Spotify's playback state lags a few seconds behind commands, so trust what
+# TapTune just did over a stale report for this long.
+STATE_MEMORY_SECONDS = 30.0
+PLAYBACK_MEMORY_SECONDS = 10.0
+_clock = time.monotonic
+# device id -> (volume TapTune set, stale values Spotify may still report, when)
+_volume_memory: dict = {}
+# (is_playing TapTune set, when)
+_playback_memory: Optional[tuple] = None
 
 
 class FakeSpotifyClient:
@@ -307,17 +316,70 @@ def play_content(uri: str, position_ms: int = 0) -> dict:
     raise AssertionError("Validated Spotify URI had an unsupported resource type")
 
 
+def reset_state_memory() -> None:
+    global _playback_memory
+    _playback_memory = None
+    _volume_memory.clear()
+
+
+def _remember_playback(is_playing: bool) -> None:
+    global _playback_memory
+    _playback_memory = (is_playing, _clock())
+
+
+def _believed_playing(current: Optional[dict]) -> bool:
+    reported = bool(current and current.get("is_playing"))
+    if current and _playback_memory is not None:
+        remembered, when = _playback_memory
+        if _clock() - when < PLAYBACK_MEMORY_SECONDS and remembered != reported:
+            logger.info(
+                "Spotify still reports %s; using TapTune's last command (%s) as it was sent %.0f s ago.",
+                "playing" if reported else "paused", "play" if remembered else "pause", _clock() - when,
+            )
+            return remembered
+    return reported
+
+
+def _resume(spotify: Any, current: Optional[dict], device_id: Optional[str]) -> dict:
+    current_device = ((current or {}).get("device") or {}).get("id")
+    target = device_id or current_device
+    if device_id is not None or current is None:
+        # Nothing is active: resume the account's last playback on the Pi.
+        if target is not None:
+            logger.info("Resuming playback by transferring it to device %s.", target)
+            return spotify.transfer_playback(target, force_play=True)
+        return spotify.start_playback()
+    try:
+        if target is None:
+            return spotify.start_playback()
+        return spotify.start_playback(device_id=target)
+    except Exception as error:  # noqa: BLE001 - only Spotify's "device gone" errors are retried.
+        status = getattr(error, "http_status", None)
+        if SpotifyException is None or not isinstance(error, SpotifyException) or status not in {403, 404}:
+            raise
+        logger.warning("Spotify refused to resume on device %s (%s); transferring playback to the Pi.", target, error)
+        if not settings.SPOTIFY_DEVICE_NAME:
+            raise
+        device = find_device_with_retries(spotify)
+        if device is None:
+            raise SpeakerNotReady(settings.SPOTIFY_DEVICE_NAME) from error
+        return spotify.transfer_playback(device["id"], force_play=True)
+
+
 def toggle_playback() -> dict:
     try:
         spotify = build_spotify_client()
         current = spotify.current_playback()
         device_id = resolve_target_device(spotify, current)
-        if current and current.get("is_playing"):
-            return spotify.pause_playback()
-        if device_id is not None:
-            # Nothing is active: resume the account's last playback on the Pi.
-            return spotify.transfer_playback(device_id, force_play=True)
-        return spotify.start_playback()
+        if _believed_playing(current):
+            logger.info("Play/pause: pausing.")
+            result = spotify.pause_playback()
+            _remember_playback(False)
+            return result
+        logger.info("Play/pause: resuming.")
+        result = _resume(spotify, current, device_id)
+        _remember_playback(True)
+        return result
     except Exception as error:  # noqa: BLE001 - translate spotipy/network errors into a dict response.
         return _handle_error(error)
 
@@ -346,6 +408,28 @@ def _prepare_local_speaker(current: Optional[dict]) -> None:
         ensure_speaker_connected()
 
 
+def _believed_volume(device_id: str, reported: int) -> int:
+    memory = _volume_memory.get(device_id)
+    if memory is None:
+        return reported
+    remembered, stale_values, when = memory
+    if _clock() - when < STATE_MEMORY_SECONDS and reported != remembered and reported in stale_values:
+        logger.info(
+            "Spotify still reports %d%% volume; using TapTune's last setting %d%%.", reported, remembered,
+        )
+        return remembered
+    return reported
+
+
+def _remember_volume(device_id: str, base: int, new_volume: int) -> None:
+    memory = _volume_memory.get(device_id)
+    stale_values = set()
+    if memory is not None and _clock() - memory[2] < STATE_MEMORY_SECONDS and base == memory[0]:
+        stale_values = set(memory[1])
+    stale_values.update({base, new_volume})
+    _volume_memory[device_id] = (new_volume, frozenset(stale_values), _clock())
+
+
 def change_volume(step: int) -> dict:
     try:
         spotify = build_spotify_client()
@@ -370,8 +454,11 @@ def change_volume(step: int) -> dict:
                     "error": "volume_unavailable",
                     "message": "Spotify cannot read or change this device's volume. Select a receiver that supports volume control.",
                 }
+            volume = _believed_volume(device["id"], volume)
             new_volume = max(0, min(100, volume + step))
             result = spotify.volume(new_volume, device_id=device["id"])
+            _remember_volume(device["id"], volume, new_volume)
+            logger.info("Volume %d%% -> %d%% on device %s.", volume, new_volume, device.get("name") or device["id"])
             return result if isinstance(result, dict) else {"status": "ok", "volume_percent": new_volume}
     except Exception as error:  # noqa: BLE001 - use the same API error translation as playback.
         return _handle_error(error)
