@@ -33,8 +33,9 @@ class InstallSpeakerScriptTests(unittest.TestCase):
 
     def test_dry_run_installs_reconnect_service_for_this_checkout(self):
         output = self.dry_run()
-        self.assertIn(f'ExecStart="{REPO_ROOT}/systemd/taptune-bluetooth.sh"', output)
-        self.assertIn(f'EnvironmentFile="{REPO_ROOT}/.env"', output)
+        unit_path = str(REPO_ROOT).replace(" ", "\\x20")
+        self.assertIn(f'ExecStart="{unit_path}/systemd/taptune-bluetooth.sh"', output)
+        self.assertIn(f"EnvironmentFile={unit_path}/.env", output)
         self.assertIn("enable taptune-bluetooth.service", output)
         self.assertNotIn("/home/pi/TapTune", output)
 
@@ -206,7 +207,10 @@ class DesktopInstallerTests(unittest.TestCase):
                     self.assertIn("taptune-bluetooth.user.service", result.stdout)
                     self.assertIn("taptune-spotifyd.user.service", result.stdout)
                     self.assertIn("taptune-ready-sound.service", result.stdout)
-                    self.assertIn(f'ExecStart="{REPO_ROOT}/.venv/bin/python" -m app.readiness --desktop', result.stdout)
+                    unit_path = str(REPO_ROOT).replace(" ", "\\x20")
+                    self.assertIn(f"WorkingDirectory={unit_path}", result.stdout)
+                    self.assertIn(f"EnvironmentFile={unit_path}/.env", result.stdout)
+                    self.assertIn(f'ExecStart="{unit_path}/.venv/bin/python" -m app.readiness --desktop', result.stdout)
                     self.assertIn("--no-block restart taptune-ready-sound.service", result.stdout)
                     self.assertNotIn("bluealsa", result.stdout)
                     if version.startswith("0.4"):

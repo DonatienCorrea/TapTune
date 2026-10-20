@@ -22,10 +22,11 @@ class InstallServiceScriptTests(unittest.TestCase):
 
     def test_dry_run_rewrites_paths_to_repo_root(self):
         output = self.run_dry_run(REPO_ROOT)
+        path = str(REPO_ROOT).replace(" ", "\\x20")
 
-        self.assertIn(f'WorkingDirectory="{REPO_ROOT}"', output)
-        self.assertIn(f'ExecStart="{REPO_ROOT}/.venv/bin/python" -m app.main', output)
-        self.assertIn(f'EnvironmentFile="{REPO_ROOT}/.env"', output)
+        self.assertIn(f"WorkingDirectory={path}", output)
+        self.assertIn(f'ExecStart="{path}/.venv/bin/python" -m app.main', output)
+        self.assertIn(f"EnvironmentFile={path}/.env", output)
         self.assertNotIn("/home/pi/TapTune", output)
 
     def test_dry_run_does_not_require_venv_or_env_file(self):
@@ -63,10 +64,14 @@ class InstallServiceScriptTests(unittest.TestCase):
                 ["bash", str(repo / "systemd/install-service.sh"), "--dry-run"],
                 capture_output=True, text=True, check=True,
             )
-            path = str(repo).replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%")
-            self.assertIn(f'WorkingDirectory="{path}"', result.stdout)
-            self.assertIn(f'EnvironmentFile="{path}/.env"', result.stdout)
-            self.assertIn(f'ExecStart="{path.replace("$", "$$")}/.venv/bin/python"', result.stdout)
+            path = (
+                str(repo).replace("\\", "\\\\").replace('"', '\\"')
+                .replace(" ", "\\x20").replace("%", "%%")
+            )
+            self.assertIn(f"WorkingDirectory={path}", result.stdout)
+            self.assertIn(f"EnvironmentFile={path}/.env", result.stdout)
+            exec_path = path.replace("$", "$$")
+            self.assertIn(f'ExecStart="{exec_path}/.venv/bin/python"', result.stdout)
 
     def test_reinstall_restarts_existing_service_without_real_system_changes(self):
         with tempfile.TemporaryDirectory() as directory:

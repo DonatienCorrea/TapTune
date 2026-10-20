@@ -38,11 +38,14 @@ unit_path() {
   local value="$1"
   value="${value//\\/\\\\}"
   value="${value//\"/\\\"}"
+  value="${value// /\\x20}"
   value="${value//%/%%}"
   if [ "${2:-}" = "exec" ]; then
     value="${value//\$/\$\$}"
+    printf '"%s"' "$value"
+  else
+    printf '%s' "$value"
   fi
-  printf '"%s"' "$value"
 }
 
 render_unit() {
