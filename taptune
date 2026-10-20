@@ -32,6 +32,8 @@ LOG_USER_UNITS=(
 )
 DRY_RUN=0
 MODE=""
+# 2 s apart; overridable so tests do not wait a minute.
+HEALTH_ATTEMPTS="${TAPTUNE_HEALTH_ATTEMPTS:-30}"
 
 # shellcheck source=systemd/install-common.sh
 source "$SCRIPT_DIR/install-common.sh"
@@ -113,15 +115,18 @@ wait_for_health() {
     echo "# wait for $url"
     return 0
   fi
+  case "$HEALTH_ATTEMPTS" in
+    '' | *[!0-9]* | 0) die "TAPTUNE_HEALTH_ATTEMPTS must be a positive integer" ;;
+  esac
   info "Waiting for TapTune to answer on $url"
-  for _ in $(seq 1 30); do
+  for _ in $(seq 1 "$HEALTH_ATTEMPTS"); do
     if http_get "$url" >/dev/null; then
       info "TapTune is running."
       return 0
     fi
     sleep 2
   done
-  echo "warning: TapTune did not answer after 60 seconds; run 'taptune logs -n 100'." >&2
+  echo "error: TapTune did not answer on $url after $((HEALTH_ATTEMPTS * 2)) seconds; run 'taptune logs -n 100'." >&2
   return 1
 }
 
@@ -230,10 +235,14 @@ cmd_update() {
       run bash "$SCRIPT_DIR/install-service.sh" --app-only
       ;;
   esac
-  wait_for_health || true
+  local healthy=0
+  wait_for_health || healthy=1
   echo
   cmd_status
   echo
+  if [ "$healthy" -ne 0 ]; then
+    die "update installed the services but TapTune is not running; run 'taptune logs -n 200'"
+  fi
   info "Update finished. If something above is not 'active' or not ready, run 'taptune logs -n 200'."
 }
 
@@ -256,7 +265,7 @@ cmd_restart() {
       run sudo systemctl restart "$APP_UNIT"
       ;;
   esac
-  wait_for_health || true
+  wait_for_health || die "restart failed: TapTune is not running"
 }
 
 # Mixed or outdated stacks: two "TapTune" receivers, or the old 10 s reconnect loop.

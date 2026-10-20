@@ -283,6 +283,42 @@ class TagReconnectTests(unittest.TestCase):
         prepare.assert_called_once_with()
         self.assertEqual(result["error"], "speaker_not_ready")
 
+    def refusing_client(self):
+        from spotipy import SpotifyException
+
+        class RefusingClient(RecordingClient):
+            def start_playback(self, **kwargs):
+                self.calls.append(("start_playback", kwargs))
+                raise SpotifyException(404, -1, "Device not found")
+
+        return RefusingClient(current={"is_playing": False, "device": PHONE_DEVICE}, devices=[PI_DEVICE])
+
+    def test_remote_resume_does_not_touch_bluetooth(self):
+        client = RecordingClient(current={"is_playing": False, "device": PHONE_DEVICE}, devices=[PI_DEVICE])
+        result, prepare = self.dispatch("action:play_pause", client)
+        prepare.assert_not_called()
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(client.calls, [("start_playback", {"device_id": "phone-1"})])
+
+    def test_fallback_to_the_pi_after_remote_refusal_prepares_speaker_first(self):
+        client = self.refusing_client()
+        with self.assertLogs("app.spotify_service", "WARNING"):
+            result, prepare = self.dispatch(
+                "action:play_pause", client,
+                lambda: self.assertNotIn("transfer_playback", [call[0] for call in client.calls]),
+            )
+        prepare.assert_called_once_with()
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(client.calls[-1], ("transfer_playback", {"device_id": "pi-123", "force_play": True}))
+
+    def test_fallback_is_blocked_when_the_speaker_cannot_connect(self):
+        client = self.refusing_client()
+        with self.assertLogs("app.spotify_service", "WARNING"):
+            result, prepare = self.dispatch("action:play_pause", client, bluetooth.BluetoothNotReady("Speaker is off"))
+        prepare.assert_called_once_with()
+        self.assertEqual(result["error"], "bluetooth_not_ready")
+        self.assertNotIn("transfer_playback", [call[0] for call in client.calls])
+
     def test_pause_next_and_volume_never_reconnect(self):
         playing = {"is_playing": True, "device": PI_DEVICE}
         for value in ("action:play_pause", "action:next", "action:volume_up", "action:volume_down"):

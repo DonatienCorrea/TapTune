@@ -1,5 +1,8 @@
 import os
+import shutil
+import socket
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -137,6 +140,43 @@ class TaptuneCliTests(unittest.TestCase):
                 out = self.cli(mode, "restart").stdout
                 self.assertNotIn("taptune-bluetooth", out)
                 self.assertNotIn("taptune-ready-sound", out)
+
+    def test_restart_and_update_fail_when_the_app_never_answers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = root / "TapTune"
+            shutil.copytree(SYSTEMD, repo / "systemd")
+            shutil.copy(CLI, repo / "taptune")
+            shutil.copy(REPO_ROOT / "requirements.txt", repo / "requirements.txt")
+            with socket.socket() as probe:
+                probe.bind(("127.0.0.1", 0))
+                port = probe.getsockname()[1]
+            (repo / ".env").write_text(f"APP_PORT={port}\n")
+            python = repo / ".venv/bin/python"
+            python.parent.mkdir(parents=True)
+            # Health probes run `python - URL`; make them fail, everything else succeed.
+            python.write_text('#!/bin/sh\n[ "$1" = - ] && { cat >/dev/null; echo "not answering"; exit 1; }\nexit 0\n')
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            (bin_dir / "sudo").write_text('#!/bin/sh\n[ "$1" = tee ] && cat >/dev/null\nexit 0\n')
+            (bin_dir / "systemctl").write_text("#!/bin/sh\nexit 0\n")
+            for tool in (python, bin_dir / "sudo", bin_dir / "systemctl"):
+                tool.chmod(0o755)
+            env = dict(os.environ, PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}", TAPTUNE_HEALTH_ATTEMPTS="1")
+            env.pop("XDG_CONFIG_HOME", None)
+            for args, message in (
+                (["restart"], "restart failed"),
+                (["update", "--no-pull", "--skip-tests"], "TapTune is not running"),
+            ):
+                with self.subTest(args=args):
+                    result = subprocess.run(
+                        ["bash", str(repo / "taptune"), "--app-only", *args],
+                        env=env, capture_output=True, text=True, timeout=60,
+                    )
+                    self.assertNotEqual(result.returncode, 0, result.stdout)
+                    self.assertIn("did not answer", result.stderr)
+                    self.assertIn(message, result.stderr)
+                    self.assertNotIn("Update finished", result.stdout)
 
     def test_logs_follow(self):
         self.assertIn("--follow", self.cli("logs", "-f").stdout)

@@ -360,6 +360,8 @@ def _resume(spotify: Any, current: Optional[dict], device_id: Optional[str]) -> 
         logger.warning("Spotify refused to resume on device %s (%s); transferring playback to the Pi.", target, error)
         if not settings.SPOTIFY_DEVICE_NAME:
             raise
+        # Playback moves to the Pi: wake its speaker first, as for any local resume.
+        _prepare_local_speaker(None)
         device = find_device_with_retries(spotify)
         if device is None:
             raise SpeakerNotReady(settings.SPOTIFY_DEVICE_NAME) from error
