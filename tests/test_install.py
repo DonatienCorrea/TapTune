@@ -8,6 +8,8 @@ import sys
 import tempfile
 import unittest
 
+import dotenv
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -25,6 +27,10 @@ class GuidedInstallTests(unittest.TestCase):
         self.home.mkdir()
         self.env = dict(os.environ, PATH=f"{self.bin}:{os.environ['PATH']}",
                         HOME=str(self.home), COMMAND_LOG=str(self.log))
+        dependency_path = str(Path(dotenv.__file__).resolve().parents[1])
+        self.env["PYTHONPATH"] = os.pathsep.join(
+            path for path in (dependency_path, os.environ.get("PYTHONPATH")) if path
+        )
         self.env.pop("BASH_ENV", None)
         shutil.copy2(ROOT / "install.sh", self.root)
         shutil.copy2(ROOT / ".env.example", self.root)
