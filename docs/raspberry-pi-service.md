@@ -104,9 +104,10 @@ bash systemd/install-service.sh
 ```
 
 The installer invokes `sudo` for system changes, rewrites and quotes those three
-paths, and restarts TapTune even if it is already running. With the Lite speaker
-setup, the unit starts after `raspotify` and the Bluetooth services, but this
-ordering does not mean the network, Spotify account or speaker is ready yet.
+paths (including paths with spaces), and restarts TapTune even if it is already
+running. With the Lite speaker setup, the unit starts after `raspotify` and the
+Bluetooth services, but this ordering does not mean the network, Spotify account
+or speaker is ready yet.
 On Desktop/PipeWire, use `bash systemd/install-service.sh --desktop` instead:
 this removes the Lite audio dependencies. The separate Spotifyd user services
 must already be enabled with the [PipeWire desktop setup](speaker-setup-desktop.md).
