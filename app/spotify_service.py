@@ -36,6 +36,11 @@ _volume_lock = threading.Lock()
 logger = logging.getLogger(__name__)
 
 SPOTIFY_REQUEST_TIMEOUT_SECONDS = 10
+SPOTIFY_SCOPES = (
+    "user-modify-playback-state user-read-playback-state "
+    "user-library-read playlist-read-private playlist-read-collaborative "
+    "user-read-recently-played"
+)
 TOKEN_REFRESH_ATTEMPTS = 3
 # Spotifyd/Raspotify can briefly drop out of Spotify's device list.
 DEVICE_LOOKUP_ATTEMPTS = 3
@@ -177,7 +182,7 @@ def build_spotify_client() -> Any:
         client_id=settings.SPOTIFY_CLIENT_ID,
         client_secret=settings.SPOTIFY_CLIENT_SECRET,
         redirect_uri=settings.SPOTIFY_REDIRECT_URI,
-        scope="user-modify-playback-state user-read-playback-state",
+        scope=SPOTIFY_SCOPES,
         cache_handler=MemoryCacheHandler(),
         requests_timeout=SPOTIFY_REQUEST_TIMEOUT_SECONDS,
     )

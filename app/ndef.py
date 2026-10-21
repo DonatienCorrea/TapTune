@@ -73,6 +73,21 @@ class NdefError(ValueError):
     """Raised when a byte sequence is not a message this module can decode."""
 
 
+def encode_spotify_ndef(value: str) -> bytes:
+    """Encode a portable HTTPS URI in a Type 2 NDEF TLV."""
+    from .spotify_service import SPOTIFY_URI_PATTERN
+
+    match = SPOTIFY_URI_PATTERN.fullmatch(value)
+    if not match:
+        raise NdefError("Choose a Spotify album, playlist or track")
+    payload = b"\x04" + f"open.spotify.com/{match[1]}/{match[2]}".encode("ascii")
+    if len(payload) > 255:
+        raise NdefError("Spotify link is too long for a short NDEF record")
+    message = bytes([0xD1, 1, len(payload)]) + b"U" + payload
+    length = bytes([len(message)]) if len(message) < 255 else b"\xff" + len(message).to_bytes(2, "big")
+    return b"\x03" + length + message + b"\xfe"
+
+
 @dataclass
 class NdefRecord:
     tnf: int

@@ -2,7 +2,67 @@
 
 [Documentation index](README.md)
 
-TapTune currently uses each physical tag's UID as the lookup key. The UID is mapped to one Spotify value or playback action in SQLite.
+TapTune can write a Spotify link onto a tag, or map its UID to a Spotify value or
+playback action in SQLite. A supported link stored on the tag takes priority
+over a UID mapping.
+
+## Browse Spotify and write a tag
+
+1. Complete [Spotify authorization](spotify-authorization.md), including the
+   library, playlist and recently played permissions. Existing playback-only
+   tokens must be re-authorized.
+2. Connect the PN532, set `NFC_READER_ENABLED=true`, and start TapTune with
+   `python -m app.main` or the installed systemd service. Do not run a second
+   NFC diagnostic or writer process at the same time.
+3. Open `http://<pi-ip>:5000/` on your iPhone or another device on the same network.
+4. Under **1. Choose your music**, browse **My albums**, **My playlists**, or **Recent albums**, or select **Search Spotify** to search
+   Spotify for albums, playlists or tracks. **Load more** fetches another page.
+   Recent albums are derived from recently played tracks, deduplicated within
+   each page in listening order; they are not Spotify's album-history feed.
+5. Choose music. Under **2. Write your tag**, check the selection and choose **Start writing**.
+   **This replaces the tag's existing content.**
+6. Place one unlocked **NTAG213, NTAG215 or NTAG216** on the **Pi's reader** within
+   60 seconds. Leave it in place until the page reports **written and verified**.
+7. Remove the tag, then present it again to play the music.
+
+Safari does not need NFC access: the Pi performs the write. Saving the page to
+the iPhone's home screen is optional. The tag contains a standard NDEF Spotify
+HTTPS link, so it is self-describing and does not need a UID mapping on this Pi.
+No database assignment is created by writing. Under **Spotify link and advanced
+options**, **Fill the advanced form with this music** opens the manual form
+and fills its URI and label when a UID mapping is preferred. Manual setup,
+playback shortcuts and the list of manual assignments are collapsed under
+**Advanced: manual tag setup & playback shortcuts**; they are not part of the
+normal two-step writing flow.
+
+The connection panel distinguishes **Demo preview** from a real Spotify
+connection. TapTune automatically reuses the Spotify credentials and refresh
+token already saved in the `.env` of the device running it. You do not need to
+copy a token into the browser. A preview on another computer cannot access the
+Pi's token: open the Pi's page for its account and reader. If Spotify denies
+access to a collection, the page explains which permission may be missing
+instead of replacing your library with demo music. Only authorize again when
+the saved connection is rejected or lacks the required permissions.
+
+During a pending write, scans are consumed by the writer rather than playback.
+Only one write can wait at a time, including across browser tabs. The page
+restores a pending job when reloaded. **Cancel write** or the 60-second timeout
+ends the request; **closing the browser alone does not cancel it**. The tag
+must be removed before normal playback scanning resumes. **Check reader**
+refreshes the state after a lost connection.
+
+Locked, password-protected, unsupported or undersized tags report an error;
+TapTune does not unlock or format them. Only user-memory pages are written,
+never the UID, capability container, lock or configuration pages. Interrupted
+writes can leave an incomplete tag: retry the write before using it. A
+successful write is confirmed by reading the link back, not just by an NFC
+acknowledgment.
+
+Without Spotify credentials, the picker shows explicitly labelled **demo**
+content for hardware-free UI testing, not your real library. Without a ready
+reader, browsing and manual assignments still work but writing is disabled.
+The Pi page has no login: keep it on a trusted local network and do not
+port-forward it to the internet.
 
 ## Supported values
 
@@ -51,7 +111,7 @@ Before assigning a physical tag, complete the [first-card test](hardware-setup.m
 
 1. Start TapTune with `NFC_READER_ENABLED=false`.
 2. Open `http://127.0.0.1:5000/`, or `http://<pi-ip>:5000/` from another device on the same network.
-3. Enter the complete UID exactly as printed, for example `04A7B2F1`.
+3. Open **Advanced: manual tag setup & playback shortcuts** and enter the complete UID exactly as printed, for example `04A7B2F1`.
 4. Enter one supported value.
 5. Optionally add a friendly label.
 6. Select **Save tag** and confirm that the row appears under **Assigned tags**.
@@ -106,6 +166,8 @@ When NDEF bytes are supplied to the decoder:
 The PN532 reads NDEF memory on Type 2 tags (such as NTAG21x). A text record
 containing `action:volume_up` or `action:volume_down` works without a UID mapping.
 Blank tags, unsupported values and failed memory reads fall back to UID lookup.
-TapTune does not write tags.
+The web music picker writes Spotify links onto unlocked NTAG213/215/216 tags
+through the Pi's PN532. Playback shortcuts can still be assigned by UID or
+written as NDEF text records using a phone app.
 
 Decoding lives in `app/ndef.py` and is tested without reader hardware.

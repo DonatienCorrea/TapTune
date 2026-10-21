@@ -42,10 +42,15 @@ def dispatch_nfc_event(event: NFCEvent):
     return result
 
 
-def run_reader_loop(reader, stop_event=None, idle_sleep_seconds: float = 0.05) -> None:
+def run_reader_loop(reader, stop_event=None, idle_sleep_seconds: float = 0.05, writer=None) -> None:
     last_uid = None
     while stop_event is None or not stop_event.is_set():
         event = reader.read_once()
+        if writer is not None and writer.consume(reader, event):
+            last_uid = event.uid if event else None
+            if event is None and idle_sleep_seconds:
+                time.sleep(idle_sleep_seconds)
+            continue
         if event is None:
             last_uid = None
             if idle_sleep_seconds:
@@ -63,6 +68,7 @@ def run_reader_supervisor(
     ready_event=None,
     sleep=time.sleep,
     max_failures: int = READER_MAX_CONSECUTIVE_FAILURES,
+    writer=None,
 ) -> None:
     """Open the PN532 and poll it, reopening it after I2C or startup errors.
 
@@ -82,9 +88,14 @@ def run_reader_supervisor(
                 logger.info("PN532 reader started.")
             if ready_event is not None:
                 ready_event.set()
-            run_reader_loop(reader, stop_event=stop_event)
+            if writer is None:
+                run_reader_loop(reader, stop_event=stop_event)
+            else:
+                run_reader_loop(reader, stop_event=stop_event, writer=writer)
             return
         except Exception as error:  # noqa: BLE001 - I2C/PN532 errors are often transient at boot.
+            if writer is not None:
+                writer.fail()
             if ready_event is not None:
                 ready_event.clear()
             if time.monotonic() - started >= READER_HEALTHY_RUN_SECONDS:
@@ -111,12 +122,12 @@ def run_reader_supervisor(
             delay = min(delay * 2, READER_RETRY_MAX_SECONDS)
 
 
-def start_reader_thread(reader_factory=PN532Reader) -> threading.Thread:
+def start_reader_thread(reader_factory=PN532Reader, writer=None) -> threading.Thread:
     ready_event = threading.Event()
     thread = threading.Thread(
         target=run_reader_supervisor,
         args=(reader_factory,),
-        kwargs={"ready_event": ready_event},
+        kwargs={"ready_event": ready_event, "writer": writer},
         name="pn532-reader",
         daemon=True,
     )
@@ -178,7 +189,7 @@ def main() -> None:
     threading.excepthook = log_thread_exception
     log_startup_summary()
     if settings.NFC_READER_ENABLED:
-        app.config["NFC_READER_THREAD"] = start_reader_thread()
+        app.config["NFC_READER_THREAD"] = start_reader_thread(writer=app.config["TAG_WRITER"])
     start_speaker_thread()
     try:
         app.run(host=settings.APP_HOST, port=settings.APP_PORT, debug=False)

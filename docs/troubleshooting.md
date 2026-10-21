@@ -38,7 +38,7 @@ taptune logs --save     # write status + logs to a file you can share
 | The UID changes or looks incomplete | Copy the entire value printed for one card. Do not assume every card has a four-byte UID. |
 | The diagnostic reads a card but service taps do nothing | Set `NFC_READER_ENABLED=true` in the service's `.env`, restart, and inspect `taptune logs` for reader retries or unassigned-tag warnings. |
 | The same held card plays repeatedly | Update to the current reader loop. It dispatches once and requires card removal before the next tap. |
-| A tag cannot be written | Expected: TapTune does not write tags. Write NDEF with a phone on a Type 2 tag (NTAG21x), or assign its UID in the UI. The PN532 reads supported NDEF values before falling back to UID mappings. |
+| A tag cannot be written | Use an unlocked NTAG213/215/216 and the Pi's PN532, not the iPhone's NFC hardware. Enable the reader and run `python -m app.main`. Keep one tag on the reader until verification succeeds. See [Browse Spotify and write a tag](tag-usage.md#browse-spotify-and-write-a-tag). Unsupported tags can still use manual UID assignments. |
 
 ## Web and service checks
 

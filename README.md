@@ -23,7 +23,7 @@ tap an NFC tag → read its UID → find its saved action → control Spotify
 
 TapTune provides:
 
-- a local web page for assigning NFC tags;
+- a local web page for browsing Spotify saved albums, playlists, recent albums and search results, assigning UIDs, and writing Spotify links to NFC tags with the Pi's reader;
 - Spotify playlist, album, and track playback;
 - play/pause, next-track and volume ±10-point actions;
 - a 30% startup volume for the Pi receiver;
@@ -79,7 +79,7 @@ The result should include `"status": "ok"` and `"mode": "fake"`.
 ## Current boundaries
 
 - The web UI always starts; PN532 polling starts only when `NFC_READER_ENABLED=true`.
-- Self-describing tags: on NTAG21x (Type 2) tags the PN532 reader fetches the NDEF memory and plays the Spotify link or `spotify:` URI written on the tag, for example from a phone with NFC Tools. Share links such as `https://open.spotify.com/playlist/<id>?si=…` are converted automatically. A blank tag, a non-Type-2 tag (MIFARE Classic), or a failed read falls back to the value assigned to the UID in the web UI. The memory is read once each time a tag is presented. TapTune does not write tags.
+- Self-describing tags: on NTAG21x (Type 2) tags the PN532 reader fetches the NDEF memory and plays the Spotify link or `spotify:` URI written on the tag. The web music picker can write and verify Spotify links on unlocked NTAG213/215/216 tags using the Pi's reader, including when opened on an iPhone. Existing playback-only Spotify tokens need [additional permissions](docs/spotify-authorization.md). Share links such as `https://open.spotify.com/playlist/<id>?si=…` are converted automatically. A blank tag, a non-Type-2 tag (MIFARE Classic), or a failed read falls back to the value assigned to the UID in the web UI. The memory is read once each time a tag is presented.
 - Live playback requires a Spotify Premium account and valid developer credentials. Both the [Lite speaker setup](docs/speaker-setup.md) and the [Desktop/PipeWire setup](docs/speaker-setup-desktop.md) support playback after boot without logging in. Desktop requires the included user-audio installer and a dedicated audio user. If Spotify reports a current device, even while paused, taps control that device.
 - Boot prepares the receiver; it does **not** automatically start a playlist or resume music. Playback starts with a content tag or play/pause tag. Both TapTune's Web API authorization and the receiver's separate Spotify login must use the same account.
 - A short chime confirms that TapTune responds, its reader thread is running when enabled, Spotify sees the local receiver, and sound can be played to the speaker. Lite plays it from TapTune; Desktop/PipeWire uses the installed user ready-sound service so it works without logging in. There is no status LED; run `taptune status` and `taptune logs` to inspect runtime errors.
