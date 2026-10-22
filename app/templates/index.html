@@ -10,31 +10,112 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  <a class="skip-link" href="#assignment">{{ translations['skip'] }}</a>
+  <a class="skip-link" href="#music-picker">{{ translations['browse_title'] }}</a>
   <div class="app-shell">
     <header class="header">
       <div>
-        <span class="badge">{{ translations['badge_top'] }}</span>
         <h1 class="title"><svg class="logo-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><circle cx="16" cy="16" r="13"></circle><circle cx="16" cy="16" r="5"></circle><path d="M16 3v7M16 22v7"></path></svg><span>Tap<span class="brand-tune">Tune</span></span></h1>
         <p class="subtitle">{{ translations['subtitle'] }}</p>
       </div>
       <div class="header-actions">
         <a class="badge switch-link" href="{{ switch_url }}">{{ translations['switch_label'] }}</a>
-        <span class="badge">{{ translations['badge_right'] }}</span>
       </div>
     </header>
 
-    <main id="assignment" class="panel form-panel">
+    <main id="music-picker" class="music-panel">
+      <div class="picker-heading">
+        <h2 class="section-title">{{ translations['browse_title'] }}</h2>
+        <p>{{ translations['browse_intro'] }}</p>
+      </div>
+      <section id="spotify-connection" class="connection-panel" aria-label="Spotify">
+        <strong id="connection-title" role="status">{{ translations['connection_checking'] if spotify_configured else translations['demo_title'] }}</strong>
+        <p id="connection-note">{{ translations['connection_saved'] if spotify_configured else translations['demo_music'] }}</p>
+        <details id="connection-details">
+          <summary>{{ translations['connection_help'] }}</summary>
+          <p id="connection-help">{{ translations['connection_saved'] if spotify_configured else translations['demo_help'] }}</p>
+          <a href="https://github.com/DonatienCorrea/TapTune/blob/master/docs/spotify-authorization.md" target="_blank" rel="noopener noreferrer">{{ translations['authorization_guide'] }}</a>
+        </details>
+      </section>
+      <h3 id="choose-heading" class="step-heading" tabindex="-1">{{ translations['choose_title'] }}</h3>
+      <section class="spotify-browser" aria-labelledby="music-view-heading">
+      <div class="music-browser-header">
+        <h4 id="music-view-heading">{{ translations['albums'] }}</h4>
+        <a class="music-source" href="https://open.spotify.com/" target="_blank" rel="noopener noreferrer">Spotify <span aria-hidden="true">↗</span></a>
+      </div>
+      <nav class="collection-nav" aria-label="{{ translations['search'] }}">
+        {% for collection in ['albums', 'playlists', 'recent', 'search'] %}
+          <button type="button" class="helper-button" data-collection="{{ collection }}" aria-pressed="{{ 'true' if collection == 'albums' else 'false' }}">{{ translations[collection] }}</button>
+        {% endfor %}
+      </nav>
+      <form id="music-search" class="music-search" role="search" hidden>
+        <div class="field">
+          <label for="music-query">{{ translations['search_label'] }}</label>
+          <div class="music-search-input">
+            <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 4.5 4.5"></path></svg>
+            <input id="music-query" type="search" maxlength="200" required autocomplete="off" placeholder="{{ translations['search_placeholder'] }}">
+          </div>
+        </div>
+        <div class="field">
+          <label for="music-kind">{{ translations['search_kind'] }}</label>
+          <select id="music-kind">
+            {% for kind in ['album', 'playlist', 'track'] %}
+              <option value="{{ kind }}">{{ translations[kind] }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button type="submit" class="save-button">{{ translations['search_button'] }}</button>
+      </form>
+      <p id="recent-note" class="music-caption" hidden>{{ translations['recent_note'] }}</p>
+      <p id="music-status" role="status" aria-live="polite"></p>
+      <a id="authorization-guide" href="https://github.com/DonatienCorrea/TapTune/blob/master/docs/spotify-authorization.md" target="_blank" rel="noopener noreferrer" hidden>{{ translations['authorization_guide'] }}</a>
+      <button id="retry-music" type="button" class="helper-button" hidden>{{ translations['retry_music'] }}</button>
+      <ul id="music-results" class="music-results" aria-busy="false"></ul>
+      <button id="load-more" type="button" class="helper-button" hidden>{{ translations['load_more'] }}</button>
+      </section>
+
+      <section id="write-step" class="write-step" aria-labelledby="selection-heading">
+        <h3 id="selection-heading" class="step-heading" tabindex="-1">{{ translations['write_title'] }}</h3>
+        <p id="selection-hint" class="music-caption">{{ translations['selection_hint'] }}</p>
+        <div id="write-selection" class="write-panel" hidden>
+        <div class="selection-summary">
+          <p id="selected-name"></p>
+          <p id="selected-detail" class="music-caption"></p>
+          <button id="change-music" type="button" class="text-button">{{ translations['change_music'] }}</button>
+          <p>{{ translations['write_instruction'] }}</p>
+          <p class="overwrite-warning">{{ translations['write_warning'] }}</p>
+        </div>
+        <div class="write-controls">
+          <p id="reader-status" role="status"></p>
+          <button id="write-tag" type="button" class="save-button" disabled>{{ translations['write_tag'] }}</button>
+          <button id="cancel-write" type="button" class="helper-button" hidden>{{ translations['cancel'] }}</button>
+          <button id="refresh-reader" type="button" class="helper-button">{{ translations['check_reader'] }}</button>
+        </div>
+        <p id="write-status" class="write-status" role="status" aria-live="polite"></p>
+        <details class="tag-help">
+          <summary>{{ translations['tag_help'] }}</summary>
+          <p>{{ translations['tag_help_note'] }}</p>
+        </details>
+        <details class="selection-details">
+          <summary>{{ translations['selection_details'] }}</summary>
+          <code id="selected-uri"></code>
+          <button id="use-assignment" type="button" class="helper-button" disabled>{{ translations['use_assignment'] }}</button>
+        </details>
+        </div>
+      </section>
+    </main>
+
+    <details id="advanced-options" class="advanced-options"{% if saved %} open{% endif %}>
+      <summary>{{ translations['advanced_options'] }}</summary>
+    <section id="assignment" class="panel form-panel">
       {% if saved %}
         <div class="success-banner" role="status" aria-live="polite">{{ translations['saved'] }}</div>
       {% endif %}
 
-      <div class="assignment-heading">
+      <div class="assignment-heading manual-heading">
         <div>
-          <span class="badge">{{ translations['badge_step'] }}</span>
           <h2 class="section-title">{{ translations['section_title'] }}</h2>
         </div>
-        <p>{{ translations['intro'] }}</p>
+        <p>{{ translations['manual_note'] }} {{ translations['intro'] }}</p>
       </div>
       <div class="helper-row">
         <span class="helper-label">{{ translations['quick_fill'] }}</span>
@@ -67,10 +148,11 @@
           <button class="save-button" type="submit">{{ translations['save'] }}</button>
         </div>
       </form>
-    </main>
+    </section>
 
     <section class="panel tags-panel">
       <h2 class="section-title">{{ translations['assigned_tags'] }}</h2>
+      <p class="music-caption">{{ translations['assigned_note'] }}</p>
       <ul class="tag-list">
         {% for tag in tags %}
           <li class="tag-card">
@@ -87,8 +169,11 @@
         {% endfor %}
       </ul>
     </section>
+    </details>
   </div>
 
+  <script id="music-translations" type="application/json">{{ translations | tojson }}</script>
+  <script src="{{ url_for('static', filename='music.js') }}" defer></script>
   <script>
     document.querySelectorAll('[data-value]').forEach((button) => {
       button.addEventListener('click', () => {

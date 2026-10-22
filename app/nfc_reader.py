@@ -3,7 +3,7 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
-from .ndef import NdefError, ndef_block_end, tag_value_from_ndef
+from .ndef import NdefError, encode_spotify_ndef, ndef_block_end, tag_value_from_ndef
 
 CAPABILITY_CONTAINER_PAGE = 3
 USER_MEMORY_FIRST_PAGE = 4
@@ -21,6 +21,12 @@ PN532_I2C_ADDRESS = 0x24
 PN532_LIBRARY_UNAVAILABLE_MESSAGE = (
     "PN532 support is not available; install requirements-pi.txt on the Pi."
 )
+
+
+class TagWriteError(RuntimeError):
+    def __init__(self, code):
+        super().__init__(code)
+        self.code = code
 
 
 @dataclass
@@ -106,9 +112,54 @@ class PN532Reader(ReaderBase):
         return NFCEvent(uid=uid_hex, payload=self._last_payload, source="nfc")
 
     def write_tag(self, uid: str, payload: str) -> bool:
-        raise NotImplementedError(
-            "PN532 tag writing is not implemented; write NDEF values with a phone or assign the UID in TapTune."
-        )
+        data = encode_spotify_ndef(payload)
+        present = self.reader.read_passive_target(timeout=0.1)
+        if present is None or bytes(present).hex().upper() != uid:
+            raise TagWriteError("tag_changed")
+
+        # Only NTAG213/215/216: their layout is known, so configuration and
+        # dynamic lock pages can never be mistaken for writable user memory.
+        version = self.reader.call_function(0x40, params=[1, 0x60], response_length=10)
+        if (version is None or len(version) != 9
+                or bytes(version[:7]) != b"\x00\x00\x04\x04\x02\x01\x00"
+                or version[7] not in (0x0F, 0x11, 0x13) or version[8] != 3):
+            raise TagWriteError("unsupported_tag")
+        physical_capacity = {0x0F: 144, 0x11: 504, 0x13: 888}[version[7]]
+        capability = self.reader.ntag2xx_read_block(3)
+        if capability is None or len(capability) < 4 or capability[0] != NDEF_MAGIC_NUMBER:
+            raise TagWriteError("unsupported_tag")
+        if capability[1] >> 4 != 1 or capability[3] != 0:
+            raise TagWriteError("tag_locked")
+        capacity = min(capability[2] * 8, physical_capacity)
+        padded = data + b"\x00" * (-len(data) % 4)
+        if len(padded) > capacity:
+            raise TagWriteError("tag_too_small")
+        static = self.reader.ntag2xx_read_block(2)
+        dynamic = self.reader.ntag2xx_read_block(4 + physical_capacity // 4)
+        if static is None or dynamic is None or len(static) != 4 or len(dynamic) != 4:
+            raise TagWriteError("tag_read_failed")
+        if any(static[2:4]) or any(dynamic[:3]):
+            raise TagWriteError("tag_locked")
+
+        def write(page, block):
+            if not self.reader.ntag2xx_write_block(page, block):
+                raise TagWriteError("tag_write_failed")
+
+        # Publish the length last. An interrupted write must not expose a
+        # partially updated record as a valid NDEF message.
+        write(4, b"\x03\x00\xfe\x00")
+        for index in range(4, len(padded), 4):
+            write(4 + index // 4, padded[index:index + 4])
+        write(4, padded[:4])
+        present = self.reader.read_passive_target(timeout=0.1)
+        if present is None or bytes(present).hex().upper() != uid:
+            raise TagWriteError("tag_changed")
+        memory = self.read_ndef_memory()
+        if memory is None or memory[:len(data) - 1] != data[:-1] or tag_value_from_ndef(memory) != payload:
+            raise TagWriteError("tag_verify_failed")
+        self._last_payload = payload
+        self._last_uid = uid
+        return True
 
 
 def parse_tag_value(value: str) -> str:

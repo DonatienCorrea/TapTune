@@ -80,7 +80,11 @@ oauth = SpotifyOAuth(
     client_id=os.environ["SPOTIFY_CLIENT_ID"],
     client_secret=os.environ["SPOTIFY_CLIENT_SECRET"],
     redirect_uri=os.environ["SPOTIFY_REDIRECT_URI"],
-    scope="user-modify-playback-state user-read-playback-state",
+    scope=(
+        "user-modify-playback-state user-read-playback-state "
+        "user-library-read playlist-read-private playlist-read-collaborative "
+        "user-read-recently-played"
+    ),
     state=state,
     open_browser=False,
     cache_handler=MemoryCacheHandler(),
@@ -139,6 +143,14 @@ print(refresh_token)
 ```
 
 The script keeps token data in memory instead of writing a Spotipy cache file.
+
+These permissions cover playback, saved albums, private/collaborative playlists,
+and listening history for the web music picker. **If you previously authorized
+TapTune for playback only, run this script again**, replace
+`SPOTIFY_REFRESH_TOKEN`, and restart TapTune. Refreshing an old token does not
+grant the additional permissions. Use the same Spotify account as the speaker.
+Credentials and access tokens stay on the Pi; the browser receives music
+metadata, not Spotify tokens.
 
 ## 4. Authorize the account
 
@@ -210,3 +222,5 @@ An already running app must be restarted to load changed credentials.
 | Spotify returns no active device or `speaker_not_ready` | Complete [Speaker setup](speaker-setup.md), or open Spotify on the target device, play something once, and retry. |
 | TapTune still uses fake mode | Confirm the client ID, client secret, and refresh token are all present, then restart TapTune. |
 | Authorization was granted to the wrong account | Run the script again in a private browser window and sign in with the intended account. |
+| The music picker reports missing permissions | Re-authorize with all the scopes above, replace the Pi's refresh token, and restart TapTune. |
+| The music picker shows a demo library | One or more Spotify credentials are missing. Configure all three values and restart TapTune. |

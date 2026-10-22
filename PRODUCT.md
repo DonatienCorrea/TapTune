@@ -24,7 +24,9 @@ The service runs on Raspberry Pi OS with a PN532 reader over I2C. A local Flask 
 
 ## Capabilities and Constraints
 
-Supports Spotify playlist, album, and track URIs plus play/pause, next and volume actions. Reads supported NDEF values from Type 2 tags before falling back to UID assignments. Includes fake mode and a CLI simulator. The app owns startup connection/readiness and one chime; Desktop uses the dedicated audio user's PipeWire session, not a separate sound service. There are no status LEDs, and other errors are logged and inspected over SSH. Hardware-specific dependencies are separate from base development dependencies. One guided installer prepares Python and then explicitly configures live services after manual wiring, pairing and authorization; Lite is the shortest standalone route.
+Supports Spotify playlist, album, and track URIs plus play/pause, next and volume actions. The bilingual, mobile-friendly local web page browses saved albums, playlists, albums derived from recent listening, and Spotify search. Selections can fill a UID assignment or be written as verified NDEF links to unlocked NTAG213/215/216 tags using the Pi's PN532, not the phone's NFC hardware. A cancellable write pauses playback scanning and expires after 60 seconds. Library browsing needs additional Spotify authorization scopes. Reads supported NDEF values from Type 2 tags before falling back to UID assignments. Includes fake playback, an explicitly labelled demo music picker and a CLI simulator.
+
+The app owns startup connection/readiness and one chime; Desktop uses the dedicated audio user's PipeWire session, not a separate sound service. There are no status LEDs, and other errors are logged and inspected over SSH. Hardware-specific dependencies are separate from base development dependencies. One guided installer prepares Python and then explicitly configures live services after manual wiring, pairing and authorization; Lite is the shortest standalone route.
 
 ## Brand Commitments
 

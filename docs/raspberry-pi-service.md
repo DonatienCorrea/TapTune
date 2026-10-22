@@ -109,10 +109,14 @@ If the startup check expired while completing the receiver login, run
 
 ## Assign and verify a tag
 
-Open `http://<pi-ip>:5000/`. Assign the UID from the diagnostic to a playlist,
-album, track or action, then lift and tap the physical tag. See
-[Using tags](tag-usage.md) for supported values and self-describing NDEF tags.
-Test the mapping without the reader if needed:
+Open `http://<pi-ip>:5000/`. Choose music in the Spotify picker, select
+**Start writing**, and place an unlocked NTAG213/215/216 on the Pi's reader
+until the page confirms the write was verified. Remove it, then tap again to
+play. See [Using tags](tag-usage.md#browse-spotify-and-write-a-tag) for details.
+
+For manual UID assignments or playback actions, open
+**Advanced: manual tag setup & playback shortcuts** and assign the UID from
+the diagnostic. Test a saved UID mapping without the reader if needed:
 
 ```bash
 curl -X POST -d 'uid=04A7B2F1' http://127.0.0.1:5000/dispatch
