@@ -19,17 +19,22 @@ taptune logs --save     # write status + logs to a file you can share
 | Symptom | What to check |
 | --- | --- |
 | `curl` cannot connect | Confirm `systemctl status`, port `5000`, `APP_HOST`, and the Pi IP. |
-| `systemctl enable --now` fails with “unavailable resources or another system error” | The unit paths probably do not match the checkout. Rerun `sudo ./systemd/install-service.sh` from the repository root. |
+| `systemctl enable --now` fails with “unavailable resources or another system error” | Inspect `systemctl cat raspi-spotify-nfc.service` for the actual paths and journal for the failed directive. Run `./install.sh --lite --configure` (or `--desktop` / `--app-only`) **without sudo** to regenerate correctly quoted paths, including checkout names with spaces. Do not copy the template unit unchanged. |
 | The service exits immediately | Confirm `.env` exists, the unit paths match it, and `taptune logs` shows the Python error. |
-| Startup works only sometimes | Every service now retries on its own: wait a minute after boot, then run `taptune status`. If something is still down, read `taptune logs -b 0` (or `-b -1` for the previous boot) and look for the first error. `taptune restart` restarts everything in order. |
+| Startup works only sometimes | Read `taptune logs -b 0` (or `-b -1`) for the first error. App/receiver process restarts and PN532 retries are separate from the bounded boot Bluetooth check. There is no periodic Bluetooth retry. After fixing the cause, `taptune restart` requests a fresh startup check. |
 | Fake mode is unexpected | All three live Spotify values must be non-empty. Remove placeholder values or complete the credentials, then restart. |
 | Spotify reports an authorization error | Recheck the client ID, client secret, refresh-token scopes, and exact redirect URI. |
-| Spotify reports no active device | Complete [Speaker setup](speaker-setup.md) so the Pi is always available, or open Spotify on a Connect-capable device using the same account, start playback once, and retry. |
+| Spotify reports no active device | Complete the receiver's separate account login using the [Lite](speaker-setup.md) or [Desktop](speaker-setup-desktop.md) guide, or open another Connect-capable player using the same account and play something once. |
 | Dispatch returns `speaker_not_ready` | Spotify has no current device and the Pi receiver named by `SPOTIFY_DEVICE_NAME` is not visible. Check the name and receiver's separate Spotify login in the [Lite](speaker-setup.md#troubleshooting) or [Desktop](speaker-setup-desktop.md#troubleshooting) guide. |
-| Dispatch returns `bluetooth_not_ready` | Power on the paired speaker; verify the address in `.env` and `bluetoothctl info <MAC>`. Read the system reconnect log on Lite or the user reconnect log on Desktop. |
+| Dispatch returns `bluetooth_not_ready` | Power on the paired/trusted speaker; verify `.env`'s address and `bluetoothctl info <MAC>`. Inspect `taptune logs` for connection/routing failures, then tap a local music/start tag. Pause and volume do not trigger reconnection. |
 | Music plays on the phone instead of the Pi | Spotify's current device is retained even while paused. Select the Pi in Spotify's device picker before testing local playback. |
 | No music starts automatically at boot | Expected: boot prepares the receiver and volume; a content or play/pause tag starts music. |
-| No ready chime after boot | Set `READY_SOUND_ENABLED=true` in `.env`. Check `/ready`, the Connect name, speaker connection and the [Lite](speaker-setup.md#troubleshooting) or [Desktop user-service](speaker-setup-desktop.md#troubleshooting) logs. |
+| No ready chime after boot | Check `READY_SOUND_ENABLED`, `/ready`, both Spotify logins, receiver name and audio output. The app performs one bounded check, not a periodic chime loop; after fixing the cause, restart TapTune. On Desktop inspect the configured audio user; do not start an obsolete ready-sound user unit. |
+| Speaker disconnects during idle | No automatic background reconnect is expected. Turn the speaker on if necessary, then tap a local music/start tag. Do not use pause/volume as a wake-up test. |
+| Duplicate TapTune devices, zeroconf errors or competing audio | Confirm only one receiver stack is running. Reapply the intended mode, inspect Raspotify and Spotifyd units (including other users'), and do not enable BlueALSA alongside PipeWire. A duplicate name alone does not establish the exact fault; inspect the receiver journal. |
+| `ModuleNotFoundError: spotipy` or PN532 support missing | Use `.venv/bin/python`, not the system Python. Rerun `./install.sh --lite` / `--desktop` for a Pi or `--app-only` for development; this prepares dependencies but starts no services. |
+| Python or venv preparation fails | Install Python 3.10+ and `python3-venv`, check the first pip/network error, and rerun preparation. No dependency install failure is treated as success. |
+| Tests print warnings or failure-path tracebacks but end with `OK` | Some tests deliberately exercise errors. Read the unittest summary and exit status; a traceback from a mocked failure is not evidence of a deployed service failure. A `FAILED` summary must still be investigated. |
 | A tag is “unknown” | Assign the complete UID printed by the reader. Avoid extra spaces and preserve the exact value. |
 | PN532 import fails | Activate the Pi virtual environment and rerun `./systemd/install-pi-dependencies.sh`. |
 | `/dev/i2c-1` is missing | Enable I2C with `sudo raspi-config` and reboot. |
@@ -54,6 +59,13 @@ Remember that `/health` proves only that the Flask process responds.
 reader thread to be alive when enabled. It does not itself contact Spotify or
 check the Bluetooth output; the ready-sound worker performs those checks before
 playing the chime.
+
+The app now owns boot Bluetooth and chime work on both stacks. Old
+`taptune-bluetooth.service` (system/user) and user
+`taptune-ready-sound.service` units are removed by reconfiguration/update;
+instructions to enable or restart them are obsolete. Desktop still needs
+the Spotifyd and PipeWire/WirePlumber **user** services. See
+[why these services remain separate](architecture.md#why-not-one-service).
 
 ## PN532 checks
 
@@ -88,7 +100,7 @@ Dispatch the exact UID without the reader:
 curl -X POST -d 'uid=04A7B2F1' http://127.0.0.1:5000/dispatch
 ```
 
-- If this fails, correct the mapping or playback configuration before debugging hardware.
+- If this fails, correct the mapping or playback configuration before debugging hardware. Inspect the JSON `status` and error reason, not only HTTP connectivity.
 - If it succeeds but a physical tap does not, focus on `NFC_READER_ENABLED`, reader initialization, UID output, and service logs.
 
 Repeated action taps:

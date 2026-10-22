@@ -1,7 +1,9 @@
 [Unit]
 Description=TapTune service
-Wants=network-online.target raspotify.service
-After=network-online.target raspotify.service bluealsa.service taptune-bluetooth.service
+# install-service.sh --lite adds the Lite receiver ordering; --desktop sets the audio user.
+# The app connects the Bluetooth speaker itself (boot, then tags that start music).
+Wants=network-online.target
+After=network-online.target bluetooth.service
 # Never give up restarting: a slow boot must not leave TapTune stopped.
 StartLimitIntervalSec=0
 

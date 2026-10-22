@@ -54,6 +54,9 @@ class Settings:
     SPOTIFY_DEVICE_NAME = os.getenv("SPOTIFY_DEVICE_NAME", "TapTune").strip()
     SPOTIFY_INITIAL_VOLUME = parse_volume(os.getenv("SPOTIFY_INITIAL_VOLUME", "30"))
     BLUETOOTH_SPEAKER_MAC = os.getenv("BLUETOOTH_SPEAKER_MAC", "").strip()
+    # Set by `install-service.sh --desktop` in the systemd unit (not in .env): the
+    # user whose PipeWire session plays Spotifyd. Empty on Lite (BlueALSA).
+    DESKTOP_AUDIO_USER = os.getenv("DESKTOP_AUDIO_USER", "").strip()
     AUDIO_OUTPUT_DEVICE = os.getenv("AUDIO_OUTPUT_DEVICE", "bluealsa").strip()
     READY_SOUND_ENABLED = parse_bool(os.getenv("READY_SOUND_ENABLED", "true"), "READY_SOUND_ENABLED")
 

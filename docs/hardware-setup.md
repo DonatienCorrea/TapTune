@@ -46,8 +46,10 @@ Some PN532 firmware and library combinations do not respond reliably to the gene
 
 ## Install Pi-specific dependencies
 
-First complete [Install the project](raspberry-pi-service.md#install-the-project)
-so the checkout, `.venv` and base packages exist. From the repository root:
+`./install.sh --lite` or `--desktop` from the
+[installation checklist](raspberry-pi-service.md#install-the-project) already
+installs these dependencies. Do not repeat this step on a normal fresh install.
+If repairing an incomplete environment, run from the repository root:
 
 ```bash
 source .venv/bin/activate
@@ -103,4 +105,5 @@ python -m app.nfc_reader --read
 - If initialization succeeds but the command times out, place the card directly over the antenna and retry with a known ISO/IEC 14443 Type A card.
 - Stop the service and any other reader process before retrying.
 
-Continue with [Using and assigning tags](tag-usage.md) after the first UID is reliable.
+Return to the [installation checklist](raspberry-pi-service.md#finish-the-manual-prerequisites)
+after the first UID is reliable. Keep the service stopped while running diagnostics.

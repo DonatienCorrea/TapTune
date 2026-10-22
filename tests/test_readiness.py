@@ -203,47 +203,91 @@ class ReadySoundTests(unittest.TestCase):
         with patch.object(readiness, "urlopen", side_effect=ConnectionRefusedError()):
             self.assertFalse(readiness.app_ready())
 
-    def test_desktop_sound_checks_link_and_routes_to_exact_bluetooth_sink(self):
+    def test_desktop_chime_plays_raw_audio_to_the_exact_sink_as_the_audio_user(self):
         sink = "bluez_output.AA_BB_CC_DD_EE_FF.1"
-        commands = []
+        runner = Mock(return_value=subprocess.CompletedProcess([], 0, b"", b""))
+        wav = readiness.build_chime_wav()
+        with patch.multiple(config.settings, BLUETOOTH_SPEAKER_MAC="AA:BB:CC:DD:EE:FF", DESKTOP_AUDIO_USER="taptune"), \
+                patch.object(readiness, "prepare_speaker", return_value=sink) as prepare, \
+                patch.object(readiness, "desktop_command", side_effect=lambda args, user: ["runuser", *args]):
+            self.assertTrue(readiness.play_ready_sound(wav, runner=runner))
+        prepare.assert_called_once_with(runner=runner, connect_attempts=1, desktop=True, user=None)
+        command = runner.call_args.args[0]
+        self.assertEqual(command[:3], ["runuser", "pacat", "--playback"])
+        self.assertIn(f"--device={sink}", command)
+        self.assertEqual(runner.call_args.kwargs["input"], readiness._pcm_frames(wav))
+        self.assertTrue(runner.call_args.kwargs["input"])
 
-        def runner(command, **kwargs):
-            commands.append(command)
-            output = {
-                "bluetoothctl": "Connected: yes\n",
-                "list": f"1 alsa_output.hdmi\n2 {sink}\n",
-                "get-default-sink": sink + "\n",
-            }.get(command[0] if command[0] == "bluetoothctl" else command[1], "")
-            if command[0] == "paplay":
-                with open(command[-1], "rb") as sound:
-                    self.assertEqual(sound.read(), b"wav")
-            return subprocess.CompletedProcess(command, 0, output, "")
+    def test_desktop_chime_failures_are_reported_not_rerouted(self):
+        sink = "bluez_output.AA_BB_CC_DD_EE_FF.1"
+        wav = readiness.build_chime_wav()
+        with patch.multiple(config.settings, BLUETOOTH_SPEAKER_MAC="AA:BB:CC:DD:EE:FF", DESKTOP_AUDIO_USER="taptune"), \
+                patch.object(readiness, "desktop_command", side_effect=lambda args, user: list(args)):
+            runner = Mock(return_value=subprocess.CompletedProcess([], 1, b"", b"Connection refused"))
+            with patch.object(readiness, "prepare_speaker", return_value=sink):
+                self.assertFalse(readiness.play_ready_sound(wav, runner=runner))
+            runner.assert_called_once()
+            for error in (FileNotFoundError("pacat"), readiness.BluetoothNotReady("PipeWire has no output")):
+                runner = Mock()
+                with self.subTest(error=error), patch.object(readiness, "prepare_speaker", side_effect=error):
+                    self.assertFalse(readiness.play_ready_sound(wav, runner=runner))
+                runner.assert_not_called()
+        with patch.multiple(config.settings, BLUETOOTH_SPEAKER_MAC="", DESKTOP_AUDIO_USER="taptune"), \
+                self.assertLogs(readiness.logger, level="WARNING"):
+            self.assertFalse(readiness.play_ready_sound(wav, runner=Mock()))
 
+    def test_lite_chime_connects_speaker_then_uses_aplay(self):
+        with patch.multiple(config.settings, BLUETOOTH_SPEAKER_MAC="AA:BB:CC:DD:EE:FF", DESKTOP_AUDIO_USER=""), \
+                patch.object(readiness, "prepare_speaker") as prepare, \
+                patch.object(readiness, "play_sound", return_value=True) as play:
+            self.assertTrue(readiness.play_ready_sound(b"wav"))
+        self.assertFalse(prepare.call_args.kwargs["desktop"])
+        play.assert_called_once()
+
+    def test_boot_chime_stops_after_bounded_speaker_attempts(self):
+        attempts = []
+        with self.assertLogs(readiness.logger, level="WARNING") as logs:
+            result = readiness.wait_until_ready_then_chime(
+                is_app_ready=lambda: True,
+                is_device_visible=lambda: True,
+                play=lambda wav: attempts.append(1) and False,
+                sleep=lambda seconds: None,
+                max_play_attempts=4,
+            )
+        self.assertFalse(result)
+        self.assertEqual(len(attempts), 4)
+        self.assertIn("starts or resumes music", "\n".join(logs.output))
+
+    def test_boot_connection_without_chime_is_bounded(self):
+        prepare = Mock(side_effect=readiness.BluetoothNotReady("off"))
+        sleep = Mock()
+        with patch.object(config.settings, "BLUETOOTH_SPEAKER_MAC", "AA:BB:CC:DD:EE:FF"), \
+                self.assertLogs(readiness.logger, level="WARNING"):
+            self.assertFalse(readiness.connect_speaker_at_boot(prepare=prepare, sleep=sleep, attempts=3))
+        self.assertEqual(prepare.call_count, 3)
+        prepare.assert_called_with(connect_attempts=1)
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_boot_connects_speaker_when_the_adapter_starts_off(self):
+        from test_bluetooth import FakeSystem
+
+        system = FakeSystem(connected=False, powered=False)
+        prepare = lambda connect_attempts: readiness.prepare_speaker(  # noqa: E731
+            runner=system, sleep=Mock(), connect_attempts=connect_attempts, desktop=False,
+        )
+        with patch.multiple(config.settings, BLUETOOTH_SPEAKER_MAC="AA:BB:CC:DD:EE:FF", AUDIO_OUTPUT_DEVICE="hw:0"):
+            self.assertTrue(readiness.connect_speaker_at_boot(prepare=prepare, sleep=Mock()))
+        self.assertTrue(system.connected)
+        self.assertEqual(system.count("bluetoothctl", "power", "on"), 1)
+
+    def test_boot_connection_stops_once_connected_or_unconfigured(self):
+        prepare = Mock(side_effect=[readiness.BluetoothNotReady("off"), "device"])
         with patch.object(config.settings, "BLUETOOTH_SPEAKER_MAC", "AA:BB:CC:DD:EE:FF"):
-            self.assertTrue(readiness.play_desktop_sound(b"wav", runner=runner))
-        self.assertEqual(commands[0], ["bluetoothctl", "info", "AA:BB:CC:DD:EE:FF"])
-        self.assertEqual(commands[-1][:3], ["paplay", "--device", sink])
-
-    def test_desktop_chime_waits_for_routing_and_reports_audio_failures(self):
-        sink = "bluez_output.AA_BB_CC_DD_EE_FF.1"
-        for default, audio_code in (("alsa_output.hdmi", 0), (sink, 1)):
-            with self.subTest(default=default, code=audio_code):
-                runner = Mock(side_effect=[
-                    subprocess.CompletedProcess([], 0, f"2 {sink}\n", ""),
-                    subprocess.CompletedProcess([], 0, default, ""),
-                    subprocess.CompletedProcess([], audio_code, "", "Audio unavailable"),
-                ])
-                with patch.object(config.settings, "BLUETOOTH_SPEAKER_MAC", "AA:BB:CC:DD:EE:FF"), \
-                        patch.object(readiness, "ensure_speaker_connected"):
-                    self.assertFalse(readiness.play_desktop_sound(b"wav", runner=runner))
-                if default != sink:
-                    self.assertEqual(runner.call_count, 2)
-
-    def test_desktop_sound_missing_tools_or_disconnected_speaker_are_not_ready(self):
-        for error in (FileNotFoundError("pactl"), readiness.BluetoothNotReady("Speaker off")):
-            with patch.object(config.settings, "BLUETOOTH_SPEAKER_MAC", "AA:BB:CC:DD:EE:FF"), \
-                    patch.object(readiness, "ensure_speaker_connected", side_effect=error):
-                self.assertFalse(readiness.play_desktop_sound(b"wav", runner=Mock()))
+            self.assertTrue(readiness.connect_speaker_at_boot(prepare=prepare, sleep=Mock()))
+        self.assertEqual(prepare.call_count, 2)
+        prepare = Mock()
+        self.assertTrue(readiness.connect_speaker_at_boot(prepare=prepare, sleep=Mock()))
+        prepare.assert_not_called()
 
     def test_desktop_command_selects_user_audio_and_reports_readiness_failure(self):
         with patch.multiple(

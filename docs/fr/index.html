@@ -88,7 +88,7 @@
           <div class="loop-arrow" aria-hidden="true">→</div>
           <article class="loop-step"><div class="step-number">02</div><div class="step-glyph glyph-map" aria-hidden="true">⌁</div><h3>Touchez le lecteur</h3><p>Approchez l’objet du lecteur. La personne qui écoute n’a pas besoin d’utiliser un téléphone.</p></article>
           <div class="loop-arrow" aria-hidden="true">→</div>
-          <article class="loop-step"><div class="step-number">03</div><div class="step-glyph glyph-play" aria-hidden="true">▶</div><h3>Écoutez</h3><p>TapTune retrouve le choix enregistré et demande à Spotify de le lire, par défaut sur l’enceinte reliée au Pi. Un petit carillon à l’allumage indique qu’il est prêt.</p></article>
+          <article class="loop-step"><div class="step-number">03</div><div class="step-glyph glyph-play" aria-hidden="true">▶</div><h3>Écoutez</h3><p>TapTune demande à Spotify de lire le choix. Il conserve l’appareil courant, même en pause, ou choisit le Pi s’il n’y en a aucun. Un unique carillon au démarrage confirme les contrôles de disponibilité.</p></article>
         </div>
       </section>
 
@@ -107,7 +107,7 @@
         <div class="section-heading"><p class="section-index">Choisissez votre parcours</p><h2>Personne curieuse<br />ou maker pratique ?</h2></div>
         <div class="path-grid">
           <article class="path path-listener"><span class="path-number">A</span><h3>Comprendre l’expérience</h3><p>Découvrez l’intérêt des commandes physiques, ce que fait réellement la personne et ce que le projet peut devenir.</p><a class="text-link" href="#for-whom">Lire l’histoire humaine <span aria-hidden="true">→</span></a></article>
-          <article class="path path-maker" id="build"><span class="path-number">B</span><h3>Construire la version actuelle</h3><p>Essayez d’abord le logiciel sans matériel, puis suivez les guides PN532, Spotify, Raspberry Pi et systemd.</p><a class="button button-dark" href="../getting-started.html">Ouvrir le guide en anglais <span aria-hidden="true">→</span></a><a class="path-secondary" href="../README.md">Documentation technique en anglais</a></article>
+          <article class="path path-maker" id="build"><span class="path-number">B</span><h3>Construire la version actuelle</h3><p>Suivez une seule checklist : le script prépare Python, puis configure les services après le câblage, l’appairage et les autorisations Spotify. Raspberry Pi OS Lite est le chemin le plus court ; Desktop utilise PipeWire et nécessite Spotifyd installé séparément.</p><a class="button button-dark" href="../raspberry-pi-service.html">Checklist d’installation en anglais <span aria-hidden="true">→</span></a><a class="path-secondary" href="../README.html">Documentation technique en anglais</a></article>
         </div>
       </section>
 
@@ -116,7 +116,7 @@
           <div class="section-heading blueprint-heading">
             <p class="section-index">Pour les lecteurs techniques</p>
             <h2>Un chemin court<br /><span>et inspectable.</span></h2>
-            <p>Un UID devient une instruction enregistrée, puis une demande de lecture. Chaque partie peut être testée séparément.</p>
+            <p>Le tag fournit un contenu NDEF reconnu ou une instruction liée à son UID. Après une tentative bornée de connexion et un seul carillon au démarrage, aucune reconnexion Bluetooth périodique : seul un tag qui lance ou reprend la musique sur le Pi peut reconnecter l’enceinte, jamais la pause ni le volume.</p>
             <a class="text-link light-link" href="../architecture.html">Lire le guide d’architecture en anglais <span aria-hidden="true">→</span></a>
           </div>
           <figure class="architecture-figure">

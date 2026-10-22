@@ -1,44 +1,23 @@
-# Make the Raspberry Pi its own speaker
+# Lite speaker setup: BlueALSA + Raspotify
 
-[Documentation index](README.md)
+[Installation checklist](raspberry-pi-service.md) · [Documentation index](README.md)
 
-By default Spotify only plays on a device where someone has already opened Spotify, such as a phone or computer. This guide makes the Raspberry Pi a Spotify speaker of its own. After setup:
-
-1. You switch on the Bluetooth speaker and the Pi.
-2. The Pi connects to the speaker and signs in to Spotify by itself.
-3. A short two-note chime means **TapTune is ready**.
-4. You tap a tag and the music plays. No phone is needed.
-
-If Spotify reports a current device, such as a phone, a tag keeps controlling it
-even while it is paused. When Spotify has no current device, TapTune targets the
-Pi by name. Boot itself does **not** start music; tap a content or play/pause tag.
-
-## What you need
-
-- A TapTune checkout with `.venv`, dependencies and `.env` prepared ([Install the project](raspberry-pi-service.md#install-the-project)), and working [Spotify authorization](spotify-authorization.md). The TapTune service does not need to be installed yet.
-- Raspberry Pi OS **Lite** for the BlueALSA setup below. For Debian 13 Desktop, use the [PipeWire desktop setup](speaker-setup-desktop.md) instead.
-- A Bluetooth speaker.
-- A phone or computer with the Spotify app, needed **once** during setup.
-
-Do not run `systemd/install-speaker.sh` on a Desktop/PipeWire installation. It configures BlueALSA and the system-wide Raspotify service, which do not use the desktop user's PipeWire audio session.
+This is the speaker reference for **Raspberry Pi OS Lite without PipeWire**.
+For Desktop, use [PipeWire + Spotifyd](speaker-setup-desktop.md), not these
+commands. For a fresh install, the checklist prepares Python first and calls
+this guide only for pairing and the one-time receiver login.
 
 ## 1. Pair the Bluetooth speaker
-
-From the TapTune folder on the Pi:
 
 ```bash
 sudo apt update
 sudo apt install -y bluez
 sudo systemctl enable --now bluetooth.service
-```
-
-Put the speaker in pairing mode, then run:
-
-```bash
 bluetoothctl
 ```
 
-Inside `bluetoothctl`, type the following. Replace `AA:BB:CC:DD:EE:FF` with your speaker's address, which appears in the scan results next to its name:
+Put the speaker in pairing mode. Inside `bluetoothctl`, replace the example MAC
+with the address next to your speaker in the scan results:
 
 ```text
 power on
@@ -51,8 +30,8 @@ scan off
 quit
 ```
 
-`trust` lets the Pi reconnect later without asking. Connection may not work until
-BlueALSA is installed in the next step. Save the address and device name in `.env`:
+Pairing and trusting are manual, once per speaker. A connection may not work
+until BlueALSA is installed. Save the actual MAC in `.env`:
 
 ```dotenv
 BLUETOOTH_SPEAKER_MAC=AA:BB:CC:DD:EE:FF
@@ -62,82 +41,71 @@ AUDIO_OUTPUT_DEVICE=bluealsa
 READY_SOUND_ENABLED=true
 ```
 
-## 2. Install the speaker software and check sound
+Return to [Configure and start services](raspberry-pi-service.md#configure-and-start-services).
+`./install.sh --lite --configure` installs BlueALSA, the managed Raspotify
+package, its speaker-specific A2DP output and credential caching, then the
+TapTune service. No separate Bluetooth reconnect service is needed.
 
-From the TapTune folder, without wrapping the script in `sudo`:
+## 2. Link the Pi to your Spotify account
+
+After configuration has installed Raspotify:
+
+1. Open Spotify on a phone/computer on the same network as the Pi.
+2. Sign into **the same Premium account** authorized for TapTune's Web API.
+3. Start a song and choose **TapTune** (or `SPOTIFY_DEVICE_NAME`) in the device picker.
+4. Confirm audio comes from the Bluetooth speaker, then pause playback.
+
+Raspotify caches that receiver login for future boots. This is separate from
+TapTune's Web API refresh token; a token alone cannot make the receiver available.
+If multiple devices called TapTune appear, look for a second Raspotify/Spotifyd
+instance rather than renaming devices until the collision disappears.
+
+## 3. Check audio and a cold boot
+
+If Spotify is visible but silent, test the configured speaker directly:
 
 ```bash
-bash systemd/install-speaker.sh --dry-run   # optional: preview every command
-bash systemd/install-speaker.sh
 bluetoothctl connect AA:BB:CC:DD:EE:FF
 aplay -D 'bluealsa:DEV=AA:BB:CC:DD:EE:FF,PROFILE=a2dp' /usr/share/sounds/alsa/Front_Center.wav
 ```
 
-Use your speaker's address in both commands. You should hear "Front center".
-
-The script installs BlueALSA and the managed **Raspotify package** (not just any
-`librespot` executable). It configures the Connect name, the specific speaker's
-A2DP output and startup volume, enables credential caching, trusts the speaker
-and starts the reconnect service before restarting Raspotify. It is safe to
-rerun after changing these settings. The ready sound uses the same speaker
-address when `AUDIO_OUTPUT_DEVICE=bluealsa`.
-
-## 3. Link the Pi to your Spotify account (once)
-
-1. Make sure the phone or computer is on the **same Wi-Fi network** as the Pi.
-2. Open Spotify, start any song, and open the device list (the speaker icon).
-3. Choose **TapTune** (or your configured `SPOTIFY_DEVICE_NAME`). The music moves to the Bluetooth speaker.
-
-Raspotify now remembers the account. From now on it signs in by itself at every boot, and TapTune can find it without the phone.
-
-Use the same Spotify account that you authorized for TapTune.
-
-## 4. Check the ready sound and test a reboot
+Use your speaker's MAC. You should hear "Front center". A receiver visible in
+Spotify does not prove A2DP audio works. The Pi output is unmuted at full device
+level; listening volume is controlled by Spotify, initially 30%.
 
 Return to [Assign and verify a tag](raspberry-pi-service.md#assign-and-verify-a-tag)
-and install the TapTune service if this is a fresh install. Once the service is
-installed, restart it and reboot with the speaker on:
+and the checklist's no-login cold-boot check. TapTune makes one bounded startup
+connection/readiness phase and plays at most one chime per app start. A chime
+checks app, enabled reader, receiver visibility and actual audio output; it
+cannot promise that every later Spotify request or card read will succeed.
 
-```bash
-sudo systemctl restart raspi-spotify-nfc.service
-sudo reboot
-```
-
-The chime waits until TapTune responds on `/ready`, its reader thread is running
-when enabled, Spotify sees the configured receiver and the speaker's A2DP
-output accepts the sound. It cannot guarantee every future tag read or Spotify
-request will succeed.
-
-Before logging in to the Pi, wait for the chime, then tap a tag and confirm music
-comes from this speaker. Allow time for Wi-Fi and Spotify registration; startup
-initialization retries for up to ten minutes rather than guaranteeing a fixed
-boot time.
-
-The reconnect service retries about every ten seconds (a connection attempt can
-take additional time). If the speaker comes on within the startup readiness
-window, the chime plays then, once per TapTune start. If you waited longer,
-restart TapTune to hear the chime; the reconnect service still runs and tags
-still work without it.
+**There is no periodic reconnect or keepalive.** After the boot phase, only a
+local music start/resume tap may reconnect. Pause and volume taps do not.
+If the speaker powers off, turn it on and tap a content/start tag. A manual
+`taptune restart` requests a fresh startup check; boot never starts music.
 
 ## Settings in `.env`
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `SPOTIFY_DEVICE_NAME` | `TapTune` | Name of the Pi in Spotify's device list. When Spotify has no current device, TapTune sends music here. Paused current devices are retained. Leave empty to disable local targeting. |
-| `SPOTIFY_INITIAL_VOLUME` | `30` | Receiver startup volume (0–100); also configured in Raspotify by the installer. |
-| `BLUETOOTH_SPEAKER_MAC` | empty | Address of the speaker to keep connected. |
-| `AUDIO_OUTPUT_DEVICE` | `bluealsa` | ALSA output used for both Raspotify and the ready sound. The default is expanded to the configured MAC's A2DP device; failure is logged and retried, not redirected to HDMI. |
-| `READY_SOUND_ENABLED` | `true` | Set to `false` to switch the chime off. |
+| `SPOTIFY_DEVICE_NAME` | `TapTune` | Local Connect name; must match the receiver. Spotify's current device is retained even while paused. |
+| `SPOTIFY_INITIAL_VOLUME` | `30` | Receiver startup volume, 0–100. |
+| `BLUETOOTH_SPEAKER_MAC` | empty | Paired speaker address used at startup and local music start/resume. |
+| `AUDIO_OUTPUT_DEVICE` | `bluealsa` | Expanded to the configured MAC's A2DP device; never silently falls back to HDMI. |
+| `READY_SOUND_ENABLED` | `true` | Set `false` to disable the chime. |
 
-Rerun `bash systemd/install-speaker.sh` after changing the name, MAC, audio output
-or startup volume, then restart TapTune so both services read the same settings.
+After changing receiver name, MAC, output or startup volume, reapply with
+`./install.sh --lite --configure`. Use `taptune update` for code updates.
+The low-level `systemd/install-speaker.sh` is an implementation detail and
+repair tool, not an additional fresh-install step.
 
 ## Troubleshooting
 
 | Symptom | Check |
 | --- | --- |
-| No chime after boot, and taps return `speaker_not_ready` | Check the configured Connect name and `sudo systemctl status raspotify --no-pager`; the receiver may not be signed in. Repeat [step 3](#3-link-the-pi-to-your-spotify-account-once). |
-| The Pi disappears from Spotify after a reboot | The credential cache is disabled. Rerun `./systemd/install-speaker.sh`, then repeat step 3. |
-| The logs say the Spotify speaker is online but the ready sound could not be played | Spotify visibility is not audio readiness. Check `bluetoothctl info <MAC>`, test the explicit A2DP device from step 2, and read `sudo journalctl -u taptune-bluetooth -n 50 --no-pager`. |
-| Music plays on the phone instead of the speaker | Spotify still considers the phone active, even while paused. Choose TapTune in the phone's device list, or close Spotify on the phone. |
-| Spotify shows TapTune but music is silent | Test the speaker with `aplay -D bluealsa …` from step 2, and check `sudo journalctl -u raspotify -n 50`. |
+| `speaker_not_ready` or receiver disappears after reboot | Inspect `sudo systemctl status raspotify --no-pager`; repeat the receiver login and check credential caching. |
+| Receiver is visible but silent | Test the explicit A2DP device above; inspect `bluetoothctl info <MAC>` and `sudo journalctl -u raspotify -n 100 --no-pager`. |
+| Music plays on the phone | A paused phone is still Spotify's current device; select TapTune in the device picker. |
+| No chime | Inspect `taptune logs` for the startup timeout/failure; check `READY_SOUND_ENABLED` and `/ready`. After fixing the cause, restart TapTune for a new check. |
+| Bluetooth disconnects while idle | Expected not to reconnect periodically; power on the speaker if needed and tap a local music start/resume tag. |
+| Multiple TapTune receivers or competing audio | Do not run Raspotify and Spotifyd together. Reconfigure the intended stack; inspect other users' sessions if competition remains. |

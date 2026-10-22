@@ -4,8 +4,11 @@
 #   - installs raspotify (librespot), a Spotify Connect receiver, and configures
 #     it to play through the Bluetooth speaker and remember its Spotify login
 #     so it is available right after every boot;
-#   - installs taptune-bluetooth.service, which keeps the speaker connected;
-#   - makes raspotify wait for the network and always restart.
+#   - makes raspotify wait for the network and always restart;
+#   - stops a Desktop/Spotifyd setup and the old periodic reconnect service, so
+#     only one "TapTune" receiver plays.
+# The TapTune app connects the speaker itself: once at boot, then only when a
+# tag starts or resumes music (install-service.sh --lite).
 # Run it from the repository after .env exists. Use --dry-run to preview.
 set -euo pipefail
 
@@ -25,8 +28,6 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ENV_FILE="$REPO_DIR/.env"
-BT_UNIT_SRC="$SCRIPT_DIR/taptune-bluetooth.service"
-BT_UNIT_DST="/etc/systemd/system/taptune-bluetooth.service"
 RASPOTIFY_CONF="/etc/raspotify/conf"
 RASPOTIFY_INSTALLER="https://dtcooper.github.io/raspotify/install.sh"
 source "$SCRIPT_DIR/install-common.sh"
@@ -68,8 +69,6 @@ LIBRESPOT_DEVICE=\"$AUDIO_DEVICE\"
 LIBRESPOT_INITIAL_VOLUME=$VOLUME
 # <<< TapTune <<<"
 
-BT_UNIT="$(render_unit "$BT_UNIT_SRC" "$REPO_DIR/systemd/taptune-bluetooth.sh")"
-
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "# Spotify Connect name: $DEVICE_NAME"
   echo "# Audio output: $AUDIO_DEVICE"
@@ -100,26 +99,32 @@ run sudo sed -i \
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "# append to $RASPOTIFY_CONF:"
   printf '%s\n' "$RASPOTIFY_BLOCK"
-  echo "# install $BT_UNIT_DST:"
-  printf '%s\n' "$BT_UNIT"
 else
   printf '%s\n' "$RASPOTIFY_BLOCK" | sudo tee -a "$RASPOTIFY_CONF" > /dev/null
-  chmod 755 "$SCRIPT_DIR/taptune-bluetooth.sh"
-  printf '%s\n' "$BT_UNIT" | sudo tee "$BT_UNIT_DST" > /dev/null
-  sudo chmod 644 "$BT_UNIT_DST"
 fi
+
+# Spotifyd advertising the same name next to Raspotify makes two "TapTune"
+# receivers that fight over the speaker.
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}"
+disable_user_unit taptune-spotifyd.service "Lite uses Raspotify, not Spotifyd" \
+  "$CONFIG_DIR/systemd/user/taptune-spotifyd.service"
+disable_user_unit spotifyd.service "Lite uses Raspotify, not Spotifyd"
+remove_legacy_user_units
+if [ "$DRY_RUN" -eq 1 ] || user_manager_available; then
+  run systemctl --user daemon-reload
+fi
+disable_system_unit spotifyd.service "Lite uses Raspotify, not Spotifyd"
+remove_legacy_system_units
 
 run sudo mkdir -p /etc/systemd/system/raspotify.service.d
 run sudo install -m 644 "$SCRIPT_DIR/raspotify-taptune.conf" /etc/systemd/system/raspotify.service.d/taptune.conf
 run sudo systemctl daemon-reload
 run sudo systemctl enable --now bluetooth.service bluealsa.service
 run bluetoothctl trust "$MAC"
-run sudo systemctl enable taptune-bluetooth.service
-run sudo systemctl restart taptune-bluetooth.service
 run sudo systemctl enable raspotify.service
 run sudo systemctl restart raspotify.service
 
 if [ "$DRY_RUN" -eq 0 ]; then
   echo "Installed the '$DEVICE_NAME' Spotify speaker."
-  echo "Next: select '$DEVICE_NAME' once in the Spotify app, then restart TapTune (see docs/speaker-setup.md)."
+  echo "Next: install TapTune with 'systemd/install-service.sh --lite' and select '$DEVICE_NAME' once in the Spotify app (see docs/speaker-setup.md)."
 fi
