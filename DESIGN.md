@@ -19,3 +19,18 @@ Use this document as the source of truth for every TapTune surface, including th
 - **Responsive behavior:** Preserve the reading order on narrow screens. Collapse columns into one flow, keep controls full-width when useful, and never let UIDs or URIs overflow the viewport.
 
 When adding a new surface, start from the tokens and patterns in `docs/styles.css` instead of inventing a new palette or component language.
+
+## Spotify music browser
+
+The music browsing/search section is an intentional, user-requested exception
+to the paper field-guide surface. Scope its Spotify-inspired styling to
+`.spotify-browser`: near-black `#121212`, charcoal `#1f1f1f` cards, white text,
+secondary text `#b3b3b3`, and green `#1ed760` selection actions. Use rounded
+search fields and filter chips, square uncropped artwork, and a responsive
+artwork-led grid (two columns on phones). Keep visible Choose/Selected labels,
+keyboard focus, and an Open in Spotify link. Do not add pretend playback
+controls: choosing music prepares a tag, not a listening session.
+
+This is TapTune's own implementation of familiar music-browser patterns, not
+Spotify's proprietary component library. The outer page, connection notices,
+tag-writing steps and advanced UID form retain TapTune's established style.
