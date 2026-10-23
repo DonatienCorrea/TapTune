@@ -100,6 +100,8 @@ class CleanupHelperTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
+        self.systemd_dir = self.root / "systemd"
+        self.systemd_dir.mkdir()
         self.log = self.root / "calls.log"
         bin_dir = self.root / "bin"
         bin_dir.mkdir()
@@ -160,9 +162,22 @@ class CleanupHelperTests(unittest.TestCase):
         self.assertFalse(script.parent.exists())
 
     def test_fresh_install_has_nothing_to_clean(self):
-        result, calls = self.run_helpers("remove_legacy_user_units; remove_legacy_system_units", FAKE_INSTALLED="")
+        result, calls = self.run_helpers(
+            f'remove_legacy_user_units; remove_legacy_system_units "{self.systemd_dir}"', FAKE_INSTALLED=""
+        )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls, [])
+
+    def test_legacy_system_unit_is_removed_when_present(self):
+        unit = self.systemd_dir / "taptune-bluetooth.service"
+        unit.write_text("[Unit]\n")
+        result, calls = self.run_helpers(f'remove_legacy_system_units "{self.systemd_dir}"')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(unit.exists())
+        self.assertEqual(calls, [
+            "systemctl disable --now taptune-bluetooth.service",
+            "systemctl daemon-reload",
+        ])
 
     def test_owned_unit_without_user_manager_fails_instead_of_staying_enabled(self):
         units = self.root / "config/systemd/user"
