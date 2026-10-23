@@ -49,6 +49,9 @@ class DeviceSelectionTests(unittest.TestCase):
         patcher = patch.object(config.settings, "SPOTIFY_DEVICE_NAME", "TapTune")
         patcher.start()
         self.addCleanup(patcher.stop)
+        live_spotify = patch.object(spotify_service, "is_live_spotify_configured", return_value=False)
+        live_spotify.start()
+        self.addCleanup(live_spotify.stop)
 
     def run_with(self, client, function, *args):
         with patch.object(spotify_service, "build_spotify_client", return_value=client):

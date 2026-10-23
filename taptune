@@ -271,6 +271,9 @@ cmd_restart() {
 # Mixed or outdated stacks: two "TapTune" receivers, or the old 10 s reconnect loop.
 status_warnings() {
   local raspotify spotifyd legacy unit
+  if [ "$DRY_RUN" -eq 1 ]; then
+    return 0
+  fi
   raspotify="$(unit_state systemctl is-active raspotify.service)"
   spotifyd="$(unit_state systemctl --user is-active taptune-spotifyd.service)"
   if [ "$raspotify" = active ] && [ "$spotifyd" = active ]; then

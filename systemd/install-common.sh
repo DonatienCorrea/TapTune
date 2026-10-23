@@ -115,7 +115,8 @@ disable_user_unit() {
 # Before this version a reconnect loop ran every 10 s; TapTune now connects
 # the speaker itself at boot and when a tag starts or resumes music.
 remove_legacy_system_units() {
-  local unit=/etc/systemd/system/taptune-bluetooth.service
+  local unit_dir="${1:-/etc/systemd/system}"
+  local unit="$unit_dir/taptune-bluetooth.service"
   if [ "$DRY_RUN" -eq 1 ] || [ -f "$unit" ]; then
     [ "$DRY_RUN" -eq 0 ] || echo "# if $unit exists (replaced by on-demand reconnect in TapTune):"
     [ "$DRY_RUN" -eq 1 ] || echo "Removing the obsolete periodic Bluetooth reconnect service."
