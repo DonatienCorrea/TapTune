@@ -21,7 +21,7 @@ over a UID mapping.
    each page in listening order; they are not Spotify's album-history feed.
 5. Choose music. Under **2. Write your tag**, check the selection and choose **Start writing**.
    **This replaces the tag's existing content.**
-6. Place one unlocked **NTAG213/215/216** or **writable NFC Type 4 NDEF tag** on the **Pi's reader** within
+6. Place one unlocked **NTAG213/215/216**, **supported Feiju 144-byte Type 2 tag**, or **writable NFC Type 4 NDEF tag** on the **Pi's reader** within
    60 seconds. Leave it in place until the page reports **written and verified**.
 7. Remove the tag, then present it again to play the music.
 
@@ -57,6 +57,17 @@ Type 4 NDEF file are written, never the UID, capability container, lock or confi
 writes can leave an incomplete tag: retry the write before using it. A
 successful write is confirmed by reading the link back, not just by an NFC
 acknowledgment.
+
+Feiju Type 2 compatibility is restricted to the observed version response
+`00 00 53 04 02 01 00 0F 03`, capability container `E1 10 12 00`, and initial
+Lock Control TLV `01 03 A0 0C 34`. This matches the 144-byte F8213-style
+layout; it is not blanket support for every chip with manufacturer ID `53`.
+The writer checks static and dynamic lock bytes, preserves that TLV, and
+writes only pages 5 through 39. The five metadata bytes count against capacity.
+UID, capability container, lock and configuration pages are never written.
+The [manufacturer's F8213 description](http://www.nfc-ic.com/RFIDNFC_productDetailed?product_id=14)
+specifies 45 four-byte pages, 144 user bytes, and static/dynamic locking.
+Physical compatibility still needs confirmation on the actual tag.
 
 For Type 4, TapTune selects the NFC Forum NDEF application and reads its
 capability container before writing. It requires a freely readable and writable
@@ -180,7 +191,7 @@ When NDEF bytes are supplied to the decoder:
 The PN532 reads NDEF memory on Type 2 tags (such as NTAG21x) and standard NFC Type 4 NDEF tags. A text record
 containing `action:volume_up` or `action:volume_down` works without a UID mapping.
 Blank tags, unsupported values and failed memory reads fall back to UID lookup.
-The web music picker writes Spotify links onto unlocked NTAG213/215/216 and supported writable Type 4 NDEF tags
+The web music picker writes Spotify links onto unlocked NTAG213/215/216, supported Feiju 144-byte Type 2 tags, and supported writable Type 4 NDEF tags
 through the Pi's PN532. Playback shortcuts can still be assigned by UID or
 written as NDEF text records using a phone app.
 

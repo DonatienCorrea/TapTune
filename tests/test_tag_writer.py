@@ -53,7 +53,90 @@ def reader_for(tag):
     return PN532Reader(i2c=object(), reader_factory=lambda i2c, debug: tag)
 
 
+def feiju_tag():
+    tag = WritableTag()
+    tag.uid = bytes.fromhex("53071728530001")
+    tag.version = bytes.fromhex("000053040201000f03")
+    tag.pages[4] = bytes.fromhex("0103a00c")
+    tag.pages[5] = bytes.fromhex("340300fe")
+    return tag
+
+
 class PhysicalTagWriteTests(unittest.TestCase):
+    def test_feiju_diagnostic_profile_round_trips_and_preserves_lock_control(self):
+        for kind in ("album", "playlist", "track"):
+            with self.subTest(kind=kind):
+                tag = feiju_tag()
+                protected = {page: tag.pages[page] for page in (2, 3, 4, 40)}
+                reader = reader_for(tag)
+                uid = tag.uid.hex().upper()
+                value = f"spotify:{kind}:123abc"
+                for content in (value, "spotify:track:a"):
+                    self.assertTrue(reader.write_tag(uid, content))
+                    self.assertEqual(ndef.tag_value_from_ndef(reader.read_ndef_memory()), content)
+                    self.assertEqual(reader.read_once().payload, content)
+                self.assertEqual(tag.writes[0], (5, bytes.fromhex("340300fe")))
+                self.assertTrue(all(5 <= page <= 39 for page, _ in tag.writes))
+                for page, block in protected.items():
+                    self.assertEqual(tag.pages[page], block)
+
+    def test_feiju_unrecognized_layouts_and_lock_bits_are_rejected_without_writing(self):
+        for scenario, error in (
+            ("manufacturer", "unsupported_tag"), ("size", "unsupported_tag"),
+            ("cc", "unsupported_tag"), ("cc_locked", "tag_locked"),
+            ("tlv", "unsupported_tag"), ("missing", "tag_read_failed"),
+            ("static", "tag_locked"), ("dynamic", "tag_locked"),
+        ):
+            tag = feiju_tag()
+            if scenario == "manufacturer":
+                tag.version = bytes.fromhex("000054040201000f03")
+            elif scenario == "size":
+                tag.version = bytes.fromhex("000053040201001103")
+            elif scenario == "cc":
+                tag.pages[3] = bytes.fromhex("e1103e00")
+            elif scenario == "cc_locked":
+                tag.pages[3] = bytes.fromhex("e110120f")
+            elif scenario == "tlv":
+                tag.pages[4] = bytes.fromhex("0103900c")
+            elif scenario == "missing":
+                del tag.pages[5]
+            elif scenario == "static":
+                tag.pages[2] = bytes.fromhex("00000100")
+            else:
+                tag.pages[40] = bytes.fromhex("01000000")
+            with self.subTest(scenario=scenario), self.assertRaisesRegex(TagWriteError, error):
+                reader_for(tag).write_tag(tag.uid.hex().upper(), "spotify:album:abc")
+            self.assertEqual(tag.writes, [])
+
+    def test_feiju_interrupted_write_keeps_length_zero_and_lock_tlv_intact(self):
+        tag = feiju_tag()
+        tag.fail_page = 7
+        reader = reader_for(tag)
+        with self.assertRaisesRegex(TagWriteError, "tag_write_failed"):
+            reader.write_tag(tag.uid.hex().upper(), "spotify:album:abc")
+        self.assertEqual(tag.pages[4], bytes.fromhex("0103a00c"))
+        self.assertEqual(tag.pages[5], bytes.fromhex("340300fe"))
+        self.assertIsNone(ndef.tag_value_from_ndef(reader.read_ndef_memory()))
+
+    def test_feiju_capacity_accounts_for_preserved_metadata_and_padding(self):
+        tag = feiju_tag()
+        value = "spotify:album:"
+        while len(ndef.encode_spotify_ndef(value + "a")) + 5 <= 144:
+            value += "a"
+        self.assertTrue(reader_for(tag).write_tag(tag.uid.hex().upper(), value))
+        self.assertEqual(max(page for page, _ in tag.writes), 39)
+        other = feiju_tag()
+        with self.assertRaisesRegex(TagWriteError, "tag_too_small"):
+            reader_for(other).write_tag(other.uid.hex().upper(), value + "a")
+        self.assertEqual(other.writes, [])
+
+    def test_feiju_corruption_and_uid_change_are_not_success(self):
+        for scenario, error in (("corrupt", "tag_verify_failed"), ("swap_after_write", "tag_changed")):
+            tag = feiju_tag()
+            setattr(tag, scenario, True)
+            with self.subTest(scenario=scenario), self.assertRaisesRegex(TagWriteError, error):
+                reader_for(tag).write_tag(tag.uid.hex().upper(), "spotify:album:abc")
+
     def test_get_version_uses_raw_exchange_without_a_target_byte(self):
         tag = WritableTag()
         tag.call_function = Mock(wraps=tag.call_function)
