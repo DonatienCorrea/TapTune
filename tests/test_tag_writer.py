@@ -68,6 +68,83 @@ def feiju_tag():
 
 
 class PhysicalTagWriteTests(unittest.TestCase):
+    def retrying_tag(self, responses, page=7, after_error=None):
+        tag = feiju_tag()
+        original = tag.call_function
+        pending = iter(responses)
+        attempts = []
+
+        def exchange(command, params, response_length):
+            if command == 0x40 and bytes(params[:3]) == bytes([1, 0xA2, page]):
+                attempts.append(bytes(params))
+                response = next(pending)
+                if isinstance(response, Exception):
+                    raise response
+                if response != b"\x00":
+                    if after_error:
+                        after_error(tag)
+                    return response
+            return original(command, params, response_length)
+
+        tag.call_function = exchange
+        return tag, attempts
+
+    def test_protocol_errors_retry_identical_page_with_uid_check_and_backoff(self):
+        for page in (5, 7):
+            tag, attempts = self.retrying_tag([b"\x0b", b"\x0b", b"\x00", b"\x00"], page=page)
+            reader = reader_for(tag)
+            with patch("app.nfc_reader.time.sleep") as sleep, patch.object(
+                reader, "check_uid", wraps=reader.check_uid,
+            ) as check, self.assertLogs("app.nfc_reader", level="WARNING"):
+                self.assertTrue(reader.write_tag(tag.uid.hex().upper(), "spotify:album:abc"))
+            self.assertEqual(len(attempts), 4 if page == 5 else 3)
+            self.assertEqual(attempts[:3], [attempts[0]] * 3)
+            self.assertEqual(check.call_count, 2)
+            self.assertEqual(sum(call.args == (0.1,) for call in sleep.call_args_list), 2)
+
+    def test_protocol_retries_stop_after_three_attempts_without_publishing_length(self):
+        tag, attempts = self.retrying_tag([b"\x0b"] * 3)
+        with patch("app.nfc_reader.time.sleep"), self.assertLogs("app.nfc_reader", level="WARNING"):
+            with self.assertRaisesRegex(TagWriteError, "tag_write_failed"):
+                reader_for(tag).write_tag(tag.uid.hex().upper(), "spotify:album:abc")
+        self.assertEqual(len(attempts), 3)
+        self.assertEqual(tag.pages[5], bytes.fromhex("340300fe"))
+        self.assertFalse(any(page > 7 for page, _ in tag.writes))
+
+    def test_retries_stop_if_tag_disappears_or_changes(self):
+        for change in (lambda tag: setattr(tag, "present", False), lambda tag: setattr(tag, "uid", b"\x04\xff")):
+            tag, attempts = self.retrying_tag([b"\x0b"], after_error=change)
+            uid = tag.uid.hex().upper()
+            with patch("app.nfc_reader.time.sleep"), self.assertLogs("app.nfc_reader", level="WARNING"):
+                with self.assertRaisesRegex(TagWriteError, "tag_changed"):
+                    reader_for(tag).write_tag(uid, "spotify:album:abc")
+            self.assertEqual(len(attempts), 1)
+
+    def test_other_statuses_malformed_responses_and_transport_errors_are_not_retried(self):
+        for response in (None, b"", b"\x01", b"\x14", b"\x0b\x00", OSError("bus"), RuntimeError("frame")):
+            tag, attempts = self.retrying_tag([response])
+            with patch("app.nfc_reader.time.sleep"), self.assertLogs("app.nfc_reader", level="WARNING"):
+                with self.assertRaisesRegex(TagWriteError, "tag_write_failed"):
+                    reader_for(tag).write_tag(tag.uid.hex().upper(), "spotify:album:abc")
+            self.assertEqual(len(attempts), 1)
+
+    def test_successful_retry_still_requires_full_verification(self):
+        tag, attempts = self.retrying_tag([b"\x0b", b"\x00"])
+        tag.corrupt = True
+        with patch("app.nfc_reader.time.sleep"), self.assertLogs("app.nfc_reader", level="WARNING"):
+            with self.assertRaisesRegex(TagWriteError, "tag_verify_failed"):
+                reader_for(tag).write_tag(tag.uid.hex().upper(), "spotify:album:abc")
+        self.assertEqual(len(attempts), 2)
+
+    def test_final_length_publish_can_retry_without_rewriting_content(self):
+        tag, attempts = self.retrying_tag([b"\x00", b"\x0b", b"\x00"], page=5)
+        with patch("app.nfc_reader.time.sleep"), self.assertLogs("app.nfc_reader", level="WARNING"):
+            self.assertTrue(reader_for(tag).write_tag(tag.uid.hex().upper(), "spotify:album:abc"))
+        self.assertEqual(len(attempts), 3)
+        self.assertEqual(attempts[1], attempts[2])
+        content_pages = [page for page, _ in tag.writes if page != 5]
+        self.assertEqual(len(content_pages), len(set(content_pages)))
+
     def test_feiju_writes_are_paced_and_failed_page_status_is_logged(self):
         tag = feiju_tag()
         tag.fail_page = 7

@@ -77,6 +77,14 @@ even if every write was acknowledged. A Pi diagnostic confirmed matching
 content with these four-page reads; the integrated write flow still requires
 hardware confirmation.
 
+Type 2 page writes returning PN532 RF protocol error `0x0B` get at most three
+attempts per page. Before each retry, TapTune waits 100 ms and reselects the
+same UID; a missing or different tag stops the write. It resends only the same
+four bytes to the same user page. Other statuses, malformed responses and
+transport exceptions are not retried. Exhausted retries report failure, and
+full UID/content verification remains required before success. Type 4 writes
+are unchanged.
+
 For Type 4, TapTune selects the NFC Forum NDEF application and reads its
 capability container before writing. It requires a freely readable and writable
 standard NDEF file with a two-byte length, at most 32767 bytes including that
