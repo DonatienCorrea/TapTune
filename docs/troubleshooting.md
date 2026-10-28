@@ -45,6 +45,7 @@ taptune logs --save     # write status + logs to a file you can share
 | The same held card plays repeatedly | Update to the current reader loop. It dispatches once and requires card removal before the next tap. |
 | A tag cannot be written | Use an unlocked NTAG213/215/216 or a writable NFC Type 4 NDEF tag and the Pi's PN532, not the iPhone's NFC hardware. ISO 14443-4 tags need an existing standard NDEF application and file; TapTune does not format them. Enable the reader and run `python -m app.main`. Keep one tag on the reader until verification succeeds. See [Browse Spotify and write a tag](tag-usage.md#browse-spotify-and-write-a-tag). Unsupported tags can still use manual UID assignments. |
 | Writing fails with `Received unexpected command response!` at the `GET_VERSION` call | Update TapTune to a version that sends NTAG `GET_VERSION` through PN532 `InCommunicateThru`, then restart the service. Older versions used `InDataExchange`, which interprets `0x60` as MIFARE authentication. This failure occurs before tag memory is written. If it persists after updating, share the new traceback. |
+| Type 4 writing fails with `Received unexpected command response!` while selecting the NDEF application | Update to the protocol-aware reader. Earlier Type 4 support probed every tag with NTAG commands before trying APDUs, which can disrupt an ISO-DEP session. The reader now uses the discovery SAK byte to select the protocol without those probes. If it persists, share the new traceback; application selection occurs before any write. |
 
 ## Web and service checks
 

@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from app.ndef import encode_spotify_ndef, extract_ndef_message
-from app.nfc_reader import PN532Reader, TagWriteError
+from app.nfc_reader import PN532Reader, TagWriteError, TargetProtocolMixin
 from app.tag_writer import TagWriter
 from app.type4_ndef import Type4Error, Type4Ndef
 
@@ -11,6 +11,8 @@ VALUE = "spotify:album:123abc"
 
 
 class Type4Tag:
+    target_sak = 0x20
+
     def __init__(self):
         self.uid = bytes.fromhex("9b883506")
         self.cc = bytearray.fromhex("000f20002000100406e10401000000")
@@ -34,14 +36,14 @@ class Type4Tag:
         return b"\x01\x02\x03\x04" if self.swap and self.writes else self.uid
 
     def ntag2xx_read_block(self, page):
-        return None
+        raise AssertionError("Type 4 tags must never receive Type 2 READ commands")
 
     def ntag2xx_write_block(self, page, data):
         raise AssertionError("Type 4 tags must never receive page writes")
 
     def call_function(self, command, params, response_length):
         if command == 0x42:
-            return b"\x01"
+            raise RuntimeError("NTAG GET_VERSION disrupts the ISO-DEP session")
         if command != 0x40 or bytes(params[:1]) != b"\x01":
             raise AssertionError("Expected InDataExchange with target 1")
         apdu = bytes(params[1:])
@@ -79,6 +81,43 @@ def make_reader(tag):
 
 
 class Type4Tests(unittest.TestCase):
+    def test_discovery_captures_sak_without_changing_driver_response(self):
+        class Transport:
+            response = None
+
+            def process_response(self, command, response_length=0, timeout=1):
+                return self.response
+
+        class Driver(TargetProtocolMixin, Transport):
+            pass
+
+        driver = Driver()
+        for sak, uid in ((0, bytes.fromhex("04010203040506")), (0x20, bytes.fromhex("9b883506"))):
+            driver.response = bytes([1, 1, 0, 0x44, sak, len(uid)]) + uid
+            with self.subTest(sak=sak):
+                response = driver.process_response(0x4A, response_length=64, timeout=0.1)
+                self.assertIs(response, driver.response)
+                self.assertEqual(driver.target_sak, sak)
+                driver.response = b"\x00\x90\x00"
+                driver.process_response(0x40)
+                self.assertEqual(driver.target_sak, sak)
+        driver.response = None
+        self.assertIsNone(driver.process_response(0x4A))
+        self.assertIsNone(driver.target_sak)
+        for response in (b"", b"\x01", bytes.fromhex("0101000020070102")):
+            driver.response = response
+            with self.subTest(response=response), self.assertRaisesRegex(RuntimeError, "Invalid PN532"):
+                driver.process_response(0x4A)
+            self.assertIsNone(driver.target_sak)
+
+    def test_unknown_protocol_is_never_written(self):
+        tag = Type4Tag()
+        tag.target_sak = None
+        with self.assertRaisesRegex(TagWriteError, "unsupported_tag"):
+            make_reader(tag).write_tag(tag.uid.hex().upper(), VALUE)
+        self.assertEqual(tag.commands, [])
+        self.assertEqual(tag.writes, [])
+
     def test_round_trip_all_music_types_and_publish_length_last(self):
         for kind in ("album", "playlist", "track"):
             with self.subTest(kind=kind):
@@ -224,10 +263,10 @@ class Type4Tests(unittest.TestCase):
                 make_reader(tag).write_tag(tag.uid.hex().upper(), VALUE)
         self.assertEqual(tag.writes, [])
 
-    def test_read_uid_swap_falls_back_instead_of_using_another_tags_message(self):
+    def test_read_uses_current_iso_dep_session_without_repolling(self):
         tag = Type4Tag()
-        with patch.object(tag, "read_passive_target", side_effect=[tag.uid, b"\x01\x02"]):
+        with patch.object(tag, "read_passive_target", wraps=tag.read_passive_target) as poll:
             with patch("app.db.get_tag_by_uid", return_value=None):
-                with self.assertLogs("app.nfc_reader", level="WARNING"):
-                    self.assertEqual(make_reader(tag).read_once().payload, tag.uid.hex().upper())
-        self.assertEqual(tag.commands, [])
+                self.assertEqual(make_reader(tag).read_once().payload, tag.uid.hex().upper())
+            poll.assert_called_once()
+        self.assertTrue(tag.commands)
