@@ -44,6 +44,7 @@ taptune logs --save     # write status + logs to a file you can share
 | The diagnostic reads a card but service taps do nothing | Set `NFC_READER_ENABLED=true` in the service's `.env`, restart, and inspect `taptune logs` for reader retries or unassigned-tag warnings. |
 | The same held card plays repeatedly | Update to the current reader loop. It dispatches once and requires card removal before the next tap. |
 | A tag cannot be written | Use an unlocked NTAG213/215/216 and the Pi's PN532, not the iPhone's NFC hardware. Enable the reader and run `python -m app.main`. Keep one tag on the reader until verification succeeds. See [Browse Spotify and write a tag](tag-usage.md#browse-spotify-and-write-a-tag). Unsupported tags can still use manual UID assignments. |
+| Writing fails with `Received unexpected command response!` at the `GET_VERSION` call | Update TapTune to a version that sends NTAG `GET_VERSION` through PN532 `InCommunicateThru`, then restart the service. Older versions used `InDataExchange`, which interprets `0x60` as MIFARE authentication. This failure occurs before tag memory is written. If it persists after updating, share the new traceback. |
 
 ## Web and service checks
 

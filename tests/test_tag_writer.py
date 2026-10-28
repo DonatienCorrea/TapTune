@@ -23,7 +23,9 @@ class WritableTag:
         pass
 
     def call_function(self, command, params, response_length):
-        if command != 0x40 or params != [1, 0x60] or response_length < 9:
+        if command == 0x40 and params == [1, 0x60]:
+            raise RuntimeError("Received unexpected command response!")
+        if command != 0x42 or params != [0x60] or response_length != 9:
             raise AssertionError("Unexpected version command")
         return self.version
 
@@ -50,6 +52,12 @@ def reader_for(tag):
 
 
 class PhysicalTagWriteTests(unittest.TestCase):
+    def test_get_version_uses_raw_exchange_without_a_target_byte(self):
+        tag = WritableTag()
+        tag.call_function = Mock(wraps=tag.call_function)
+        self.assertTrue(reader_for(tag).write_tag(tag.uid.hex().upper(), "spotify:album:abc"))
+        tag.call_function.assert_called_once_with(0x42, params=[0x60], response_length=9)
+
     def test_all_supported_tags_and_music_types_round_trip(self):
         for size in (144, 504, 888):
             for kind in ("track", "album", "playlist"):
@@ -76,7 +84,8 @@ class PhysicalTagWriteTests(unittest.TestCase):
 
     def test_unsupported_locked_small_and_missing_tags_are_not_written(self):
         for scenario, code in (
-            ("version", "unsupported_tag"), ("cc", "unsupported_tag"),
+            ("version", "unsupported_tag"), ("version_status", "unsupported_tag"),
+            ("version_missing", "unsupported_tag"), ("cc", "unsupported_tag"),
             ("cc_locked", "tag_locked"), ("static", "tag_locked"),
             ("dynamic", "tag_locked"), ("small", "tag_too_small"),
             ("missing", "tag_changed"), ("read_failed", "tag_read_failed"),
@@ -85,6 +94,10 @@ class PhysicalTagWriteTests(unittest.TestCase):
                 tag = WritableTag()
                 if scenario == "version":
                     tag.version = b"\x01"
+                elif scenario == "version_status":
+                    tag.version = b"\x01" + tag.version[1:]
+                elif scenario == "version_missing":
+                    tag.version = None
                 elif scenario == "cc":
                     tag.pages[3] = b"\x00" * 4
                 elif scenario == "cc_locked":
