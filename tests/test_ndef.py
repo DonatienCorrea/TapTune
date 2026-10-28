@@ -1,6 +1,7 @@
 import os
 import sys
 import unittest
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -237,7 +238,7 @@ class FakeNtag:
     def __init__(self, memory=None, uid=bytes([4, 1, 2, 3, 4, 5, 6]), capacity=144, fail_at=None):
         cc = bytes([0xE1, 0x10, capacity // 8, 0x00])
         self.pages = {3: cc}
-        for number in range(36):
+        for number in range(capacity // 4):
             chunk = (memory or b"")[number * 4:number * 4 + 4]
             self.pages[4 + number] = chunk.ljust(4, b"\x00")
         self.uid = uid
@@ -249,6 +250,12 @@ class FakeNtag:
         pass
 
     def call_function(self, command, params, response_length):
+        if command == 0x40 and bytes(params[:2]) == b"\x01\x30":
+            page = params[2]
+            self.reads.append(page)
+            if self.fail_at is not None and page <= self.fail_at < page + 4:
+                return b"\x01"
+            return b"\x00" + b"".join(self.pages.get(index, b"\x00" * 4) for index in range(page, page + 4))
         return b"\x00\x6a\x82"
 
     def read_passive_target(self, timeout):
@@ -266,6 +273,45 @@ def make_reader(tag):
 
 
 class PN532NdefTests(unittest.TestCase):
+    def test_reads_real_feiju_dump_in_four_nonoverlapping_transfers(self):
+        responses = [
+            bytes.fromhex(value) for value in (
+                "000103a00c340332d1012e55046f70656e",
+                "002e73706f746966792e636f6d2f616c62",
+                "00756d2f34555467727a4437754835536b",
+                "0039486d327443765179fe000000000000",
+            )
+        ]
+        tag = FakeNtag()
+        tag.call_function = Mock(side_effect=responses)
+        with patch("app.nfc_reader.time.sleep") as sleep:
+            memory = make_reader(tag).read_ndef_memory()
+        self.assertEqual(
+            ndef.tag_value_from_ndef(memory),
+            "spotify:album:4UTgrzD7uH5Sk9Hm2tCvQy",
+        )
+        self.assertEqual([call.kwargs["params"][2] for call in tag.call_function.call_args_list], [4, 8, 12, 16])
+        self.assertEqual(sleep.call_count, 4)
+        self.assertTrue(all(call.args == (0.02,) for call in sleep.call_args_list))
+
+    def test_last_read_window_never_crosses_user_memory(self):
+        for capacity in (144, 504, 888):
+            with self.subTest(capacity=capacity):
+                memory = b"\x03\xff" + (capacity - 4).to_bytes(2, "big") + b"a" * (capacity - 4)
+                tag = FakeNtag(memory, capacity=capacity)
+                tag.call_function = Mock(wraps=tag.call_function)
+                with patch("app.nfc_reader.time.sleep"):
+                    self.assertEqual(make_reader(tag).read_ndef_memory(), memory)
+                pages = [call.kwargs["params"][2] for call in tag.call_function.call_args_list]
+                self.assertTrue(all(4 <= page and page + 3 < 4 + capacity // 4 for page in pages))
+
+    def test_short_and_failed_responses_never_produce_verified_memory(self):
+        for response in (None, b"", b"\x00abc", b"\x01" + b"a" * 16):
+            tag = FakeNtag()
+            with self.subTest(response=response), patch.object(tag, "call_function", return_value=response):
+                with self.assertLogs("app.nfc_reader", level="WARNING"):
+                    self.assertIsNone(make_reader(tag).read_ndef_memory())
+
     def test_reads_a_value_the_tag_describes_itself_with(self):
         memory = wrap_in_tlv(uri_record(0x04, b"open.spotify.com/playlist/abc?si=1"))
         event = make_reader(FakeNtag(memory)).read_once()

@@ -69,6 +69,14 @@ The [manufacturer's F8213 description](http://www.nfc-ic.com/RFIDNFC_productDeta
 specifies 45 four-byte pages, 144 user bytes, and static/dynamic locking.
 Physical compatibility still needs confirmation on the actual tag.
 
+Type 2 playback and verification read four pages per command, with a 20 ms
+pause before each transfer, rather than issuing overlapping reads for every
+page. Feiju page writes also have a conservative 20 ms pause; write failures
+log the page and PN532 status. A failed verification still reports an error,
+even if every write was acknowledged. A Pi diagnostic confirmed matching
+content with these four-page reads; the integrated write flow still requires
+hardware confirmation.
+
 For Type 4, TapTune selects the NFC Forum NDEF application and reads its
 capability container before writing. It requires a freely readable and writable
 standard NDEF file with a two-byte length, at most 32767 bytes including that

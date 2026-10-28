@@ -25,6 +25,11 @@ class WritableTag:
         pass
 
     def call_function(self, command, params, response_length):
+        if command == 0x40 and bytes(params[:2]) == b"\x01\x30":
+            page = params[2]
+            return b"\x00" + b"".join(self.pages.get(index, b"\x00" * 4) for index in range(page, page + 4))
+        if command == 0x40 and bytes(params[:2]) == b"\x01\xa2":
+            return b"\x00" if self.ntag2xx_write_block(params[2], params[3:]) else b"\x01"
         if command == 0x40 and params == [1, 0x60]:
             raise RuntimeError("Received unexpected command response!")
         if command != 0x42 or params != [0x60] or response_length != 9:
@@ -63,6 +68,17 @@ def feiju_tag():
 
 
 class PhysicalTagWriteTests(unittest.TestCase):
+    def test_feiju_writes_are_paced_and_failed_page_status_is_logged(self):
+        tag = feiju_tag()
+        tag.fail_page = 7
+        with patch("app.nfc_reader.time.sleep") as sleep:
+            with self.assertLogs("app.nfc_reader", level="WARNING") as logs:
+                with self.assertRaisesRegex(TagWriteError, "tag_write_failed"):
+                    reader_for(tag).write_tag(tag.uid.hex().upper(), "spotify:album:abc")
+        self.assertEqual(sleep.call_count, len(tag.writes))
+        self.assertTrue(all(call.args == (0.02,) for call in sleep.call_args_list))
+        self.assertTrue(any("page 7 (PN532 status 1)" in line for line in logs.output))
+
     def test_feiju_diagnostic_profile_round_trips_and_preserves_lock_control(self):
         for kind in ("album", "playlist", "track"):
             with self.subTest(kind=kind):
@@ -141,7 +157,8 @@ class PhysicalTagWriteTests(unittest.TestCase):
         tag = WritableTag()
         tag.call_function = Mock(wraps=tag.call_function)
         self.assertTrue(reader_for(tag).write_tag(tag.uid.hex().upper(), "spotify:album:abc"))
-        tag.call_function.assert_called_once_with(0x42, params=[0x60], response_length=9)
+        tag.call_function.assert_any_call(0x42, params=[0x60], response_length=9)
+        self.assertEqual(sum(call.args[0] == 0x42 for call in tag.call_function.call_args_list), 1)
 
     def test_all_supported_tags_and_music_types_round_trip(self):
         for size in (144, 504, 888):
