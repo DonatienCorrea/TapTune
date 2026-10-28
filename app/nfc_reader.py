@@ -119,7 +119,9 @@ class PN532Reader(ReaderBase):
 
         # Only NTAG213/215/216: their layout is known, so configuration and
         # dynamic lock pages can never be mistaken for writable user memory.
-        version = self.reader.call_function(0x40, params=[1, 0x60], response_length=10)
+        # InDataExchange interprets 0x60 as MIFARE authentication. Send the
+        # NTAG GET_VERSION command raw, without an InDataExchange target byte.
+        version = self.reader.call_function(0x42, params=[0x60], response_length=9)
         if (version is None or len(version) != 9
                 or bytes(version[:7]) != b"\x00\x00\x04\x04\x02\x01\x00"
                 or version[7] not in (0x0F, 0x11, 0x13) or version[8] != 3):
