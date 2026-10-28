@@ -28,7 +28,8 @@ The web assignment page and command-line simulator join the same storage and dis
 | `app/spotify_browser.py` | Retrieves and normalizes Spotify collections/search, or explicitly labelled demo music. |
 | `app/tag_writer.py` | Coordinates one timed, cancellable write request consumed by the reader thread. |
 | `app/db.py` | Stores tag mappings and event records in SQLite. |
-| `app/nfc_reader.py` | Reads PN532 UIDs and Type 2 NDEF memory; writes and verifies supported NTAG21x music tags. |
+| `app/nfc_reader.py` | Reads PN532 UIDs and Type 2/4 NDEF memory; writes and verifies supported music tags. |
+| `app/type4_ndef.py` | Selects existing NFC Type 4 NDEF files and transfers bounded APDUs using advertised capacity and access permissions. |
 | `app/spotify_service.py` | Validates values and dispatches Spotify content or playback actions. |
 | `app/simulate.py` | Exercises mapping and dispatch without NFC hardware. |
 | `app/ndef.py` | Decodes supported NDEF URI/text records and encodes portable Spotify HTTPS URI records. |
@@ -92,8 +93,8 @@ and does not require a database mapping.
 
 ## Current boundaries
 
-- The PN532 reads NDEF on Type 2 tags (such as NTAG21x). Supported embedded Spotify values or actions take precedence over UID mappings; blank, unsupported or unreadable memory falls back to the saved UID mapping.
-- Writing is limited to unlocked NTAG213/215/216 tags and Spotify music links, not tag formatting, unlocking, or writing playback actions.
+- The PN532 reads NDEF on Type 2 tags (such as NTAG21x) and standard NFC Type 4 tags. Supported embedded Spotify values or actions take precedence over UID mappings; blank, unsupported or unreadable memory falls back to the saved UID mapping.
+- Writing is limited to unlocked NTAG213/215/216 tags and existing, freely readable/writable Type 4 NDEF files with a two-byte length, using Spotify music links. It does not format or unlock tags or write playback actions. Type 4 transfers use short APDUs bounded by advertised MLe/MLc and file capacity; NLEN is published last, and the UID and content are verified after writing.
 - A successful `/health` response does not prove that Spotify or the reader is healthy.
 - Live playback needs a Spotify Connect device. Use [Raspotify/BlueALSA on Lite](speaker-setup.md) or [Spotifyd/PipeWire on Desktop](speaker-setup-desktop.md), not both. TapTune keeps playback on Spotify's current device, even while paused, and otherwise targets the Pi by name (`SPOTIFY_DEVICE_NAME`).
 - Boot initializes the local receiver's volume but does not start music. A chime waits for TapTune's `/ready` check (live config and enabled reader thread), Spotify visibility and speaker audio. Lite uses ALSA; Desktop uses the dedicated audio user's PipeWire sink from the same app process. Other runtime problems are logged; there are no status LEDs.

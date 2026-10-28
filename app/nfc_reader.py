@@ -1,9 +1,13 @@
 import argparse
+import logging
 import time
 from dataclasses import dataclass
 from typing import Optional
 
-from .ndef import NdefError, encode_spotify_ndef, ndef_block_end, tag_value_from_ndef
+from .ndef import NdefError, encode_spotify_ndef, extract_ndef_message, ndef_block_end, tag_value_from_ndef
+from .type4_ndef import Type4Error, Type4Ndef
+
+logger = logging.getLogger(__name__)
 
 CAPABILITY_CONTAINER_PAGE = 3
 USER_MEMORY_FIRST_PAGE = 4
@@ -72,7 +76,25 @@ class PN532Reader(ReaderBase):
         self._last_uid = None
         self._last_payload = None
 
-    def read_ndef_memory(self) -> Optional[bytes]:
+    def read_ndef_memory(self, uid=None) -> Optional[bytes]:
+        memory = self.read_type2_memory()
+        if memory is not None:
+            return memory
+        try:
+            present = self.reader.read_passive_target(timeout=0.1)
+            if present is None:
+                return None
+            if uid is not None and bytes(present).hex().upper() != uid:
+                logger.warning("Tag changed during Type 4 NDEF detection.")
+                return None
+            tag = Type4Ndef(self.reader)
+            tag.select()
+            return tag.read_memory()
+        except (Type4Error, RuntimeError, OSError) as error:
+            logger.debug("Type 4 NDEF read unavailable: %s", error)
+            return None
+
+    def read_type2_memory(self) -> Optional[bytes]:
         """Read the NDEF area of a Type 2 tag such as an NTAG21x.
 
         Returns None when the tag is not Type 2, holds no NDEF block, or a page
@@ -107,7 +129,7 @@ class PN532Reader(ReaderBase):
 
         uid_hex = "".join(f"{byte:02X}" for byte in uid)
         if uid_hex != self._last_uid:
-            self._last_payload = payload_for_tag(uid_hex, self.read_ndef_memory())
+            self._last_payload = payload_for_tag(uid_hex, self.read_ndef_memory(uid_hex))
             self._last_uid = uid_hex
         return NFCEvent(uid=uid_hex, payload=self._last_payload, source="nfc")
 
@@ -121,11 +143,15 @@ class PN532Reader(ReaderBase):
         # dynamic lock pages can never be mistaken for writable user memory.
         # InDataExchange interprets 0x60 as MIFARE authentication. Send the
         # NTAG GET_VERSION command raw, without an InDataExchange target byte.
-        version = self.reader.call_function(0x42, params=[0x60], response_length=9)
+        try:
+            version = self.reader.call_function(0x42, params=[0x60], response_length=9)
+        except (RuntimeError, OSError) as error:
+            logger.debug("NTAG identification unavailable; checking Type 4 NDEF: %s", error)
+            version = None
         if (version is None or len(version) != 9
                 or bytes(version[:7]) != b"\x00\x00\x04\x04\x02\x01\x00"
                 or version[7] not in (0x0F, 0x11, 0x13) or version[8] != 3):
-            raise TagWriteError("unsupported_tag")
+            return self.write_type4_tag(uid, payload, extract_ndef_message(data))
         physical_capacity = {0x0F: 144, 0x11: 504, 0x13: 888}[version[7]]
         capability = self.reader.ntag2xx_read_block(3)
         if capability is None or len(capability) < 4 or capability[0] != NDEF_MAGIC_NUMBER:
@@ -156,12 +182,34 @@ class PN532Reader(ReaderBase):
         present = self.reader.read_passive_target(timeout=0.1)
         if present is None or bytes(present).hex().upper() != uid:
             raise TagWriteError("tag_changed")
-        memory = self.read_ndef_memory()
+        memory = self.read_type2_memory()
         if memory is None or memory[:len(data) - 1] != data[:-1] or tag_value_from_ndef(memory) != payload:
             raise TagWriteError("tag_verify_failed")
         self._last_payload = payload
         self._last_uid = uid
         return True
+
+    def write_type4_tag(self, uid, payload, message):
+        self.check_uid(uid)
+        try:
+            tag = Type4Ndef(self.reader)
+            tag.select()
+            tag.write_message(message)
+            self.check_uid(uid)
+            tag.select()
+            memory = tag.read_memory()
+            if extract_ndef_message(memory) != message or tag_value_from_ndef(memory) != payload:
+                raise TagWriteError("tag_verify_failed")
+        except Type4Error as error:
+            raise TagWriteError(error.code) from error
+        self._last_payload = payload
+        self._last_uid = uid
+        return True
+
+    def check_uid(self, uid):
+        present = self.reader.read_passive_target(timeout=0.1)
+        if present is None or bytes(present).hex().upper() != uid:
+            raise TagWriteError("tag_changed")
 
 
 def parse_tag_value(value: str) -> str:

@@ -246,6 +246,9 @@ class FakeNtag:
     def SAM_configuration(self):
         pass
 
+    def call_function(self, command, params, response_length):
+        return b"\x00\x6a\x82"
+
     def read_passive_target(self, timeout):
         return self.uid if self.present else None
 

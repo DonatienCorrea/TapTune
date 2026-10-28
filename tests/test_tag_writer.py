@@ -25,6 +25,8 @@ class WritableTag:
     def call_function(self, command, params, response_length):
         if command == 0x40 and params == [1, 0x60]:
             raise RuntimeError("Received unexpected command response!")
+        if command == 0x40 and bytes(params) == bytes.fromhex("0100a4040007d276000085010100"):
+            return b"\x00\x6a\x82"
         if command != 0x42 or params != [0x60] or response_length != 9:
             raise AssertionError("Unexpected version command")
         return self.version
