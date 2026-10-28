@@ -84,6 +84,11 @@ def encode_spotify_ndef(value: str) -> bytes:
     if len(payload) > 255:
         raise NdefError("Spotify link is too long for a short NDEF record")
     message = bytes([0xD1, 1, len(payload)]) + b"U" + payload
+    return wrap_ndef_message(message)
+
+
+def wrap_ndef_message(message: bytes) -> bytes:
+    """Normalize a raw NDEF message to the TLV format used by the decoder."""
     length = bytes([len(message)]) if len(message) < 255 else b"\xff" + len(message).to_bytes(2, "big")
     return b"\x03" + length + message + b"\xfe"
 

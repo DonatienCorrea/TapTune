@@ -21,7 +21,7 @@ over a UID mapping.
    each page in listening order; they are not Spotify's album-history feed.
 5. Choose music. Under **2. Write your tag**, check the selection and choose **Start writing**.
    **This replaces the tag's existing content.**
-6. Place one unlocked **NTAG213, NTAG215 or NTAG216** on the **Pi's reader** within
+6. Place one unlocked **NTAG213/215/216** or **writable NFC Type 4 NDEF tag** on the **Pi's reader** within
    60 seconds. Leave it in place until the page reports **written and verified**.
 7. Remove the tag, then present it again to play the music.
 
@@ -52,11 +52,23 @@ must be removed before normal playback scanning resumes. **Check reader**
 refreshes the state after a lost connection.
 
 Locked, password-protected, unsupported or undersized tags report an error;
-TapTune does not unlock or format them. Only user-memory pages are written,
-never the UID, capability container, lock or configuration pages. Interrupted
+TapTune does not unlock or format them. Only Type 2 user-memory pages or the
+Type 4 NDEF file are written, never the UID, capability container, lock or configuration pages. Interrupted
 writes can leave an incomplete tag: retry the write before using it. A
 successful write is confirmed by reading the link back, not just by an NFC
 acknowledgment.
+
+For Type 4, TapTune selects the NFC Forum NDEF application and reads its
+capability container before writing. It requires a freely readable and writable
+standard NDEF file with a two-byte length, at most 32767 bytes including that
+length, under the NDEF application `D2760000850101` (mapping versions 1 or 2).
+Transfers use bounded short APDUs and respect the tag's advertised
+read/write limits. Extended NDEF files, protected files and unformatted tags
+are rejected; no application or file is created. **ISO 14443-4 alone does not
+guarantee NDEF support.** The NDEF length is cleared before the content changes,
+published last, then the UID and entire message are read back before success.
+Remove and tap the tag again to confirm playback. Hardware compatibility
+must still be checked on the actual tag and Pi.
 
 Without Spotify credentials, the picker shows explicitly labelled **demo**
 content for hardware-free UI testing, not your real library. Without a ready
@@ -165,10 +177,10 @@ When NDEF bytes are supplied to the decoder:
 2. a blank or unsupported value falls back to the registered UID mapping; and
 3. if no mapping exists, the raw UID remains the final fallback.
 
-The PN532 reads NDEF memory on Type 2 tags (such as NTAG21x). A text record
+The PN532 reads NDEF memory on Type 2 tags (such as NTAG21x) and standard NFC Type 4 NDEF tags. A text record
 containing `action:volume_up` or `action:volume_down` works without a UID mapping.
 Blank tags, unsupported values and failed memory reads fall back to UID lookup.
-The web music picker writes Spotify links onto unlocked NTAG213/215/216 tags
+The web music picker writes Spotify links onto unlocked NTAG213/215/216 and supported writable Type 4 NDEF tags
 through the Pi's PN532. Playback shortcuts can still be assigned by UID or
 written as NDEF text records using a phone app.
 
