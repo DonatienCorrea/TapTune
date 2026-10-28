@@ -13,6 +13,8 @@ CAPABILITY_CONTAINER_PAGE = 3
 USER_MEMORY_FIRST_PAGE = 4
 NDEF_MAGIC_NUMBER = 0xE1
 TYPE2_TRANSFER_DELAY_SECONDS = 0.02
+TYPE2_WRITE_MAX_ATTEMPTS = 3
+TYPE2_WRITE_RETRY_DELAY_SECONDS = 0.1
 
 
 class TargetProtocolMixin:
@@ -223,17 +225,31 @@ class PN532Reader(ReaderBase):
             raise TagWriteError("tag_locked")
 
         def write(page, block):
-            try:
-                if feiju_144:
-                    time.sleep(TYPE2_TRANSFER_DELAY_SECONDS)
-                response = self.reader.call_function(
-                    0x40, params=bytes([1, 0xA2, page]) + bytes(block), response_length=1,
-                )
-            except (RuntimeError, OSError) as error:
-                logger.warning("Type 2 WRITE failed at page %d: %s", page, error)
-                raise TagWriteError("tag_write_failed") from error
-            if response is None or len(response) != 1 or response[0] != 0:
+            for attempt in range(1, TYPE2_WRITE_MAX_ATTEMPTS + 1):
+                try:
+                    if attempt > 1:
+                        time.sleep(TYPE2_WRITE_RETRY_DELAY_SECONDS)
+                        self.check_uid(uid)
+                    if feiju_144:
+                        time.sleep(TYPE2_TRANSFER_DELAY_SECONDS)
+                    response = self.reader.call_function(
+                        0x40, params=bytes([1, 0xA2, page]) + bytes(block), response_length=1,
+                    )
+                except TagWriteError:
+                    raise
+                except (RuntimeError, OSError) as error:
+                    logger.warning("Type 2 WRITE failed at page %d: %s", page, error)
+                    raise TagWriteError("tag_write_failed") from error
+                if response is not None and len(response) == 1 and response[0] == 0:
+                    return
                 status = response[0] if response else None
+                if response is not None and len(response) == 1 and status == 0x0B and attempt < TYPE2_WRITE_MAX_ATTEMPTS:
+                    logger.warning(
+                        "Type 2 WRITE protocol error at page %d (attempt %d/%d); "
+                        "rechecking UID before retry.",
+                        page, attempt, TYPE2_WRITE_MAX_ATTEMPTS,
+                    )
+                    continue
                 logger.warning("Type 2 WRITE failed at page %d (PN532 status %s).", page, status)
                 raise TagWriteError("tag_write_failed")
 
