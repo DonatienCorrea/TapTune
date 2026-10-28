@@ -232,6 +232,8 @@ class BlockEndTests(unittest.TestCase):
 class FakeNtag:
     """A PN532 holding one Type 2 tag, served 4 bytes per page."""
 
+    target_sak = 0
+
     def __init__(self, memory=None, uid=bytes([4, 1, 2, 3, 4, 5, 6]), capacity=144, fail_at=None):
         cc = bytes([0xE1, 0x10, capacity // 8, 0x00])
         self.pages = {3: cc}

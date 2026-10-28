@@ -8,6 +8,8 @@ from app.tag_writer import TagWriter, WriterBusy
 
 
 class WritableTag:
+    target_sak = 0
+
     def __init__(self, size=144):
         self.uid = b"\x04\x01\x02\x03\x04\x05\x06"
         self.pages = {page: b"\x00" * 4 for page in range(2, 5 + size // 4)}
@@ -25,8 +27,6 @@ class WritableTag:
     def call_function(self, command, params, response_length):
         if command == 0x40 and params == [1, 0x60]:
             raise RuntimeError("Received unexpected command response!")
-        if command == 0x40 and bytes(params) == bytes.fromhex("0100a4040007d276000085010100"):
-            return b"\x00\x6a\x82"
         if command != 0x42 or params != [0x60] or response_length != 9:
             raise AssertionError("Unexpected version command")
         return self.version

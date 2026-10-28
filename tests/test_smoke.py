@@ -232,6 +232,8 @@ class SmokeTests(unittest.TestCase):
 
     def test_pn532_reader_uses_the_value_assigned_to_the_scanned_uid(self):
         class FakeReader:
+            target_sak = 0
+
             def __init__(self, i2c, debug):
                 self.i2c = i2c
                 self.debug = debug

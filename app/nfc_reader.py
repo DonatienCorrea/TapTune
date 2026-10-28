@@ -13,9 +13,31 @@ CAPABILITY_CONTAINER_PAGE = 3
 USER_MEMORY_FIRST_PAGE = 4
 NDEF_MAGIC_NUMBER = 0xE1
 
+
+class TargetProtocolMixin:
+    """Keep the SAK byte that the upstream UID-only polling API discards."""
+
+    target_sak = None
+
+    def process_response(self, command, response_length=0, timeout=1):
+        response = super().process_response(command, response_length=response_length, timeout=timeout)
+        if command == 0x4A:
+            self.target_sak = None
+            if response is not None:
+                if (len(response) < 6 or response[0] != 1
+                        or response[5] not in (4, 7) or len(response) < 6 + response[5]):
+                    raise RuntimeError("Invalid PN532 target discovery response")
+                self.target_sak = response[4]
+        return response
+
+
 try:
     import board
-    from adafruit_pn532.i2c import PN532_I2C
+    from adafruit_pn532.i2c import PN532_I2C as AdafruitPN532I2C
+
+    class PN532_I2C(TargetProtocolMixin, AdafruitPN532I2C):
+        pass
+
 except (ImportError, NotImplementedError):  # pragma: no cover - Pi-only dependencies
     board = None  # type: ignore
     PN532_I2C = None  # type: ignore
@@ -76,17 +98,13 @@ class PN532Reader(ReaderBase):
         self._last_uid = None
         self._last_payload = None
 
-    def read_ndef_memory(self, uid=None) -> Optional[bytes]:
-        memory = self.read_type2_memory()
-        if memory is not None:
-            return memory
+    def read_ndef_memory(self) -> Optional[bytes]:
+        if self.reader.target_sak is None:
+            logger.warning("NFC protocol unavailable; using UID mapping.")
+            return None
+        if not self.reader.target_sak & 0x20:
+            return self.read_type2_memory()
         try:
-            present = self.reader.read_passive_target(timeout=0.1)
-            if present is None:
-                return None
-            if uid is not None and bytes(present).hex().upper() != uid:
-                logger.warning("Tag changed during Type 4 NDEF detection.")
-                return None
             tag = Type4Ndef(self.reader)
             tag.select()
             return tag.read_memory()
@@ -129,7 +147,7 @@ class PN532Reader(ReaderBase):
 
         uid_hex = "".join(f"{byte:02X}" for byte in uid)
         if uid_hex != self._last_uid:
-            self._last_payload = payload_for_tag(uid_hex, self.read_ndef_memory(uid_hex))
+            self._last_payload = payload_for_tag(uid_hex, self.read_ndef_memory())
             self._last_uid = uid_hex
         return NFCEvent(uid=uid_hex, payload=self._last_payload, source="nfc")
 
@@ -138,6 +156,10 @@ class PN532Reader(ReaderBase):
         present = self.reader.read_passive_target(timeout=0.1)
         if present is None or bytes(present).hex().upper() != uid:
             raise TagWriteError("tag_changed")
+        if self.reader.target_sak is None:
+            raise TagWriteError("unsupported_tag")
+        if self.reader.target_sak & 0x20:
+            return self.write_type4_tag(uid, payload, extract_ndef_message(data))
 
         # Only NTAG213/215/216: their layout is known, so configuration and
         # dynamic lock pages can never be mistaken for writable user memory.
@@ -146,12 +168,11 @@ class PN532Reader(ReaderBase):
         try:
             version = self.reader.call_function(0x42, params=[0x60], response_length=9)
         except (RuntimeError, OSError) as error:
-            logger.debug("NTAG identification unavailable; checking Type 4 NDEF: %s", error)
-            version = None
+            raise TagWriteError("tag_read_failed") from error
         if (version is None or len(version) != 9
                 or bytes(version[:7]) != b"\x00\x00\x04\x04\x02\x01\x00"
                 or version[7] not in (0x0F, 0x11, 0x13) or version[8] != 3):
-            return self.write_type4_tag(uid, payload, extract_ndef_message(data))
+            raise TagWriteError("unsupported_tag")
         physical_capacity = {0x0F: 144, 0x11: 504, 0x13: 888}[version[7]]
         capability = self.reader.ntag2xx_read_block(3)
         if capability is None or len(capability) < 4 or capability[0] != NDEF_MAGIC_NUMBER:
