@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 CAPABILITY_CONTAINER_PAGE = 3
 USER_MEMORY_FIRST_PAGE = 4
 NDEF_MAGIC_NUMBER = 0xE1
+TYPE2_TRANSFER_DELAY_SECONDS = 0.02
 
 
 class TargetProtocolMixin:
@@ -120,22 +121,35 @@ class PN532Reader(ReaderBase):
         """
         try:
             capability = self.reader.ntag2xx_read_block(CAPABILITY_CONTAINER_PAGE)
-            if capability is None or capability[0] != NDEF_MAGIC_NUMBER:
+            if capability is None or len(capability) != 4 or capability[0] != NDEF_MAGIC_NUMBER:
                 return None
             capacity = capability[2] * 8
+            if capacity < 16:
+                logger.warning("Type 2 NDEF capacity is too small for a bounded READ.")
+                return None
             data = bytearray()
-            for page in range(USER_MEMORY_FIRST_PAGE, USER_MEMORY_FIRST_PAGE + capacity // 4):
-                block = self.reader.ntag2xx_read_block(page)
-                if block is None:
+            while len(data) < capacity:
+                # READ returns four pages. Keep the final window inside user
+                # memory even when capacity is not a multiple of 16 bytes.
+                offset = min(len(data), capacity - 16)
+                page = USER_MEMORY_FIRST_PAGE + offset // 4
+                time.sleep(TYPE2_TRANSFER_DELAY_SECONDS)
+                response = self.reader.call_function(
+                    0x40, params=bytes([1, 0x30, page]), response_length=17,
+                )
+                if response is None or len(response) != 17 or response[0] != 0:
+                    status = response[0] if response else None
+                    logger.warning("Type 2 READ failed at page %d (PN532 status %s).", page, status)
                     return None
-                data.extend(block)
+                data.extend(response[1 + len(data) - offset:])
                 try:
                     end = ndef_block_end(bytes(data))
                 except NdefError:
                     return None
                 if end is not None and end <= len(data):
                     return bytes(data)
-        except (RuntimeError, OSError):
+        except (RuntimeError, OSError) as error:
+            logger.warning("Type 2 NDEF read failed: %s", error)
             return None
         return None
 
@@ -209,7 +223,18 @@ class PN532Reader(ReaderBase):
             raise TagWriteError("tag_locked")
 
         def write(page, block):
-            if not self.reader.ntag2xx_write_block(page, block):
+            try:
+                if feiju_144:
+                    time.sleep(TYPE2_TRANSFER_DELAY_SECONDS)
+                response = self.reader.call_function(
+                    0x40, params=bytes([1, 0xA2, page]) + bytes(block), response_length=1,
+                )
+            except (RuntimeError, OSError) as error:
+                logger.warning("Type 2 WRITE failed at page %d: %s", page, error)
+                raise TagWriteError("tag_write_failed") from error
+            if response is None or len(response) != 1 or response[0] != 0:
+                status = response[0] if response else None
+                logger.warning("Type 2 WRITE failed at page %d (PN532 status %s).", page, status)
                 raise TagWriteError("tag_write_failed")
 
         # Publish the length last. An interrupted write must not expose a
