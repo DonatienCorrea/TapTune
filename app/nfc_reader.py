@@ -161,15 +161,15 @@ class PN532Reader(ReaderBase):
         if self.reader.target_sak & 0x20:
             return self.write_type4_tag(uid, payload, extract_ndef_message(data))
 
-        # Only NTAG213/215/216: their layout is known, so configuration and
-        # dynamic lock pages can never be mistaken for writable user memory.
+        # Accept only known layouts, never infer writable pages from capacity alone.
         # InDataExchange interprets 0x60 as MIFARE authentication. Send the
         # NTAG GET_VERSION command raw, without an InDataExchange target byte.
         try:
             version = self.reader.call_function(0x42, params=[0x60], response_length=9)
         except (RuntimeError, OSError) as error:
             raise TagWriteError("tag_read_failed") from error
-        if (version is None or len(version) != 9
+        feiju_144 = version is not None and bytes(version) == bytes.fromhex("000053040201000f03")
+        if not feiju_144 and (version is None or len(version) != 9
                 or bytes(version[:7]) != b"\x00\x00\x04\x04\x02\x01\x00"
                 or version[7] not in (0x0F, 0x11, 0x13) or version[8] != 3):
             raise TagWriteError("unsupported_tag")
@@ -179,6 +179,24 @@ class PN532Reader(ReaderBase):
             raise TagWriteError("unsupported_tag")
         if capability[1] >> 4 != 1 or capability[3] != 0:
             raise TagWriteError("tag_locked")
+        first_page = USER_MEMORY_FIRST_PAGE
+        empty_header = b"\x03\x00\xfe\x00"
+        if feiju_144:
+            if bytes(capability) != b"\xe1\x10\x12\x00":
+                raise TagWriteError("unsupported_tag")
+            prefix = bytearray()
+            for page in (4, 5):
+                block = self.reader.ntag2xx_read_block(page)
+                if block is None or len(block) != 4:
+                    raise TagWriteError("tag_read_failed")
+                prefix.extend(block)
+            # Lock Control TLV advertises 12 lock bits at byte 160 (page 40).
+            if prefix[:5] != b"\x01\x03\xa0\x0c\x34":
+                raise TagWriteError("unsupported_tag")
+            data = bytes(prefix[:5]) + data
+            first_page = 5
+            empty_header = b"\x34\x03\x00\xfe"
+            logger.info("Using Feiju 144-byte Type 2 profile; preserving Lock Control TLV.")
         capacity = min(capability[2] * 8, physical_capacity)
         padded = data + b"\x00" * (-len(data) % 4)
         if len(padded) > capacity:
@@ -196,10 +214,11 @@ class PN532Reader(ReaderBase):
 
         # Publish the length last. An interrupted write must not expose a
         # partially updated record as a valid NDEF message.
-        write(4, b"\x03\x00\xfe\x00")
-        for index in range(4, len(padded), 4):
+        first_offset = (first_page - USER_MEMORY_FIRST_PAGE) * 4
+        write(first_page, empty_header)
+        for index in range(first_offset + 4, len(padded), 4):
             write(4 + index // 4, padded[index:index + 4])
-        write(4, padded[:4])
+        write(first_page, padded[first_offset:first_offset + 4])
         present = self.reader.read_passive_target(timeout=0.1)
         if present is None or bytes(present).hex().upper() != uid:
             raise TagWriteError("tag_changed")
