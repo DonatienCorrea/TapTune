@@ -4,7 +4,7 @@ from .spotify_service import build_spotify_client, get_tag_type, is_live_spotify
 
 
 COLLECTIONS = frozenset({"albums", "playlists", "recent", "search"})
-SEARCH_TYPES = frozenset({"album", "playlist", "track"})
+SEARCH_TYPES = frozenset({"album", "playlist", "track", "show"})
 PAGE_SIZE = 20
 
 
@@ -17,12 +17,17 @@ def music_item(item):
     kind = uri.split(":")[1]
     images = item.get("images") or (item.get("album") or {}).get("images") or []
     image = next((image["url"] for image in images if image and (image.get("url") or "").startswith("https://")), None)
+    if kind == "playlist":
+        detail = (item.get("owner") or {}).get("display_name") or ""
+    elif kind == "show":
+        detail = item.get("publisher") or ""
+    else:
+        detail = ", ".join(artist.get("name") or "" for artist in item.get("artists") or [] if artist)
     return {
         "uri": item["uri"],
         "name": item.get("name") or item["uri"],
         "kind": kind,
-        "detail": ", ".join(artist.get("name") or "" for artist in item.get("artists") or [] if artist)
-        if kind != "playlist" else (item.get("owner") or {}).get("display_name") or "",
+        "detail": detail,
         "image": image,
         "url": "https://open.spotify.com/" + item["uri"][8:].replace(":", "/"),
     }
@@ -33,6 +38,7 @@ def _demo_items():
         {"uri": "spotify:album:demoalbum", "name": "Workshop sessions (demo)", "artists": [{"name": "TapTune demo"}]},
         {"uri": "spotify:playlist:demoplaylist", "name": "Morning mix (demo)", "owner": {"display_name": "TapTune demo"}},
         {"uri": "spotify:track:demotrack", "name": "First tap (demo)", "artists": [{"name": "TapTune demo"}]},
+        {"uri": "spotify:show:demoshow", "name": "Workshop podcast (demo)", "publisher": "TapTune demo"},
     ]
 
 

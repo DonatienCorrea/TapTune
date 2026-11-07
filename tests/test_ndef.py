@@ -127,6 +127,12 @@ class NormaliseSpotifyUriTests(unittest.TestCase):
 
         self.assertEqual(value, "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M")
 
+    def test_converts_a_podcast_show_share_link(self):
+        self.assertEqual(
+            ndef.normalise_spotify_uri("https://open.spotify.com/show/abc?si=123"),
+            "spotify:show:abc",
+        )
+
     def test_drops_a_locale_segment(self):
         value = ndef.normalise_spotify_uri("https://open.spotify.com/intl-fr/track/abc")
 
@@ -154,6 +160,13 @@ class TagValueTests(unittest.TestCase):
         data = wrap_in_tlv(uri_record(0x04, b"open.spotify.com/playlist/abc?si=1"))
 
         self.assertEqual(ndef.tag_value_from_ndef(data), "spotify:playlist:abc")
+
+    def test_encodes_and_reads_a_podcast_show_link(self):
+        value = "spotify:show:abc123"
+        data = ndef.encode_spotify_ndef(value)
+
+        self.assertIn(b"open.spotify.com/show/abc123", data)
+        self.assertEqual(ndef.tag_value_from_ndef(data), value)
 
     def test_skips_a_leading_record_it_cannot_use(self):
         text = bytes([0x02]) + b"en" + b""

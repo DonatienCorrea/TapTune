@@ -91,6 +91,12 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(payload['status'], 'ok')
         self.assertIn('mode', payload['result'])
 
+    def test_show_tag_plays_demo_latest_episode(self):
+        response = self.client.post("/dispatch", data={"value": "spotify:show:demoshow"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["result"]["uri"], "spotify:episode:demoepisode")
+
     def test_assignment_pages_are_available_in_english_and_french(self):
         english = self.client.get('/')
         french = self.client.get('/fr/')

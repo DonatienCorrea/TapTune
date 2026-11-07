@@ -26,7 +26,8 @@ except ModuleNotFoundError:  # pragma: no cover - requests ships with spotipy.
 from .config import settings
 from .bluetooth import BluetoothNotReady, prepare_speaker
 
-SPOTIFY_URI_PATTERN = re.compile(r"^spotify:(track|playlist|album):([A-Za-z0-9]+)$")
+SPOTIFY_URI_PATTERN = re.compile(r"^spotify:(track|playlist|album|show):([A-Za-z0-9]+)$")
+SPOTIFY_EPISODE_URI_PATTERN = re.compile(r"^spotify:episode:[A-Za-z0-9]+$")
 SUPPORTED_ACTIONS = frozenset({
     "action:play_pause", "action:next", "action:next_track",
     "action:volume_up", "action:volume_down",
@@ -101,6 +102,16 @@ class FakeSpotifyClient:
     def next_track(self, device_id=None):
         self.is_playing = True
         return {"status": "ok", "mode": "fake", "action": "next"}
+
+    def show_episodes(self, show_id, limit=50):
+        return {
+            "items": [{
+                "uri": "spotify:episode:demoepisode",
+                "name": "Latest episode (demo)",
+                "release_date": "2026-01-01",
+                "is_playable": True,
+            }]
+        }
 
     def transfer_playback(self, device_id, force_play=True):
         self.device_id = device_id
@@ -247,6 +258,28 @@ def _speaker_not_ready_response() -> dict:
     }
 
 
+def _latest_episode_uri(spotify: Any, show_id: str) -> Optional[str]:
+    page = spotify.show_episodes(show_id, limit=50)
+    episodes = []
+    for episode in page.get("items") or []:
+        if not isinstance(episode, dict) or episode.get("is_playable") is False or episode.get("restrictions"):
+            continue
+        uri = episode.get("uri")
+        if not isinstance(uri, str) or not SPOTIFY_EPISODE_URI_PATTERN.fullmatch(uri):
+            continue
+        release_date = episode.get("release_date") or ""
+        try:
+            if not isinstance(release_date, str):
+                raise ValueError
+            date_key = tuple(int(part) for part in release_date.split("-"))
+            if not date_key or len(date_key) > 3 or not 1 <= date_key[0] <= 9999:
+                date_key = (0, 0, 0)
+        except (TypeError, ValueError):
+            date_key = (0, 0, 0)
+        episodes.append((date_key, uri))
+    return max(episodes, key=lambda episode: episode[0])[1] if episodes else None
+
+
 def _handle_error(error: Exception) -> dict:
     try:
         response = _error_response(error)
@@ -309,6 +342,15 @@ def play_content(uri: str, position_ms: int = 0) -> dict:
 
     try:
         spotify = build_spotify_client()
+        if match.group(1) == "show":
+            episode_uri = _latest_episode_uri(spotify, match.group(2))
+            if episode_uri is None:
+                return {
+                    "status": "error",
+                    "error": "show_no_episodes",
+                    "message": "No playable episodes were found for this Spotify show.",
+                }
+            uri = episode_uri
         current = spotify.current_playback()
         _prepare_local_speaker(current)
         device_id = resolve_target_device(spotify, current)
@@ -316,6 +358,8 @@ def play_content(uri: str, position_ms: int = 0) -> dict:
             return spotify.start_playback(device_id=device_id, uris=[uri], position_ms=position_ms)
         if match.group(1) in {"playlist", "album"}:
             return spotify.start_playback(device_id=device_id, context_uri=uri, position_ms=position_ms)
+        if match.group(1) == "show":
+            return spotify.start_playback(device_id=device_id, uris=[uri], position_ms=position_ms)
     except Exception as error:  # noqa: BLE001 - translate spotipy/network errors into a dict response.
         return _handle_error(error)
     raise AssertionError("Validated Spotify URI had an unsupported resource type")

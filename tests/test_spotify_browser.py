@@ -84,6 +84,23 @@ class SpotifyBrowserTests(unittest.TestCase):
         self.assertEqual(len(result["items"]), 1)
         self.assertEqual(result["items"][0]["image"], "https://i.scdn.co/example")
 
+    def test_search_returns_podcast_shows_as_tag_assignable_items(self):
+        self.spotify.search.return_value = {"shows": {
+            "items": [{
+                "uri": "spotify:show:abc", "name": "Podcast", "publisher": "Publisher",
+                "images": [{"url": "https://i.scdn.co/show"}],
+            }],
+            "next": None,
+        }}
+
+        result = spotify_browser.browse_music("search", query="podcast", kind="show")
+
+        self.spotify.search.assert_called_once_with(q="podcast", type="show", limit=10, offset=0)
+        self.assertEqual(result["items"], [{
+            "uri": "spotify:show:abc", "name": "Podcast", "kind": "show", "detail": "Publisher",
+            "image": "https://i.scdn.co/show", "url": "https://open.spotify.com/show/abc",
+        }])
+
     def test_invalid_input_does_not_build_client(self):
         for collection, params in [
             ("invalid", {}), ("search", {"query": ""}), ("search", {"query": "a" * 201}),
@@ -102,6 +119,8 @@ class SpotifyBrowserTests(unittest.TestCase):
                 self.assertIn("(demo)", result["items"][0]["name"])
                 self.assertIsNone(result["next"])
             self.assertEqual(spotify_browser.browse_music("search", query="no match")["items"], [])
+            self.assertEqual(spotify_browser.browse_music("search", query="workshop", kind="show")["items"][0]["uri"],
+                             "spotify:show:demoshow")
         spotify_browser.build_spotify_client.assert_not_called()
 
     def test_unsafe_image_and_unsupported_uri_are_not_exposed(self):
@@ -161,6 +180,13 @@ class MusicWebTests(unittest.TestCase):
                                     follow_redirects=True)
         self.assertIn(b'<details id="advanced-options" class="advanced-options" open>', response.data)
         self.assertIn(b"Tag saved successfully", response.data)
+
+    def test_show_uri_can_be_assigned_and_written(self):
+        response = self.client.post("/assign", data={"uid": "SHOW-001", "value": "spotify:show:abc"})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.app.config["TAG_WRITER"].start("spotify:show:abc")["value"], "spotify:show:abc")
+        for path in ("/", "/fr/"):
+            self.assertIn(b"value=\"show\"", self.client.get(path).data)
 
     def test_demo_and_invalid_page(self):
         response = self.client.get("/api/music")

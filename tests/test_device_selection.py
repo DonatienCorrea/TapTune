@@ -81,6 +81,38 @@ class DeviceSelectionTests(unittest.TestCase):
             [("start_playback", {"device_id": None, "uris": ["spotify:track:abc123"], "position_ms": 0})],
         )
 
+    def test_show_tag_plays_the_newest_playable_episode(self):
+        class ShowClient(RecordingClient):
+            def show_episodes(self, show_id, limit):
+                self.episode_request = (show_id, limit)
+                return {"items": [
+                    {"uri": "spotify:episode:older", "release_date": "2025-01-01"},
+                    {"uri": "spotify:episode:newest", "release_date": "2026-03-15"},
+                    {"uri": "spotify:episode:unavailable", "release_date": "2027-01-01",
+                     "is_playable": False},
+                ]}
+
+        client = ShowClient(current={"is_playing": True, "device": PHONE_DEVICE})
+        self.run_with(client, spotify_service.play_content, "spotify:show:abc123")
+
+        self.assertEqual(client.episode_request, ("abc123", 50))
+        self.assertEqual(client.calls, [
+            ("start_playback", {
+                "device_id": None, "uris": ["spotify:episode:newest"], "position_ms": 0,
+            }),
+        ])
+
+    def test_show_without_a_playable_episode_does_not_start_playback(self):
+        class EmptyShowClient(RecordingClient):
+            def show_episodes(self, show_id, limit):
+                return {"items": []}
+
+        client = EmptyShowClient(current={"is_playing": True, "device": PHONE_DEVICE})
+        result = self.run_with(client, spotify_service.play_content, "spotify:show:abc123")
+
+        self.assertEqual(result["error"], "show_no_episodes")
+        self.assertEqual(client.calls, [])
+
     def test_pi_not_visible_reports_speaker_not_ready(self):
         client = RecordingClient(current=None, devices=[])
         result = self.run_with(client, spotify_service.play_content, "spotify:album:abc123")

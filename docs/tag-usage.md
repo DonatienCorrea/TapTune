@@ -16,7 +16,7 @@ over a UID mapping.
    NFC diagnostic or writer process at the same time.
 3. Open `http://<pi-ip>:5000/` on your iPhone or another device on the same network.
 4. Under **1. Choose your music**, browse **My albums**, **My playlists**, or **Recent albums**, or select **Search Spotify** to search
-   Spotify for albums, playlists or tracks. **Load more** fetches another page.
+   Spotify for albums, playlists, tracks or podcast shows. **Load more** fetches another page.
    Recent albums are derived from recently played tracks, deduplicated within
    each page in listening order; they are not Spotify's album-history feed.
 5. Choose music. Under **2. Write your tag**, check the selection and choose **Start writing**.
@@ -111,7 +111,16 @@ Content:
 spotify:track:<id>
 spotify:playlist:<id>
 spotify:album:<id>
+spotify:show:<id>
 ```
+
+Assign or write a `spotify:show:<id>` value to make each tap look up and play
+the show's newest playable episode. TapTune fetches the show's episode list at
+tap time, so the tag does not need to be updated when a new episode is released.
+Spotify's Connect playback and autoplay settings still apply after that episode
+starts; TapTune does not yet stop playback when it finishes. Podcast episode
+lookup does not require the optional `user-read-playback-position` scope; that
+scope only exposes an episode's saved resume point.
 
 Controls:
 

@@ -71,13 +71,17 @@ All paths reach `dispatch_tag_value`, which validates and translates the stored 
 ## Web music and writing
 
 `GET /api/music` returns saved albums, playlists, recent albums or typed search
-results. Pagination uses offsets for library/search and a Spotify `before`
-cursor for history. Spotify credentials stay server-side. Missing credentials
-produce labelled demo music; upstream authentication, permissions, rate limits
-and network errors produce explicit errors instead of a demo fallback.
+results, including podcast shows. Pagination uses offsets for library/search
+and a Spotify `before` cursor for history. Spotify credentials stay server-side.
+Missing credentials produce labelled demo music; upstream authentication,
+permissions, rate limits and network errors produce explicit errors instead of
+a demo fallback.
 
 `POST /api/tag-writes` accepts a Spotify URI as JSON and queues one 60-second
-write. `GET /api/tag-writes` reports reader availability and the latest job;
+write. Show URIs are stored on tags just like albums, playlists and tracks.
+When tapped, a show URI resolves to its newest playable episode and starts only
+that episode URI. `GET /api/tag-writes` reports reader availability and the
+latest job;
 `GET /api/tag-writes/<id>` polls a job and
 `POST /api/tag-writes/<id>/cancel` cancels a pending request. Mutation requests
 must be JSON and are rejected when explicitly cross-origin. These are trusted

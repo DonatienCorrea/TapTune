@@ -24,7 +24,7 @@ tap an NFC tag → read its UID → find its saved action → control Spotify
 TapTune provides:
 
 - a local web page for browsing Spotify saved albums, playlists, recent albums and search results, assigning UIDs, and writing Spotify links to NFC tags with the Pi's reader;
-- Spotify playlist, album, and track playback;
+- Spotify playlist, album, track, and podcast-show playback; a show tag starts its newest playable episode;
 - play/pause, next-track and volume ±10-point actions;
 - a 30% startup volume for the Pi receiver;
 - SQLite storage for assignments and event records;
