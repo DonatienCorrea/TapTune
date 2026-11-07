@@ -157,7 +157,7 @@ class PhysicalTagWriteTests(unittest.TestCase):
         self.assertTrue(any("page 7 (PN532 status 1)" in line for line in logs.output))
 
     def test_feiju_diagnostic_profile_round_trips_and_preserves_lock_control(self):
-        for kind in ("album", "playlist", "track"):
+        for kind in ("album", "playlist", "track", "show"):
             with self.subTest(kind=kind):
                 tag = feiju_tag()
                 protected = {page: tag.pages[page] for page in (2, 3, 4, 40)}
@@ -239,7 +239,7 @@ class PhysicalTagWriteTests(unittest.TestCase):
 
     def test_all_supported_tags_and_music_types_round_trip(self):
         for size in (144, 504, 888):
-            for kind in ("track", "album", "playlist"):
+            for kind in ("track", "album", "playlist", "show"):
                 with self.subTest(size=size, kind=kind):
                     tag = WritableTag(size)
                     reader = reader_for(tag)

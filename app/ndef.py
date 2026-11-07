@@ -79,7 +79,7 @@ def encode_spotify_ndef(value: str) -> bytes:
 
     match = SPOTIFY_URI_PATTERN.fullmatch(value)
     if not match:
-        raise NdefError("Choose a Spotify album, playlist or track")
+        raise NdefError("Choose a Spotify album, playlist, track or show")
     payload = b"\x04" + f"open.spotify.com/{match[1]}/{match[2]}".encode("ascii")
     if len(payload) > 255:
         raise NdefError("Spotify link is too long for a short NDEF record")

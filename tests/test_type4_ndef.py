@@ -119,7 +119,7 @@ class Type4Tests(unittest.TestCase):
         self.assertEqual(tag.writes, [])
 
     def test_round_trip_all_music_types_and_publish_length_last(self):
-        for kind in ("album", "playlist", "track"):
+        for kind in ("album", "playlist", "track", "show"):
             with self.subTest(kind=kind):
                 tag = Type4Tag()
                 reader = make_reader(tag)

@@ -58,7 +58,7 @@
         <div class="field">
           <label for="music-kind">{{ translations['search_kind'] }}</label>
           <select id="music-kind">
-            {% for kind in ['album', 'playlist', 'track'] %}
+            {% for kind in ['album', 'playlist', 'track', 'show'] %}
               <option value="{{ kind }}">{{ translations[kind] }}</option>
             {% endfor %}
           </select>
