@@ -20,3 +20,15 @@ CREATE TABLE IF NOT EXISTS events (
 
 CREATE INDEX IF NOT EXISTS idx_tags_tag_type ON tags(tag_type);
 CREATE INDEX IF NOT EXISTS idx_events_uid ON events(uid);
+
+CREATE TABLE IF NOT EXISTS activity (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    level TEXT NOT NULL,
+    source TEXT NOT NULL,
+    uid TEXT NOT NULL DEFAULT '',
+    value TEXT NOT NULL DEFAULT '',
+    resolved_uri TEXT NOT NULL DEFAULT '',
+    message TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

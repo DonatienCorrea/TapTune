@@ -28,6 +28,7 @@ TapTune provides:
 - play/pause, next-track and volume ±10-point actions;
 - a 30% startup volume for the Pi receiver;
 - SQLite storage for assignments and event records;
+- a searchable local activity log for tag playback results and app diagnostics;
 - a fake mode and simulator for testing without Spotify or NFC hardware;
 - a PN532 reader path over Raspberry Pi I2C;
 - one guided installer for preparing Python and configuring the selected Pi audio stack; and
@@ -133,6 +134,13 @@ python -m unittest discover -s tests -v
 ```
 
 The test suite uses a temporary database and fake Spotify client. It does not require `.env`, Spotify credentials, a PN532, I2C, or a running server.
+
+With Node.js installed, check the browser's write-feedback state transitions
+without hardware or a browser:
+
+```bash
+node --test tests/test_music_ui.js
+```
 
 ## GitHub Pages
 

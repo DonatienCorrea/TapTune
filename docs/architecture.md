@@ -28,6 +28,7 @@ The web assignment page and command-line simulator join the same storage and dis
 | `app/spotify_browser.py` | Retrieves and normalizes Spotify collections/search, or explicitly labelled demo music. |
 | `app/tag_writer.py` | Coordinates one timed, cancellable write request consumed by the reader thread. |
 | `app/db.py` | Stores tag mappings and event records in SQLite. |
+| `app/activity.py` | Stores bounded, credential-redacted playback activity and app diagnostics for the searchable log page. |
 | `app/nfc_reader.py` | Reads PN532 UIDs and Type 2/4 NDEF memory; writes and verifies supported music tags. |
 | `app/type4_ndef.py` | Selects existing NFC Type 4 NDEF files and transfers bounded APDUs using advertised capacity and access permissions. |
 | `app/spotify_service.py` | Validates values and dispatches Spotify content or playback actions. |
@@ -96,6 +97,14 @@ process memory and is lost on restart; the written tag persists independently
 and does not require a database mapping.
 
 ## Current boundaries
+
+`GET /logs` and `/fr/logs` provide a server-rendered activity view with search,
+type/error filters and 50-record pagination. The newest 2,000 entries persist
+in SQLite, separate from the original event records. NFC, web and simulator
+dispatches record outcomes; show playback includes the resolved episode.
+An app logging handler records INFO and higher diagnostics after main startup,
+without tracebacks. This is not a system journal viewer and has no public
+authentication; keep it on a trusted LAN.
 
 - The PN532 reads NDEF on Type 2 tags (such as NTAG21x) and standard NFC Type 4 tags. Supported embedded Spotify values or actions take precedence over UID mappings; blank, unsupported or unreadable memory falls back to the saved UID mapping.
 - Target discovery preserves the SAK protocol byte: ISO-DEP targets go directly to Type 4 APDUs, without NTAG `GET_VERSION` or Type 2 page reads. The upstream driver's UID-only API otherwise discards this protocol information.

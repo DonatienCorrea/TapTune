@@ -102,10 +102,10 @@ class SmokeTests(unittest.TestCase):
         french = self.client.get('/fr/')
 
         self.assertEqual(english.status_code, 200)
-        self.assertIn(b'Give a tag a job.', english.data)
+        self.assertIn(b'Assign a UID', english.data)
         self.assertIn(b'href="/fr/"', english.data)
         self.assertEqual(french.status_code, 200)
-        self.assertIn('Donnez un rôle à un tag.'.encode(), french.data)
+        self.assertIn('Associer un UID'.encode(), french.data)
         self.assertIn(b'href="/"', french.data)
         self.assertIn(b'action="/fr/assign"', french.data)
 
@@ -120,7 +120,7 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(response.headers['Location'], '/fr/?saved=1')
 
         redirected = self.client.get(response.headers['Location'])
-        self.assertIn('Tag enregistré avec succès.'.encode(), redirected.data)
+        self.assertIn('Tag enregistré.'.encode(), redirected.data)
         self.assertIn('Musique du matin'.encode(), redirected.data)
 
     def test_french_assignment_validation_is_translated(self):

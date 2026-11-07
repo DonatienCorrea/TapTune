@@ -5,16 +5,25 @@
   const results = el("music-results");
   let collection = "albums";
   let query = "";
-  let kind = "album";
   let nextPage = null;
   let requestNumber = 0;
   let selected = null;
   let available = false;
   let activeJob = null;
   let writePending = false;
+  let writeUncertain = false;
+  let observedJobId = null;
   let pollTimer = null;
   let pollFailures = 0;
   const shown = new Set();
+  const feedbackIcons = {
+    preparing: "M14 6h20M14 42h20M16 6v8l16 20v8M32 6v8L16 34v8",
+    waiting: "M10 12h18v24H10zM15 18h8M34 16q8 8 0 16M31 20q4 4 0 8",
+    success: "M44 24a20 20 0 1 1-40 0 20 20 0 0 1 40 0M14 24l7 7 14-14",
+    error: "M24 5 45 42H3zM24 17v12M24 35v1",
+    uncertain: "M24 5 45 42H3zM24 17v12M24 35v1",
+    cancelled: "M44 24a20 20 0 1 1-40 0 20 20 0 0 1 40 0M17 17l14 14M31 17 17 31",
+  };
 
   function message(id, text, error = false) {
     el(id).textContent = text;
@@ -22,11 +31,22 @@
   }
 
   async function api(path, options = {}) {
-    const response = await fetch(path, { cache: "no-store", ...options });
+    let response;
+    try {
+      response = await fetch(path, { cache: "no-store", ...options });
+    } catch {
+      throw new Error("error_network");
+    }
     if (!response.headers.get("content-type")?.includes("application/json")) {
       throw new Error("error_network");
     }
-    const data = await response.json();
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      throw new Error("error_network");
+    }
+    if (!data || typeof data !== "object") throw new Error("error_network");
     if (!response.ok) throw new Error(data.error || "error_network");
     return data;
   }
@@ -38,14 +58,41 @@
   function connection(title, note, error = false) {
     message("connection-title", title, error);
     el("connection-note").textContent = note;
+    if (error) el("spotify-connection").open = true;
+  }
+
+  function feedback(state, title, detail = "", uid = "") {
+    el("write-status").hidden = false;
+    el("write-status").dataset.state = state;
+    el("write-icon-path").setAttribute("d", feedbackIcons[state]);
+    el("write-status-title").textContent = title;
+    el("write-status-detail").textContent = detail;
+    el("write-status-detail").hidden = !detail;
+    el("write-status-uid").hidden = !uid;
+    el("write-uid").textContent = uid;
+    updateControls();
   }
 
   function updateControls() {
-    const busy = writePending || activeJob !== null;
+    const busy = writePending || activeJob !== null || writeUncertain;
+    const state = el("write-status").hidden ? "" : el("write-status").dataset.state;
     el("write-tag").disabled = !selected || !available || busy;
+    el("write-tag").hidden = busy || state === "error" || state === "success";
+    el("reader-status").hidden = available && !!state;
+    el("write-controls").hidden = el("write-tag").hidden && el("reader-status").hidden;
+    el("write-instruction").hidden = !!state;
+    el("write-warning").hidden = busy;
     el("use-assignment").disabled = !selected;
     el("cancel-write").hidden = activeJob === null;
     el("cancel-write").disabled = writePending;
+    el("retry-write").hidden = state !== "error" || busy || !available;
+    el("retry-write").disabled = !selected || !available || busy;
+    el("write-another").hidden = state !== "success";
+    el("write-another").disabled = !selected || !available || busy;
+    el("check-write").hidden = state !== "uncertain" && !(state === "error" && !available);
+    el("check-write").disabled = writePending;
+    el("write-feedback-actions").hidden = ["cancel-write", "retry-write", "write-another", "check-write"]
+      .every((id) => el(id).hidden);
     el("change-music").disabled = busy;
     results.querySelectorAll("button").forEach((button) => { button.disabled = busy; });
   }
@@ -61,6 +108,9 @@
   }
 
   function select(item, focus = true) {
+    if (selected?.uri !== item.uri && !activeJob && !writePending && !writeUncertain) {
+      el("write-status").hidden = true;
+    }
     selected = item;
     el("selection-hint").hidden = true;
     el("write-selection").hidden = false;
@@ -129,16 +179,39 @@
     button.setAttribute("aria-pressed", String(selected?.uri === item.uri));
     button.addEventListener("click", () => select(item));
     row.append(art, info, button);
-    results.append(row);
+    listFor(item.kind).append(row);
+  }
+
+  function listFor(kind) {
+    const group = results.querySelector(`[data-group="${kind}"]`);
+    if (!group) return results;
+    group.hidden = false;
+    return group.querySelector("ul");
+  }
+
+  function resetResults() {
+    results.replaceChildren();
+    shown.clear();
+    results.classList.toggle("is-grouped", collection === "search");
+    if (collection !== "search") return;
+    ["album", "playlist", "track", "show"].forEach((kind) => {
+      const group = document.createElement("li");
+      group.className = "music-group";
+      group.dataset.group = kind;
+      group.hidden = true;
+      const heading = document.createElement("h5");
+      heading.textContent = t[`group_${kind}`];
+      const list = document.createElement("ul");
+      list.className = "music-results";
+      group.append(heading, list);
+      results.append(group);
+    });
   }
 
   async function loadMusic(append = false) {
     const number = ++requestNumber;
     const page = append ? nextPage : null;
-    if (!append) {
-      results.replaceChildren();
-      shown.clear();
-    }
+    if (!append) resetResults();
     nextPage = null;
     el("load-more").hidden = true;
     el("authorization-guide").hidden = true;
@@ -151,16 +224,14 @@
     document.querySelectorAll("[data-collection]").forEach((button) => {
       button.setAttribute("aria-pressed", String(button.dataset.collection === collection));
     });
-    const params = new URLSearchParams({ collection, q: query, kind, ...page });
+    const params = new URLSearchParams({ collection, q: query, ...page });
     try {
       const data = await api(`/api/music?${params}`);
       if (number !== requestNumber) return;
       if (data.mode === "fake") {
         connection(t.demo_title, t.demo_music);
-        el("connection-help").textContent = t.demo_help;
       } else {
         connection(t.connection_live, t.connection_live_note);
-        el("connection-help").textContent = t.connection_saved;
       }
       data.items.forEach(addItem);
       updateSelection();
@@ -176,7 +247,6 @@
         connection(permissions ? t.connection_permissions : t.connection_auth,
           permissions ? t.connection_permissions_note : t.spotify_auth_error, true);
         message("music-status", "");
-        el("connection-help").textContent = t.connection_saved;
       } else {
         message("music-status", error.message === "invalid_music_request" ? errorText(error) : "", true);
         if (error.message !== "invalid_music_request") {
@@ -195,18 +265,35 @@
 
   function showJob(job) {
     clearTimeout(pollTimer);
+    const unresolvedWrite = writeUncertain || activeJob !== null;
+    observedJobId = job.id;
+    if (job.status !== "waiting" && selected && selected.uri !== job.value) {
+      activeJob = null;
+      if (unresolvedWrite) {
+        writeUncertain = false;
+        feedback("error", t.write_error_title, t.write_not_found);
+      } else {
+        updateControls();
+      }
+      return;
+    }
+    writeUncertain = false;
+    if (!selected || selected.uri !== job.value) {
+      select({ name: t.pending_selection, uri: job.value }, false);
+    }
     if (job.status === "waiting") {
       activeJob = job.id;
-      if (!selected || selected.uri !== job.value) {
-        select({ name: t.pending_selection, uri: job.value }, false);
-      }
-      message("write-status", t.waiting);
+      feedback("waiting", t.write_waiting_title, t.waiting, job.uid);
       pollTimer = setTimeout(pollJob, 750);
     } else {
       activeJob = null;
-      const text = job.status === "success" ? t.write_success
-        : job.status === "cancelled" ? t.cancelled : (t[job.error] || t.tag_write_failed);
-      message("write-status", `${text}${job.uid ? ` UID: ${job.uid}` : ""}`, job.status === "error");
+      if (job.status === "success") {
+        feedback("success", t.write_success_title, t.write_success, job.uid);
+      } else if (job.status === "cancelled") {
+        feedback("cancelled", t.write_cancelled_title, t.cancelled, job.uid);
+      } else {
+        feedback("error", t.write_error_title, t[job.error] || t.tag_write_failed, job.uid);
+      }
     }
     updateControls();
   }
@@ -218,7 +305,8 @@
       pollFailures = 0;
       showJob(job);
     } catch (error) {
-      message("write-status", errorText(error), true);
+      writeUncertain = true;
+      feedback("uncertain", t.write_uncertain_title, errorText(error));
       pollFailures += 1;
       if (pollFailures < 3) pollTimer = setTimeout(pollJob, 2000);
     }
@@ -226,24 +314,39 @@
 
   async function refreshReader() {
     el("refresh-reader").disabled = true;
+    el("check-write").disabled = true;
+    const interrupted = activeJob !== null || writeUncertain;
     try {
       const state = await api("/api/tag-writes");
       available = state.available;
-      writePending = false;
+      writeUncertain = false;
       pollFailures = 0;
       message("reader-status", available ? t.writer_ready : t.writer_disabled, !available);
-      if (state.job) showJob(state.job);
+      // A previous completed write must not confirm a new, uncertain request.
+      if (state.job && (state.job.status === "waiting" || state.job.id === activeJob
+          || !selected || (interrupted && state.job.id !== observedJobId))) {
+        showJob(state.job);
+      }
       else {
         activeJob = null;
         clearTimeout(pollTimer);
+        if (interrupted) {
+          feedback("error", t.write_error_title, state.job ? t.error_network : t.write_not_found);
+        }
       }
+      observedJobId = state.job?.id || null;
       updateControls();
     } catch (error) {
       available = false;
       message("reader-status", errorText(error), true);
+      if (interrupted) {
+        writeUncertain = true;
+        feedback("uncertain", t.write_uncertain_title, errorText(error));
+      }
       updateControls();
     } finally {
       el("refresh-reader").disabled = false;
+      el("check-write").disabled = writePending;
     }
   }
 
@@ -279,7 +382,6 @@
       message("music-status", t.invalid_music_request, true);
       return;
     }
-    kind = el("music-kind").value;
     collection = "search";
     loadMusic();
   });
@@ -290,6 +392,9 @@
     el("choose-heading").scrollIntoView({ block: "start" });
   });
   el("refresh-reader").addEventListener("click", refreshReader);
+  el("check-write").addEventListener("click", refreshReader);
+  el("retry-write").addEventListener("click", () => el("write-tag").click());
+  el("write-another").addEventListener("click", () => el("write-tag").click());
   el("use-assignment").addEventListener("click", () => {
     if (!selected) return;
     el("value").value = selected.uri;
@@ -298,9 +403,9 @@
     el("uid").focus();
   });
   el("write-tag").addEventListener("click", async () => {
-    if (!selected || writePending || activeJob) return;
+    if (!selected || !available || writePending || activeJob || writeUncertain) return;
     writePending = true;
-    updateControls();
+    feedback("preparing", t.write_preparing_title);
     try {
       const job = await api("/api/tag-writes", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -309,9 +414,18 @@
       pollFailures = 0;
       showJob(job);
     } catch (error) {
-      message("write-status", errorText(error), true);
-      // A lost response can still mean the Pi accepted the write.
-      await refreshReader();
+      if (error.message === "error_network" || error.message === "writer_busy") {
+        // A lost response can still mean the Pi accepted the write.
+        writeUncertain = true;
+        feedback("uncertain", t.write_uncertain_title, errorText(error));
+        await refreshReader();
+      } else {
+        if (error.message === "reader_unavailable") {
+          available = false;
+          message("reader-status", t.writer_disabled, true);
+        }
+        feedback("error", t.write_error_title, errorText(error));
+      }
     } finally {
       writePending = false;
       updateControls();
@@ -328,7 +442,8 @@
       });
       showJob(job);
     } catch (error) {
-      message("write-status", errorText(error), true);
+      writeUncertain = true;
+      feedback("uncertain", t.write_uncertain_title, errorText(error));
       pollTimer = setTimeout(pollJob, 2000);
     } finally {
       writePending = false;

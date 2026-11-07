@@ -4,7 +4,8 @@ from .spotify_service import build_spotify_client, get_tag_type, is_live_spotify
 
 
 COLLECTIONS = frozenset({"albums", "playlists", "recent", "search"})
-SEARCH_TYPES = frozenset({"album", "playlist", "track", "show"})
+SEARCH_ORDER = ("album", "playlist", "track", "show")
+SEARCH_TYPES = frozenset(SEARCH_ORDER + ("all",))
 PAGE_SIZE = 20
 
 
@@ -42,7 +43,7 @@ def _demo_items():
     ]
 
 
-def browse_music(collection, *, query="", kind="album", offset=0, before=None):
+def browse_music(collection, *, query="", kind="all", offset=0, before=None):
     if collection not in COLLECTIONS or kind not in SEARCH_TYPES:
         raise ValueError("Unsupported music collection or search type")
     if offset < 0 or offset > 10000 or (before is not None and before <= 0):
@@ -54,7 +55,8 @@ def browse_music(collection, *, query="", kind="album", offset=0, before=None):
     live = is_live_spotify_configured()
     if not live:
         target_kind = {"albums": "album", "playlists": "playlist", "recent": "album", "search": kind}[collection]
-        items = [music_item(item) for item in _demo_items() if item["uri"].split(":")[1] == target_kind]
+        items = [music_item(item) for item in _demo_items()
+                 if target_kind == "all" or item["uri"].split(":")[1] == target_kind]
         if collection == "search":
             items = [item for item in items if query.casefold() in (item["name"] + " " + item["detail"]).casefold()]
         return {"items": items if not offset and not before else [], "next": None, "mode": "fake"}
@@ -71,8 +73,11 @@ def browse_music(collection, *, query="", kind="album", offset=0, before=None):
         raw_items = [((item or {}).get("track") or {}).get("album") for item in page.get("items", [])]
     else:
         # Ten also works with Spotify's development-mode search limit.
-        page = spotify.search(q=query, type=kind, limit=10, offset=offset)[kind + "s"]
-        raw_items = page.get("items", [])
+        kinds = SEARCH_ORDER if kind == "all" else (kind,)
+        response = spotify.search(q=query, type=",".join(kinds), limit=10, offset=offset) or {}
+        pages = [response.get(name + "s") or {} for name in kinds]
+        raw_items = [item for result in pages for item in result.get("items") or []]
+        page = {"next": any(result.get("next") for result in pages)}
 
     items = []
     seen = set()

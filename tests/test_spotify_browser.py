@@ -84,6 +84,20 @@ class SpotifyBrowserTests(unittest.TestCase):
         self.assertEqual(len(result["items"]), 1)
         self.assertEqual(result["items"][0]["image"], "https://i.scdn.co/example")
 
+    def test_default_search_returns_all_types_in_one_request(self):
+        self.spotify.search.return_value = {
+            "albums": {"items": [album("a")], "next": None},
+            "playlists": {"items": [None, {"uri": "spotify:playlist:p", "name": "Mix"}], "next": "more"},
+            "tracks": {"items": [{"uri": "spotify:track:t", "name": "Song"}], "next": None},
+            "shows": {"items": [{"uri": "spotify:show:s", "name": "Pod"}], "next": None},
+        }
+
+        result = spotify_browser.browse_music("search", query="mix")
+
+        self.spotify.search.assert_called_once_with(q="mix", type="album,playlist,track,show", limit=10, offset=0)
+        self.assertEqual([item["kind"] for item in result["items"]], ["album", "playlist", "track", "show"])
+        self.assertEqual(result["next"], {"offset": 10})
+
     def test_search_returns_podcast_shows_as_tag_assignable_items(self):
         self.spotify.search.return_value = {"shows": {
             "items": [{
@@ -164,12 +178,12 @@ class MusicWebTests(unittest.TestCase):
 
     def test_connection_context_distinguishes_demo_from_saved_spotify_credentials(self):
         demo = self.client.get("/")
-        self.assertIn("Demo preview — not your Spotify library".encode(), demo.data)
+        self.assertIn("Demo — sample music only".encode(), demo.data)
         with patch.multiple(config.settings, SPOTIFY_CLIENT_ID="private-id", SPOTIFY_CLIENT_SECRET="private-secret",
                             SPOTIFY_REFRESH_TOKEN="private-token"), patch("app.web.browse_music") as browse:
             page = self.client.get("/")
-            self.assertIn("Checking your saved Spotify connection".encode(), page.data)
-            self.assertIn(b"TapTune uses the Spotify token already saved on this device", page.data)
+            self.assertIn("Checking Spotify".encode(), page.data)
+            self.assertIn("Uses this device’s saved Spotify connection".encode(), page.data)
             for secret in (b"private-id", b"private-secret", b"private-token"):
                 self.assertNotIn(secret, page.data)
             # Rendering reports configuration, not a successful API connection.
@@ -179,14 +193,32 @@ class MusicWebTests(unittest.TestCase):
         response = self.client.post("/assign", data={"uid": "040102", "value": "spotify:album:abc"},
                                     follow_redirects=True)
         self.assertIn(b'<details id="advanced-options" class="advanced-options" open>', response.data)
-        self.assertIn(b"Tag saved successfully", response.data)
+        self.assertIn(b"Tag saved.", response.data)
+
+    def test_write_feedback_is_structured_and_accessible_in_both_languages(self):
+        for path in ("/", "/fr/"):
+            page = self.client.get(path).data
+            for marker in (
+                b'id="write-status" class="write-feedback" hidden',
+                b'role="status" aria-live="polite" aria-atomic="true"',
+                b'id="write-status-title"', b'id="write-status-detail"',
+                b'id="write-icon-path"', b'id="retry-write"', b'id="check-write"',
+                b'id="write-status-uid"', b'<details class="tag-help">',
+                b'<details id="spotify-connection"',
+            ):
+                self.assertIn(marker, page)
+            self.assertNotIn(b'class="subtitle"', page)
+            self.assertNotIn(b'id="connection-help"', page)
+            self.assertIn(b'for="music-query" class="sr-only"', page)
 
     def test_show_uri_can_be_assigned_and_written(self):
         response = self.client.post("/assign", data={"uid": "SHOW-001", "value": "spotify:show:abc"})
         self.assertEqual(response.status_code, 302)
         self.assertEqual(self.app.config["TAG_WRITER"].start("spotify:show:abc")["value"], "spotify:show:abc")
         for path in ("/", "/fr/"):
-            self.assertIn(b"value=\"show\"", self.client.get(path).data)
+            page = self.client.get(path).data
+            self.assertIn(b'"group_show": "Podcasts"', page)
+            self.assertNotIn(b'id="music-kind"', page)
 
     def test_demo_and_invalid_page(self):
         response = self.client.get("/api/music")

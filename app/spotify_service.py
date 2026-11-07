@@ -258,7 +258,7 @@ def _speaker_not_ready_response() -> dict:
     }
 
 
-def _latest_episode_uri(spotify: Any, show_id: str) -> Optional[str]:
+def _latest_episode(spotify: Any, show_id: str) -> Optional[dict]:
     page = spotify.show_episodes(show_id, limit=50)
     episodes = []
     for episode in page.get("items") or []:
@@ -276,7 +276,7 @@ def _latest_episode_uri(spotify: Any, show_id: str) -> Optional[str]:
                 date_key = (0, 0, 0)
         except (TypeError, ValueError):
             date_key = (0, 0, 0)
-        episodes.append((date_key, uri))
+        episodes.append((date_key, episode))
     return max(episodes, key=lambda episode: episode[0])[1] if episodes else None
 
 
@@ -343,14 +343,14 @@ def play_content(uri: str, position_ms: int = 0) -> dict:
     try:
         spotify = build_spotify_client()
         if match.group(1) == "show":
-            episode_uri = _latest_episode_uri(spotify, match.group(2))
-            if episode_uri is None:
+            episode = _latest_episode(spotify, match.group(2))
+            if episode is None:
                 return {
                     "status": "error",
                     "error": "show_no_episodes",
                     "message": "No playable episodes were found for this Spotify show.",
                 }
-            uri = episode_uri
+            uri = episode["uri"]
         current = spotify.current_playback()
         _prepare_local_speaker(current)
         device_id = resolve_target_device(spotify, current)
@@ -359,7 +359,11 @@ def play_content(uri: str, position_ms: int = 0) -> dict:
         if match.group(1) in {"playlist", "album"}:
             return spotify.start_playback(device_id=device_id, context_uri=uri, position_ms=position_ms)
         if match.group(1) == "show":
-            return spotify.start_playback(device_id=device_id, uris=[uri], position_ms=position_ms)
+            result = spotify.start_playback(device_id=device_id, uris=[uri], position_ms=position_ms)
+            return {
+                **(result if isinstance(result, dict) else {"status": "ok", "mode": "spotify"}),
+                "uri": uri, "episode_name": episode.get("name") or uri,
+            }
     except Exception as error:  # noqa: BLE001 - translate spotipy/network errors into a dict response.
         return _handle_error(error)
     raise AssertionError("Validated Spotify URI had an unsupported resource type")

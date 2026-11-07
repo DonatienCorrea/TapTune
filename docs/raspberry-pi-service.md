@@ -110,12 +110,12 @@ If the startup check expired while completing the receiver login, run
 ## Assign and verify a tag
 
 Open `http://<pi-ip>:5000/`. Choose music in the Spotify picker, select
-**Start writing**, and place an unlocked NTAG213/215/216, supported Feiju 144-byte Type 2 tag, or writable NFC Type 4 NDEF tag on the Pi's reader
+**Write tag**, and place an unlocked NTAG213/215/216, supported Feiju 144-byte Type 2 tag, or writable NFC Type 4 NDEF tag on the Pi's reader
 until the page confirms the write was verified. Remove it, then tap again to
 play. See [Using tags](tag-usage.md#browse-spotify-and-write-a-tag) for details.
 
 For manual UID assignments or playback actions, open
-**Advanced: manual tag setup & playback shortcuts** and assign the UID from
+**Manual setup** and assign the UID from
 the diagnostic. Test a saved UID mapping without the reader if needed:
 
 ```bash
