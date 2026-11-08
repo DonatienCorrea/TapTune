@@ -1,13 +1,21 @@
 import threading
+import tempfile
 import unittest
 import unittest.mock
 from unittest.mock import patch
 
-from app import main
+from app import config, main
 from app.nfc_reader import NFCEvent
 
 
 class ReaderLoopTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        database = patch.object(config.settings, "DATABASE_PATH", temporary.name + "/activity.db")
+        database.start()
+        self.addCleanup(database.stop)
+
     def test_dispatch_nfc_event_records_and_dispatches_assigned_value(self):
         event = NFCEvent(uid="04A7B2F1", payload="action:next")
 

@@ -1,0 +1,115 @@
+<!doctype html>
+<!-- THESIS: A searchable record of the tap-to-play signal path, not dashboard metrics.
+OWN-WORLD: TapTune paper, ink, ruled rows, cobalt controls and textual status.
+STORY: Find a tag or error, inspect its selected content, then return to tag setup.
+FIRST VIEWPORT: Brand navigation, title, filters and newest records in reading order.
+FORM: A compact chronological log within the established field-guide system. -->
+{% set fr = locale == 'fr' %}
+{% set text = {
+  'title': 'Journal' if fr else 'Activity',
+  'about': 'À propos du journal' if fr else 'About this log',
+  'home': 'Créer un tag' if fr else 'Make a tag',
+  'search': 'Rechercher dans le journal' if fr else 'Search the log',
+  'hint': 'UID, URI, épisode, erreur ou composant…' if fr else 'UID, URI, episode, error or component…',
+  'kind': 'Type' if fr else 'Type',
+  'all': 'Tout' if fr else 'All',
+  'playback': 'Tags / lecture' if fr else 'Tags / playback',
+  'diagnostic': 'Diagnostics' if fr else 'Diagnostics',
+  'level': 'Afficher' if fr else 'Show',
+  'levels': 'Tout' if fr else 'All',
+  'errors': 'Avertissements et erreurs' if fr else 'Warnings and errors',
+  'apply': 'Actualiser' if fr else 'Refresh',
+  'reset': 'Effacer les filtres' if fr else 'Clear filters',
+  'empty': 'Aucune activité correspondante.' if fr else 'No matching activity.',
+  'empty_hint': 'Essayez une autre recherche ou présentez un tag au lecteur.' if fr else 'Try another search or tap a tag on the reader.',
+  'uri': 'Contenu sélectionné' if fr else 'Selected content',
+  'older': 'Plus ancien' if fr else 'Older',
+  'newer': 'Plus récent' if fr else 'Newer',
+  'info': 'Info' if fr else 'Info',
+  'details': 'Détails' if fr else 'Details',
+  'warning': 'Attention' if fr else 'Warning',
+  'error': 'Erreur' if fr else 'Error'
+} %}
+<html lang="{{ locale }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ text.title }} · TapTune</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <a class="skip-link" href="#activity">{{ text.title }}</a>
+  <div class="app-shell">
+    <header class="header">
+      <a class="title log-brand" href="{{ home_url }}" aria-label="TapTune">
+        <svg class="logo-mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13"></circle><circle cx="16" cy="16" r="5"></circle><path d="M16 3v7M16 22v7"></path></svg>
+        <span>Tap<span class="brand-tune">Tune</span></span>
+      </a>
+      <nav class="header-actions" aria-label="{{ text.title }}">
+        <a class="badge switch-link" href="{{ home_url }}">{{ text.home }}</a>
+        <a class="badge switch-link" href="{{ switch_url }}?{{ {'q': query, 'kind': kind, 'level': level}|urlencode }}">{{ 'English' if fr else 'Français' }}</a>
+      </nav>
+    </header>
+    <main id="activity" class="log-page">
+      <h1>{{ text.title }}</h1>
+      <details class="log-help">
+        <summary>{{ text.about }}</summary>
+        <p class="music-caption">
+          {% if fr %}{{ limit }} entrées conservées après redémarrage. Diagnostics TapTune uniquement, pas les journaux système. Horaires en UTC. Actualisez pour voir les nouvelles entrées.
+          {% else %}{{ limit }} entries retained across restarts. TapTune diagnostics only, not system logs. Times are UTC. Refresh for new entries.{% endif %}
+        </p>
+      </details>
+      <form class="log-filters" method="get" role="search">
+        <div class="field log-search">
+          <label for="log-query">{{ text.search }}</label>
+          <input id="log-query" name="q" type="search" maxlength="200" value="{{ query }}" placeholder="{{ text.hint }}">
+        </div>
+        <div class="field">
+          <label for="log-kind">{{ text.kind }}</label>
+          <select id="log-kind" name="kind">
+            {% for key in ['', 'playback', 'diagnostic'] %}
+            <option value="{{ key }}"{% if kind == key %} selected{% endif %}>{{ text[key or 'all'] }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="log-level">{{ text.level }}</label>
+          <select id="log-level" name="level">
+            <option value="">{{ text.levels }}</option>
+            <option value="errors"{% if level == 'errors' %} selected{% endif %}>{{ text.errors }}</option>
+          </select>
+        </div>
+        <button class="save-button" type="submit">{{ text.apply }}</button>
+      </form>
+      {% if query or kind or level %}<a class="log-reset" href="{{ request.path }}">{{ text.reset }}</a>{% endif %}
+      <ol class="activity-list" aria-label="{{ text.title }}">
+        {% for entry in entries %}
+        <li class="activity-entry">
+          <div class="activity-meta">
+            <time datetime="{{ entry.created_at|replace(' ', 'T') }}Z">{{ entry.created_at }} UTC</time>
+            <span class="activity-status status-{{ entry.level|lower }}">{{ text.info if entry.level == 'INFO' else text.warning if entry.level == 'WARNING' else text.error }}</span>
+          </div>
+          <p class="activity-message">{{ entry.message }}</p>
+          <details class="activity-details">
+            <summary>{{ text.details }}{% if entry.uid %} · <code>{{ entry.uid }}</code>{% endif %}</summary>
+            <p class="activity-data">{{ text[entry.kind] }} · {{ entry.source }}</p>
+            {% if entry.value %}<p class="activity-data"><strong>{{ 'Tag' if fr else 'Tag value' }}</strong> <code>{{ entry.value }}</code></p>{% endif %}
+            {% if entry.resolved_uri %}<p class="activity-data"><strong>{{ text.uri }}</strong> <code>{{ entry.resolved_uri }}</code></p>{% endif %}
+          </details>
+        </li>
+        {% else %}
+        <li class="log-empty"><h2>{{ text.empty }}</h2><p>{{ text.empty_hint }}</p></li>
+        {% endfor %}
+      </ol>
+      <nav class="log-pagination" aria-label="{{ 'Pages du journal' if fr else 'Log pages' }}">
+        {% if page > 1 %}<a class="helper-button" href="?{{ {'q': query, 'kind': kind, 'level': level, 'page': page - 1}|urlencode }}">{{ text.newer }}</a>{% endif %}
+        <span>{{ page }}</span>
+        {% if more %}<a class="helper-button" href="?{{ {'q': query, 'kind': kind, 'level': level, 'page': page + 1}|urlencode }}">{{ text.older }}</a>{% endif %}
+      </nav>
+    </main>
+  </div>
+</body>
+</html>

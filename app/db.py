@@ -80,4 +80,5 @@ def clear_all_tags() -> None:
     with get_connection() as conn:
         conn.execute("DELETE FROM tags")
         conn.execute("DELETE FROM events")
+        conn.execute("DELETE FROM activity")
         conn.commit()

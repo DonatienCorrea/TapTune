@@ -4,7 +4,25 @@
 
 Start with the smallest failing boundary: web process, configuration, Spotify, I2C, reader initialization, card read, assignment, then dispatch.
 
-First look at everything in one place:
+For a searchable view without SSH, select **Activity log** on the local music
+page, or open `http://<pi-ip>:5000/logs` (`/fr/logs` in French). Search by tag
+UID, Spotify URI, episode title, diagnostic message or component; filter to
+playback or diagnostics, or warnings and errors. Use **Search / refresh** to
+load new entries and **Older** to page through history.
+
+The log retains the latest 2,000 records in SQLite across restarts. It records
+tag dispatch results, unknown tags, and the selected episode name/URI for
+podcasts. A successful command means Spotify accepted the request, not that
+speaker output was independently confirmed; fake playback is labelled.
+Diagnostics capture INFO and higher messages from the TapTune Python process
+when started with `python -m app.main`, including reader, Bluetooth and tag
+writing messages. Existing system journals are not imported, and tracebacks,
+Raspotify/Spotifyd and OS service logs still require the commands below.
+Configured Spotify credentials and recognizable token fields are redacted
+before storage. Keep this unauthenticated page on a trusted LAN, like the
+music page; it contains household listening activity. Times are UTC.
+
+For the full logs of every service:
 
 ```bash
 taptune status          # is each service running? does TapTune answer?

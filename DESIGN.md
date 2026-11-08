@@ -26,11 +26,33 @@ The music browsing/search section is an intentional, user-requested exception
 to the paper field-guide surface. Scope its Spotify-inspired styling to
 `.spotify-browser`: near-black `#121212`, charcoal `#1f1f1f` cards, white text,
 secondary text `#b3b3b3`, and green `#1ed760` selection actions. Use rounded
-search fields and filter chips, square uncropped artwork, and a responsive
-artwork-led grid (two columns on phones). Keep visible Choose/Selected labels,
+search fields and collection chips. Saved albums, playlists and recent albums
+use an artwork-led grid (two columns on phones) with uncropped artwork.
+Search uses one input and compact lists grouped by albums, playlists, songs
+and podcasts, with small square thumbnails and 44px minimum action targets.
+Keep visible Choose/Selected labels,
 keyboard focus, and an Open in Spotify link. Do not add pretend playback
 controls: choosing music prepares a tag, not a listening session.
 
 This is TapTune's own implementation of familiar music-browser patterns, not
 Spotify's proprietary component library. The outer page, connection notices,
 tag-writing steps and advanced UID form retain TapTune's established style.
+
+## Local task pages
+
+Keep the main flow short: choose music, write the tag. Do not repeat titles
+in explanatory paragraphs. Connection details, reader setup, manual UID
+mapping and log metadata use expandable Help/Details sections; preserve
+the distinction between demo music and a live Spotify account.
+
+Writing feedback is an inline panel with a distinct icon, a short heading,
+the necessary next step and the tag UID when known. Use different shapes
+for waiting, verified success, failure and cancellation, not color alone.
+An unknown outcome after a connection failure must say so and offer Check
+status rather than enabling another write. Keep overwrite warnings,
+reader placement and timeout guidance visible at the relevant step.
+
+The activity page leads with search, filters and chronological messages.
+Retention, UTC timestamps and the TapTune-only diagnostic scope belong in
+About this log. Raw tag values, resolved URIs and components remain
+inspectable in each row's Details.

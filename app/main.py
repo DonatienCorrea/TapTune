@@ -5,6 +5,7 @@ import time
 
 from .config import BASE_DIR, settings
 from .db import record_event
+from .activity import install_activity_logging, record_activity, record_playback
 from .nfc_reader import NFCEvent, PN532Reader
 from .readiness import start_speaker_thread
 from .spotify_service import dispatch_tag_value, get_tag_type, is_live_spotify_configured
@@ -23,6 +24,10 @@ READER_HEALTHY_RUN_SECONDS = 60.0
 def dispatch_nfc_event(event: NFCEvent):
     tag_type = get_tag_type(event.payload)
     if tag_type is None:
+        record_activity(
+            "playback", "WARNING", event.source, "Unassigned tag: assign its UID on the music page.",
+            uid=event.uid, value=event.payload,
+        )
         logger.warning(
             "NFC tag %s is not assigned; add this UID in the TapTune web UI.",
             event.uid,
@@ -32,7 +37,12 @@ def dispatch_nfc_event(event: NFCEvent):
     try:
         record_event(event.uid, tag_type, event.payload, source=event.source)
         result = dispatch_tag_value(event.payload)
+        record_playback(event.uid, event.payload, event.source, result)
     except Exception:  # noqa: BLE001 - one failed tap must never stop the reader.
+        record_activity(
+            "playback", "ERROR", event.source, "Tag dispatch failed; check the service logs and tap again.",
+            uid=event.uid, value=event.payload,
+        )
         logger.exception("Could not dispatch NFC tag %s; tap again.", event.uid)
         return None
     if isinstance(result, dict) and result.get("status") == "error":
@@ -186,6 +196,7 @@ def log_thread_exception(args) -> None:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    install_activity_logging()
     threading.excepthook = log_thread_exception
     log_startup_summary()
     if settings.NFC_READER_ENABLED:

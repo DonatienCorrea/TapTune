@@ -15,27 +15,27 @@ over a UID mapping.
    `python -m app.main` or the installed systemd service. Do not run a second
    NFC diagnostic or writer process at the same time.
 3. Open `http://<pi-ip>:5000/` on your iPhone or another device on the same network.
-4. Under **1. Choose your music**, browse **My albums**, **My playlists**, or **Recent albums**, or select **Search Spotify** to search
-   Spotify for albums, playlists, tracks or podcast shows. **Load more** fetches another page.
+4. Browse **My albums**, **My playlists**, or **Recent albums**, or select **Search Spotify** to search
+   albums, playlists, tracks and podcast shows together. Search results are grouped lists; saved collections use artwork grids. **Load more** fetches another page.
    Recent albums are derived from recently played tracks, deduplicated within
    each page in listening order; they are not Spotify's album-history feed.
-5. Choose music. Under **2. Write your tag**, check the selection and choose **Start writing**.
+5. Choose music. Under **Write tag**, check the selection and choose **Write tag**.
    **This replaces the tag's existing content.**
 6. Place one unlocked **NTAG213/215/216**, **supported Feiju 144-byte Type 2 tag**, or **writable NFC Type 4 NDEF tag** on the **Pi's reader** within
-   60 seconds. Leave it in place until the page reports **written and verified**.
+   60 seconds. Leave it in place until the confirmation panel shows **Tag written** and **Verified**.
 7. Remove the tag, then present it again to play the music.
 
 Safari does not need NFC access: the Pi performs the write. Saving the page to
 the iPhone's home screen is optional. The tag contains a standard NDEF Spotify
 HTTPS link, so it is self-describing and does not need a UID mapping on this Pi.
-No database assignment is created by writing. Under **Spotify link and advanced
-options**, **Fill the advanced form with this music** opens the manual form
+No database assignment is created by writing. Under **Spotify link / manual
+setup**, **Use in manual setup** opens the manual form
 and fills its URI and label when a UID mapping is preferred. Manual setup,
 playback shortcuts and the list of manual assignments are collapsed under
-**Advanced: manual tag setup & playback shortcuts**; they are not part of the
+**Manual setup**; they are not part of the
 normal two-step writing flow.
 
-The connection panel distinguishes **Demo preview** from a real Spotify
+The expandable connection summary distinguishes **Demo — sample music only** from a real Spotify
 connection. TapTune automatically reuses the Spotify credentials and refresh
 token already saved in the `.env` of the device running it. You do not need to
 copy a token into the browser. A preview on another computer cannot access the
