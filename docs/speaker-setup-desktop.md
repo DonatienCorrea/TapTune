@@ -101,8 +101,21 @@ PipeWire session for connection/routing and the ready chime. The app owns the
 one bounded startup phase; **there is no separate Bluetooth reconnect or
 ready-sound service**. Old TapTune units are disabled/removed on reconfiguration.
 The installer also disables conflicting Lite receiver services without removing
-their packages. Do not independently reenable a second `spotifyd.service`,
-Raspotify or BlueALSA, including from another user.
+their packages, including the leftover `bluealsa-aplay.service`, and disables
+both system and audio-user `spotifyd.service` units so only
+`taptune-spotifyd.service` remains.
+
+On a dedicated player, the LightDM login screen must not own Bluetooth audio.
+The installer adds
+`/etc/systemd/user/wireplumber.service.d/90-taptune-no-greeter.conf` with
+`ConditionUser=!lightdm` and stops LightDM's WirePlumber if its user manager is
+running. This prevents login-screen audio, **not** the audio user's desktop
+sound, and also applies at the next boot if LightDM is currently stopped.
+It does not stop LightDM itself, disable desktop login or modify other users'
+receiver services. Do not independently reenable a second `spotifyd.service`,
+Raspotify or BlueALSA, including from another user. If repurposing the Pi,
+remove that drop-in and reload/restart the affected user services to restore
+login-screen audio.
 
 After startup there is no periodic Bluetooth reconnect or keepalive sound.
 Only local music start/resume taps reconnect and route audio when needed.
@@ -128,10 +141,18 @@ Then inspect from a terminal as the audio user:
 loginctl show-user "$(id -un)" -p Linger
 systemctl --user status pipewire-pulse.service wireplumber.service taptune-spotifyd.service --no-pager
 pactl get-default-sink
+pactl list short sinks
+pactl list cards
 taptune status
 taptune logs
 journalctl --user -u taptune-spotifyd.service -n 100 --no-pager
 ```
+
+For the Bluetooth speaker, confirm an active `a2dp-sink` profile (possibly
+with a codec suffix) and a stereo `2ch` sink. `headset-head-unit` with
+`1ch 16000Hz` is hands-free call audio, not the intended music output.
+`SUSPENDED` is normal before playback. A Bluetooth connection, successful
+Spotify command or healthy web endpoint alone does not prove stereo playback.
 
 Check idle behavior separately: pause music, let the speaker disconnect, turn it
 on if necessary, then tap a local content/start tag. Pause/volume tags should
@@ -145,6 +166,7 @@ not reconnect it, and idle time should not produce another chime.
 | Spotifyd cannot start | Inspect its user journal; check `--version`, missing libraries and the `pulseaudio` backend. |
 | Audio works only after desktop login | Check WirePlumber's headless config, lingering, `DESKTOP_AUDIO_USER` in the installed TapTune unit, and competing users' sessions. |
 | Receiver visible but silent | Inspect `wpctl status`, speaker connection/default output and `taptune logs` for routing errors. |
+| Only hands-free audio, or A2DP missing / `Device or resource busy` | Check for a second `spotifyd.service`, a leftover BlueALSA player, and LightDM's WirePlumber. Earlier Desktop installers did not clean up all three. Apply the updated Desktop installer through `taptune update`, then reboot and verify A2DP stereo playback. Other paired devices can also compete for the speaker. |
 | Volume actions fail | Use `volume_controller = "softvol"` and check receiver volume support. |
 | `speaker_not_ready` | Match `.env`'s `SPOTIFY_DEVICE_NAME` to Spotifyd's `device_name`; confirm both account logins. |
 | No chime | Inspect TapTune's system journal, `/ready` and `READY_SOUND_ENABLED`; no separate user ready-sound unit should be started. |

@@ -105,8 +105,12 @@ run sed -i \
 run sudo loginctl enable-linger "$(id -un)"
 # BlueALSA and PipeWire both claim the speaker's A2DP link, and a Raspotify
 # receiver with the same name makes a second "TapTune" in Spotify.
+disable_user_unit spotifyd.service "Desktop uses only taptune-spotifyd.service"
+disable_system_unit spotifyd.service "Desktop uses the audio user's taptune-spotifyd.service"
 disable_system_unit raspotify.service "Desktop uses Spotifyd, not Raspotify"
+disable_system_unit bluealsa-aplay.service "PipeWire handles playback on Desktop"
 disable_system_unit bluealsa.service "PipeWire handles Bluetooth audio on Desktop"
+exclude_desktop_greeter_audio
 if [ "$DRY_RUN" -eq 1 ] || [ -f /etc/systemd/system/raspotify.service.d/taptune.conf ]; then
   run sudo rm -f /etc/systemd/system/raspotify.service.d/taptune.conf
   run sudo systemctl daemon-reload
