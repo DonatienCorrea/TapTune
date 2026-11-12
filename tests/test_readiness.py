@@ -18,12 +18,12 @@ class ReadySoundTests(unittest.TestCase):
         client = Mock()
         client.devices.return_value = {"devices": [{"id": "pi", "name": "TapTune"}]}
         with patch.multiple(
-            config.settings, SPOTIFY_DEVICE_NAME="TapTune", SPOTIFY_INITIAL_VOLUME=30,
+            config.settings, SPOTIFY_DEVICE_NAME="TapTune", SPOTIFY_INITIAL_VOLUME=10,
             READY_SOUND_ENABLED=True, SPOTIFY_CLIENT_ID="id",
             SPOTIFY_CLIENT_SECRET="secret", SPOTIFY_REFRESH_TOKEN="token",
         ), patch.object(readiness, "build_spotify_client", return_value=client), \
                 patch.object(readiness, "wait_until_ready_then_chime") as chime:
-            chime.side_effect = lambda **kwargs: client.volume.assert_called_once_with(30, device_id="pi") or True
+            chime.side_effect = lambda **kwargs: client.volume.assert_called_once_with(10, device_id="pi") or True
             self.assertTrue(readiness.initialize_speaker(sleep=Mock()))
         chime.assert_called_once()
         self.assertIsNone(chime.call_args.kwargs["stop_event"])
@@ -33,10 +33,10 @@ class ReadySoundTests(unittest.TestCase):
     def test_startup_volume_targets_only_the_pi_and_does_not_need_the_chime(self):
         client = Mock()
         client.devices.return_value = {"devices": [{"id": "pi", "name": "TapTune"}]}
-        with patch.multiple(config.settings, SPOTIFY_DEVICE_NAME="TapTune", SPOTIFY_INITIAL_VOLUME=30, READY_SOUND_ENABLED=False), \
+        with patch.multiple(config.settings, SPOTIFY_DEVICE_NAME="TapTune", SPOTIFY_INITIAL_VOLUME=10, READY_SOUND_ENABLED=False), \
                 patch.object(readiness, "build_spotify_client", return_value=client):
             self.assertTrue(readiness.initialize_speaker(sleep=Mock()))
-        client.volume.assert_called_once_with(30, device_id="pi")
+        client.volume.assert_called_once_with(10, device_id="pi")
         client.start_playback.assert_not_called()
 
     def test_startup_volume_waits_for_receiver_and_retries_api_failures(self):

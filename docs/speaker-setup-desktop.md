@@ -54,7 +54,8 @@ cat > ~/.config/spotifyd/spotifyd.conf <<'EOF'
 device_name = "TapTune"
 device_type = "speaker"
 backend = "pulseaudio"
-initial_volume = 30
+initial_volume = 10
+bitrate = 320
 volume_controller = "softvol"
 use_mpris = false
 EOF
@@ -77,7 +78,7 @@ In TapTune's `.env`, keep the name and volume consistent:
 
 ```dotenv
 SPOTIFY_DEVICE_NAME=TapTune
-SPOTIFY_INITIAL_VOLUME=30
+SPOTIFY_INITIAL_VOLUME=10
 BLUETOOTH_SPEAKER_MAC=AA:BB:CC:DD:EE:FF
 READY_SOUND_ENABLED=true
 ```
@@ -86,6 +87,8 @@ Use the real speaker address. Return to
 [Configure and start services](raspberry-pi-service.md#configure-and-start-services)
 and run `./install.sh --desktop --configure` there. Do not separately run the
 speaker/service installers.
+The installer sets Spotifyd to 320 kbps, its maximum supported bitrate, and
+applies the 10% startup volume.
 
 ## What completion configures
 

@@ -99,7 +99,9 @@ fi
 run install -m 644 "$SCRIPT_DIR/taptune-spotifyd.user.service" "$CONFIG_DIR/systemd/user/taptune-spotifyd.service"
 remove_legacy_user_units
 run sed -i \
+  -e '/^[[:space:]]*bitrate[[:space:]]*=/d' \
   -e '/^[[:space:]]*initial_volume[[:space:]]*=/d' \
+  -e "/^[[:space:]]*\\[global\\][[:space:]]*$/a bitrate = 320" \
   -e "/^[[:space:]]*\\[global\\][[:space:]]*$/a initial_volume = $VOLUME" \
   "$CONFIG_DIR/spotifyd/spotifyd.conf"
 run sudo loginctl enable-linger "$(id -un)"

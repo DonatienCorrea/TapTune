@@ -66,6 +66,7 @@ RASPOTIFY_BLOCK="# >>> TapTune >>>
 LIBRESPOT_NAME=\"$DEVICE_NAME\"
 LIBRESPOT_BACKEND=alsa
 LIBRESPOT_DEVICE=\"$AUDIO_DEVICE\"
+LIBRESPOT_BITRATE=320
 LIBRESPOT_INITIAL_VOLUME=$VOLUME
 # <<< TapTune <<<"
 
@@ -93,6 +94,7 @@ run sudo sed -i \
   -e '/^LIBRESPOT_NAME=/s/^/#/' \
   -e '/^LIBRESPOT_BACKEND=/s/^/#/' \
   -e '/^LIBRESPOT_DEVICE=/s/^/#/' \
+  -e '/^LIBRESPOT_BITRATE=/s/^/#/' \
   -e '/^LIBRESPOT_INITIAL_VOLUME=/s/^/#/' \
   "$RASPOTIFY_CONF"
 

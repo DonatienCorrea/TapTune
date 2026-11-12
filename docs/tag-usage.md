@@ -142,11 +142,13 @@ the configured Pi receiver when there is no current playback. If Spotify cannot
 read or control the device's volume, TapTune reports an error rather than
 guessing a value.
 
-TapTune sets its own receiver to **30% when the app starts**, once the receiver
-appears on Spotify Connect. Set `SPOTIFY_INITIAL_VOLUME=30` in `.env` to make this
+TapTune sets its own receiver to **10% when the app starts**, once the receiver
+appears on Spotify Connect. Set `SPOTIFY_INITIAL_VOLUME=10` in `.env` to make this
 explicit. It does not reset another active device's volume or reset the volume
-on every tap. For Spotifyd, also use `initial_volume = 30` in its `[global]`
-configuration so the receiver starts safely even before TapTune reaches it.
+on every tap. The receiver installers configure the maximum 320 kbps bitrate;
+for Spotifyd, `initial_volume = 10` is also written to its `[global]`
+configuration so the receiver starts at the requested level before TapTune
+reaches it.
 
 When `BLUETOOTH_SPEAKER_MAC` is configured, **local music start/resume** checks
 the Bluetooth connection and may reconnect if necessary. An unreachable

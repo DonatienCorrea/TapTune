@@ -18,7 +18,7 @@ class VolumeTests(unittest.TestCase):
         delay.start()
         self.addCleanup(delay.stop)
         patcher = patch.multiple(
-            config.settings, SPOTIFY_DEVICE_NAME="TapTune", SPOTIFY_INITIAL_VOLUME=30,
+            config.settings, SPOTIFY_DEVICE_NAME="TapTune", SPOTIFY_INITIAL_VOLUME=10,
             SPOTIFY_CLIENT_ID="", SPOTIFY_CLIENT_SECRET="", SPOTIFY_REFRESH_TOKEN="",
         )
         patcher.start()
@@ -92,11 +92,11 @@ class VolumeTests(unittest.TestCase):
     def test_missing_receiver_is_an_explicit_error(self):
         self.assertEqual(self.dispatch(VolumeClient(), "action:volume_up")["error"], "speaker_not_ready")
 
-    def test_fake_client_starts_at_thirty_and_tracks_volume(self):
+    def test_fake_client_starts_at_configured_volume_and_tracks_volume(self):
         client = spotify_service.FakeSpotifyClient()
-        self.assertEqual(client.current_playback()["device"]["volume_percent"], 30)
-        self.assertEqual(self.dispatch(client, "action:volume_up")["volume_percent"], 40)
-        self.assertEqual(self.dispatch(client, "action:volume_down")["volume_percent"], 30)
+        self.assertEqual(client.current_playback()["device"]["volume_percent"], 10)
+        self.assertEqual(self.dispatch(client, "action:volume_up")["volume_percent"], 20)
+        self.assertEqual(self.dispatch(client, "action:volume_down")["volume_percent"], 10)
         self.assertFalse(client.is_playing)
 
     def test_volume_configuration_boundaries_and_invalid_values(self):
