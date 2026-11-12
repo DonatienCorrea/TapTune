@@ -22,6 +22,7 @@ class SmokeTests(unittest.TestCase):
             SPOTIFY_CLIENT_ID="",
             SPOTIFY_CLIENT_SECRET="",
             SPOTIFY_REFRESH_TOKEN="",
+            SPOTIFY_INITIAL_VOLUME=10,
         )
         spotify_credentials.start()
         self.addCleanup(spotify_credentials.stop)
