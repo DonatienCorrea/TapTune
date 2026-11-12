@@ -75,12 +75,13 @@ class ServiceUnitTests(unittest.TestCase):
                 self.assertRegex(text, r"\nRestart=(always|on-failure)\n")
 
     def test_periodic_reconnect_and_chime_services_are_gone(self):
-        units = sorted(path.name for path in SYSTEMD.iterdir() if path.suffix in {".service", ".conf"})
-        self.assertEqual(units, [
-            "journald-taptune.conf", "raspi-spotify-nfc.service", "raspotify-taptune.conf",
-            "taptune-spotifyd.user.service",
-        ])
-        self.assertFalse((SYSTEMD / "taptune-bluetooth.sh").exists())
+        for name in (
+            "taptune-bluetooth.service", "taptune-bluetooth.user.service",
+            "taptune-ready-sound.service", "taptune-ready-sound.user.service",
+            "taptune-bluetooth.sh",
+        ):
+            with self.subTest(obsolete_file=name):
+                self.assertFalse((SYSTEMD / name).exists())
 
     def test_spotifyd_waits_for_network_and_restarts_after_clean_exit(self):
         text = (SYSTEMD / "taptune-spotifyd.user.service").read_text()

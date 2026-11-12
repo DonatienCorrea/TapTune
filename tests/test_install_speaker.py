@@ -14,9 +14,15 @@ COMMON = REPO_ROOT / "systemd" / "install-common.sh"
 
 class InstallSpeakerScriptTests(unittest.TestCase):
     def dry_run(self):
-        return subprocess.run(
-            ["bash", str(INSTALLER), "--dry-run"], capture_output=True, text=True, check=True
-        ).stdout
+        with tempfile.TemporaryDirectory() as directory:
+            installer = Path(directory) / "systemd" / INSTALLER.name
+            shutil.copytree(REPO_ROOT / "systemd", installer.parent)
+            env = dict(os.environ)
+            env.pop("XDG_CONFIG_HOME", None)
+            return subprocess.run(
+                ["bash", str(installer), "--dry-run"],
+                capture_output=True, text=True, check=True, env=env,
+            ).stdout
 
     def test_dry_run_configures_raspotify_for_the_bluetooth_speaker(self):
         output = self.dry_run()
@@ -31,6 +37,22 @@ class InstallSpeakerScriptTests(unittest.TestCase):
 
     def test_dry_run_reenables_credential_cache_so_login_survives_reboot(self):
         self.assertIn("#LIBRESPOT_DISABLE_CREDENTIAL_CACHE=", self.dry_run())
+
+    def test_default_dry_run_ignores_live_checkout_settings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            shutil.copytree(REPO_ROOT / "systemd", repo / "systemd")
+            (repo / ".env").write_text(
+                "SPOTIFY_INITIAL_VOLUME=15\n"
+                "SPOTIFY_DEVICE_NAME=LiveReceiver\n"
+                "BLUETOOTH_SPEAKER_MAC=12:34:56:78:90:AB\n"
+            )
+            with patch(f"{__name__}.REPO_ROOT", repo), \
+                    patch(f"{__name__}.INSTALLER", repo / "systemd" / INSTALLER.name):
+                output = self.dry_run()
+            self.assertIn("LIBRESPOT_INITIAL_VOLUME=10", output)
+            self.assertNotIn("LiveReceiver", output)
+            self.assertNotIn("12:34:56:78:90:AB", output)
 
     def test_dry_run_has_no_reconnect_loop_and_stops_the_desktop_stack(self):
         output = self.dry_run()
@@ -270,6 +292,8 @@ class DesktopInstallerTests(unittest.TestCase):
     def test_dry_run_starts_user_audio_at_boot_and_disables_seat_monitoring(self):
         with tempfile.TemporaryDirectory() as directory:
             fake = Path(directory) / "wireplumber"
+            scripts = Path(directory) / "systemd"
+            shutil.copytree(REPO_ROOT / "systemd", scripts)
             for version in ("0.4.17", "0.5.8"):
                 with self.subTest(version=version):
                     fake.write_text(f"#!/bin/sh\necho 'wireplumber {version}'\n")
@@ -277,7 +301,7 @@ class DesktopInstallerTests(unittest.TestCase):
                     env = dict(os.environ, PATH=directory + os.pathsep + os.environ["PATH"])
                     env.pop("XDG_CONFIG_HOME", None)
                     result = subprocess.run(
-                        ["bash", str(REPO_ROOT / "systemd/install-desktop-speaker.sh"), "--dry-run"],
+                        ["bash", str(scripts / "install-desktop-speaker.sh"), "--dry-run"],
                         env=env, capture_output=True, text=True, check=True,
                     )
                     self.assertIn("loginctl enable-linger", result.stdout)
