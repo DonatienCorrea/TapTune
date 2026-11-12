@@ -112,6 +112,27 @@ disable_user_unit() {
   fi
 }
 
+exclude_desktop_greeter_audio() {
+  local unit_dir="${1:-/etc/systemd/user}" runtime_root="${2:-/run/user}"
+  local dropin="$unit_dir/wireplumber.service.d" uid runtime
+  run sudo mkdir -p "$dropin"
+  run sudo install -m 644 "$SCRIPT_DIR/wireplumber-taptune.conf" "$dropin/90-taptune-no-greeter.conf"
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "# If LightDM's user manager is running (UID resolved with id -u lightdm):"
+    uid="<lightdm-uid>"
+  elif ! uid="$(id -u lightdm 2>/dev/null)"; then
+    return 0
+  fi
+  runtime="$runtime_root/$uid"
+  if [ "$DRY_RUN" -eq 1 ] || [ -S "$runtime/bus" ]; then
+    run sudo -u lightdm env "XDG_RUNTIME_DIR=$runtime" "DBUS_SESSION_BUS_ADDRESS=unix:path=$runtime/bus" \
+      systemctl --user daemon-reload
+    run sudo -u lightdm env "XDG_RUNTIME_DIR=$runtime" "DBUS_SESSION_BUS_ADDRESS=unix:path=$runtime/bus" \
+      systemctl --user stop wireplumber.service
+  fi
+}
+
 # Before this version a reconnect loop ran every 10 s; TapTune now connects
 # the speaker itself at boot and when a tag starts or resumes music.
 remove_legacy_system_units() {

@@ -1,5 +1,6 @@
 import os
 import shutil
+import socket
 import subprocess
 import tempfile
 import unittest
@@ -108,6 +109,7 @@ class CleanupHelperTests(unittest.TestCase):
         (bin_dir / "systemctl").write_text(
             "#!/usr/bin/env bash\n"
             f'echo "systemctl $*" >> "{self.log}"\n'
+            'if [ "$*" = "${FAKE_FAIL_COMMAND:-}" ]; then exit 23; fi\n'
             'case "$*" in\n'
             '  *show-environment*) [ "$FAKE_USER_MANAGER" = yes ] ;;\n'
             '  *list-unit-files*)\n'
@@ -117,7 +119,23 @@ class CleanupHelperTests(unittest.TestCase):
             '    done; exit 0 ;;\n'
             'esac\n'
         )
-        (bin_dir / "sudo").write_text('#!/usr/bin/env bash\n"$@"\n')
+        (bin_dir / "sudo").write_text(
+            "#!/usr/bin/env bash\n"
+            'if [ "${1:-}" = "-u" ]; then\n'
+            f'  echo "sudo $*" >> "{self.log}"\n'
+            '  shift 2\n'
+            'fi\n'
+            '"$@"\n'
+        )
+        (bin_dir / "id").write_text(
+            "#!/usr/bin/env bash\n"
+            'if [ "$*" = "-u lightdm" ]; then\n'
+            '  [ -n "${FAKE_GREETER_UID:-}" ] || exit 1\n'
+            '  echo "$FAKE_GREETER_UID"\n'
+            'else\n'
+            '  /usr/bin/id "$@"\n'
+            'fi\n'
+        )
         for tool in bin_dir.iterdir():
             tool.chmod(0o755)
         self.env = dict(os.environ, PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}", HOME=str(self.root),
@@ -125,7 +143,8 @@ class CleanupHelperTests(unittest.TestCase):
 
     def run_helpers(self, script, **env):
         result = subprocess.run(
-            ["bash", "-c", f'DRY_RUN=0; source "{COMMON}"; {script}'],
+            ["bash", "-c",
+             f'set -e; DRY_RUN=0; SCRIPT_DIR="{REPO_ROOT / "systemd"}"; source "{COMMON}"; {script}'],
             env={**self.env, **env}, capture_output=True, text=True,
         )
         calls = self.log.read_text().splitlines() if self.log.exists() else []
@@ -188,6 +207,61 @@ class CleanupHelperTests(unittest.TestCase):
         self.assertIn("not reachable", result.stderr)
         self.assertTrue((units / "taptune-bluetooth.service").exists())
 
+    def test_greeter_exclusion_is_persistent_without_an_account_or_running_manager(self):
+        dropin_dir = self.systemd_dir / "wireplumber.service.d"
+        dropin_dir.mkdir()
+        unrelated = dropin_dir / "local.conf"
+        unrelated.write_text("# keep the administrator's settings\n")
+        script = f'exclude_desktop_greeter_audio "{self.systemd_dir}" "{self.root / "run"}"'
+        for uid in ("", "278", "278"):
+            with self.subTest(greeter_uid=uid):
+                result, calls = self.run_helpers(script, FAKE_GREETER_UID=uid)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(calls, [])
+                self.assertEqual(
+                    (dropin_dir / "90-taptune-no-greeter.conf").read_text(),
+                    (REPO_ROOT / "systemd/wireplumber-taptune.conf").read_text(),
+                )
+                self.assertIn("ConditionUser=!lightdm", (dropin_dir / "90-taptune-no-greeter.conf").read_text())
+                self.assertEqual(unrelated.read_text(), "# keep the administrator's settings\n")
+
+    def test_running_greeter_is_stopped_in_its_own_session_before_audio_user_restarts(self):
+        runtime = self.root / "run/278"
+        runtime.mkdir(parents=True)
+        with socket.socket(socket.AF_UNIX) as bus:
+            bus.bind(str(runtime / "bus"))
+            result, calls = self.run_helpers(
+                f'exclude_desktop_greeter_audio "{self.systemd_dir}" "{runtime.parent}"; '
+                "systemctl --user daemon-reload; systemctl --user restart wireplumber.service",
+                FAKE_GREETER_UID="278",
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        greeter = (
+            f"sudo -u lightdm env XDG_RUNTIME_DIR={runtime} "
+            f"DBUS_SESSION_BUS_ADDRESS=unix:path={runtime}/bus systemctl --user"
+        )
+        self.assertEqual(calls, [
+            f"{greeter} daemon-reload",
+            "systemctl --user daemon-reload",
+            f"{greeter} stop wireplumber.service",
+            "systemctl --user stop wireplumber.service",
+            "systemctl --user daemon-reload",
+            "systemctl --user restart wireplumber.service",
+        ])
+
+    def test_failed_greeter_cleanup_stops_before_starting_the_audio_user(self):
+        runtime = self.root / "run/278"
+        runtime.mkdir(parents=True)
+        with socket.socket(socket.AF_UNIX) as bus:
+            bus.bind(str(runtime / "bus"))
+            result, calls = self.run_helpers(
+                f'exclude_desktop_greeter_audio "{self.systemd_dir}" "{runtime.parent}"; '
+                "systemctl --user restart wireplumber.service",
+                FAKE_GREETER_UID="278", FAKE_FAIL_COMMAND="--user stop wireplumber.service",
+            )
+        self.assertEqual(result.returncode, 23)
+        self.assertNotIn("systemctl --user restart wireplumber.service", calls)
+
 
 class DesktopInstallerTests(unittest.TestCase):
     def test_dry_run_starts_user_audio_at_boot_and_disables_seat_monitoring(self):
@@ -212,7 +286,27 @@ class DesktopInstallerTests(unittest.TestCase):
                     self.assertIn("systemctl --user disable --now taptune-bluetooth.service", result.stdout)
                     self.assertIn("systemctl --user disable --now taptune-ready-sound.service", result.stdout)
                     self.assertIn("sudo systemctl disable --now raspotify.service", result.stdout)
+                    for unit in ("spotifyd.service", "bluealsa-aplay.service"):
+                        self.assertIn(f"sudo systemctl disable --now {unit}", result.stdout)
+                        self.assertLess(
+                            result.stdout.index(f"sudo systemctl disable --now {unit}"),
+                            result.stdout.index("restart taptune-spotifyd.service"),
+                        )
+                    self.assertIn("systemctl --user disable --now spotifyd.service", result.stdout)
+                    self.assertLess(
+                        result.stdout.index("systemctl --user disable --now spotifyd.service"),
+                        result.stdout.index("restart taptune-spotifyd.service"),
+                    )
                     self.assertIn("sudo systemctl disable --now bluealsa.service", result.stdout)
+                    self.assertIn(
+                        "/etc/systemd/user/wireplumber.service.d/90-taptune-no-greeter.conf",
+                        result.stdout,
+                    )
+                    self.assertIn("systemctl --user stop wireplumber.service", result.stdout)
+                    self.assertLess(
+                        result.stdout.index("systemctl --user stop wireplumber.service"),
+                        result.stdout.index("systemctl --user restart wireplumber.service"),
+                    )
                     self.assertIn("sudo rm -f /etc/systemd/system/raspotify.service.d/taptune.conf", result.stdout)
                     self.assertNotIn("apt-get", result.stdout)
                     self.assertNotIn("enable --now bluetooth.service bluealsa", result.stdout)

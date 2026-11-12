@@ -96,7 +96,11 @@ download and execute the upstream Raspotify installer from
 deployment. Desktop does not download Spotifyd automatically: you supply a
 compatible binary and authenticate it first. The chosen installer disables
 competing receiver services and removes obsolete TapTune reconnect/chime units;
-it does not uninstall packages or manage other users' audio sessions.
+it does not uninstall packages. Desktop also disables the leftover BlueALSA
+player and excludes LightDM's login-screen WirePlumber so the lingering audio
+user owns Bluetooth audio. This disables login-screen sound, not desktop sound
+for the audio user. Other users' receiver services are not managed; see
+[Desktop service ownership](speaker-setup-desktop.md#what-completion-configures).
 
 On a **first Lite install**, now open Spotify on a phone/computer on the same
 network and choose **TapTune** in the device picker. This caches Raspotify's
