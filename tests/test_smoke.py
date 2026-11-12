@@ -162,7 +162,7 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(dispatch.get_json()['result']['action'], 'next')
 
     def test_volume_tags_can_be_assigned_and_dispatched_in_both_locales(self):
-        for path, action, expected in (("/assign", "up", 40), ("/fr/assign", "down", 30)):
+        for path, action, expected in (("/assign", "up", 20), ("/fr/assign", "down", 10)):
             value = f"action:volume_{action}"
             uid = f"VOLUME-{action}"
             response = self.client.post(path, data={"uid": uid, "value": value}, follow_redirects=True)

@@ -26,7 +26,7 @@ TapTune provides:
 - a local web page for browsing Spotify saved albums, playlists, recent albums and search results, assigning UIDs, and writing Spotify links to NFC tags with the Pi's reader;
 - Spotify playlist, album, track, and podcast-show playback; a show tag starts its newest playable episode;
 - play/pause, next-track and volume ±10-point actions;
-- a 30% startup volume for the Pi receiver;
+- a 10% startup volume and maximum 320 kbps audio bitrate for the Pi receiver;
 - SQLite storage for assignments and event records;
 - a searchable local activity log for tag playback results and app diagnostics;
 - a fake mode and simulator for testing without Spotify or NFC hardware;

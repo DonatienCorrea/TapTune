@@ -64,7 +64,7 @@ return here after each linked reference.
    complete [Desktop prerequisites](speaker-setup-desktop.md) through Spotifyd
    authentication and audio packages, but do not install services separately.
 4. **Review `.env`.** Keep `SPOTIFY_DEVICE_NAME=TapTune` consistent with the
-   receiver name, `SPOTIFY_INITIAL_VOLUME=30` for a safe starting level, and
+   receiver name, `SPOTIFY_INITIAL_VOLUME=10` for a safe starting level, and
    `DATABASE_PATH=./data/raspi_spotify_nfc.db` unless intentionally relocating
    the database. Set your real `BLUETOOTH_SPEAKER_MAC`.
 

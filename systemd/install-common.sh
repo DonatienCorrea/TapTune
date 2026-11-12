@@ -26,7 +26,7 @@ env_value() {
 initial_volume() {
   local volume
   volume="$(env_value SPOTIFY_INITIAL_VOLUME)"
-  volume="${volume:-30}"
+  volume="${volume:-10}"
   if ! printf '%s' "$volume" | grep -Eq '^(100|[1-9]?[0-9])$'; then
     echo "error: SPOTIFY_INITIAL_VOLUME must be an integer from 0 to 100" >&2
     return 1

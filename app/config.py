@@ -52,7 +52,7 @@ class Settings:
     # Name of the Spotify Connect receiver running on the Pi (raspotify/librespot).
     # Leave empty to only ever play on an already active device.
     SPOTIFY_DEVICE_NAME = os.getenv("SPOTIFY_DEVICE_NAME", "TapTune").strip()
-    SPOTIFY_INITIAL_VOLUME = parse_volume(os.getenv("SPOTIFY_INITIAL_VOLUME", "30"))
+    SPOTIFY_INITIAL_VOLUME = parse_volume(os.getenv("SPOTIFY_INITIAL_VOLUME", "10"))
     BLUETOOTH_SPEAKER_MAC = os.getenv("BLUETOOTH_SPEAKER_MAC", "").strip()
     # Set by `install-service.sh --desktop` in the systemd unit (not in .env): the
     # user whose PipeWire session plays Spotifyd. Empty on Lite (BlueALSA).

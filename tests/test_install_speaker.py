@@ -24,7 +24,8 @@ class InstallSpeakerScriptTests(unittest.TestCase):
         self.assertIn("LIBRESPOT_BACKEND=alsa", output)
         self.assertRegex(output, r'LIBRESPOT_NAME="[^"]+"')
         self.assertRegex(output, r'LIBRESPOT_DEVICE="[^"]+"')
-        self.assertIn("LIBRESPOT_INITIAL_VOLUME=30", output)
+        self.assertIn("LIBRESPOT_INITIAL_VOLUME=10", output)
+        self.assertIn("LIBRESPOT_BITRATE=320", output)
         self.assertIn("PROFILE=a2dp", output)
 
     def test_dry_run_reenables_credential_cache_so_login_survives_reboot(self):
@@ -69,8 +70,10 @@ class InstallSpeakerScriptTests(unittest.TestCase):
                         self.assertIn('LIBRESPOT_NAME="My TapTune"', result.stdout)
                         self.assertIn('LIBRESPOT_DEVICE="bluealsa:DEV=12:34:56:78:90:AB,PROFILE=a2dp"', result.stdout)
                         self.assertIn("LIBRESPOT_INITIAL_VOLUME=42", result.stdout)
+                        self.assertIn("LIBRESPOT_BITRATE=320", result.stdout)
                     else:
                         self.assertIn("initial_volume\\ =\\ 42", result.stdout)
+                        self.assertIn("bitrate\\ =\\ 320", result.stdout)
 
     def test_invalid_mac_and_volume_fail_before_installing(self):
         with tempfile.TemporaryDirectory() as directory:

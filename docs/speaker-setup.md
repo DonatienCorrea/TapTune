@@ -36,7 +36,7 @@ until BlueALSA is installed. Save the actual MAC in `.env`:
 ```dotenv
 BLUETOOTH_SPEAKER_MAC=AA:BB:CC:DD:EE:FF
 SPOTIFY_DEVICE_NAME=TapTune
-SPOTIFY_INITIAL_VOLUME=30
+SPOTIFY_INITIAL_VOLUME=10
 AUDIO_OUTPUT_DEVICE=bluealsa
 READY_SOUND_ENABLED=true
 ```
@@ -71,7 +71,8 @@ aplay -D 'bluealsa:DEV=AA:BB:CC:DD:EE:FF,PROFILE=a2dp' /usr/share/sounds/alsa/Fr
 
 Use your speaker's MAC. You should hear "Front center". A receiver visible in
 Spotify does not prove A2DP audio works. The Pi output is unmuted at full device
-level; listening volume is controlled by Spotify, initially 30%.
+level; listening volume is controlled by Spotify, initially 10%. Raspotify is
+configured for the maximum 320 kbps stream bitrate.
 
 Return to [Assign and verify a tag](raspberry-pi-service.md#assign-and-verify-a-tag)
 and the checklist's no-login cold-boot check. TapTune makes one bounded startup
@@ -89,7 +90,7 @@ If the speaker powers off, turn it on and tap a content/start tag. A manual
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `SPOTIFY_DEVICE_NAME` | `TapTune` | Local Connect name; must match the receiver. Spotify's current device is retained even while paused. |
-| `SPOTIFY_INITIAL_VOLUME` | `30` | Receiver startup volume, 0–100. |
+| `SPOTIFY_INITIAL_VOLUME` | `10` | Receiver startup volume, 0–100. |
 | `BLUETOOTH_SPEAKER_MAC` | empty | Paired speaker address used at startup and local music start/resume. |
 | `AUDIO_OUTPUT_DEVICE` | `bluealsa` | Expanded to the configured MAC's A2DP device; never silently falls back to HDMI. |
 | `READY_SOUND_ENABLED` | `true` | Set `false` to disable the chime. |
