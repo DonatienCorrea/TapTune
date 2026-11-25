@@ -31,7 +31,10 @@ taptune setup-wifi
 
 Exécutez cette commande avant de déplacer le Pi pour réafficher le QR et le
 mot de passe. `taptune reset` les affiche aussi avant d’effacer les réseaux
-Wi-Fi enregistrés.
+Wi-Fi enregistrés. L’installation et la mise à jour du service en mode Lite ou
+Desktop installent automatiquement le générateur de QR sans changer le mot de
+passe du point d’accès. S’il manque, `taptune setup-wifi` affiche quand même le
+mot de passe ; exécutez `taptune update` pour rétablir l’affichage du QR.
 
 1. Démarrez le Pi au nouvel emplacement. Scannez le QR dans les réglages Wi-Fi
    du téléphone ou choisissez `TapTune-Setup` et saisissez le mot de passe

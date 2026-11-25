@@ -100,6 +100,7 @@ class InstallServiceScriptTests(unittest.TestCase):
                     self.assertNotIn("TAPTUNE_HTTP_PORT_80", output)
                     self.assertNotIn("TAPTUNE_WIFI_SETUP", output)
                     self.assertNotIn("TapTune-Setup", output)
+                    self.assertNotIn("qrencode", output)
                 else:
                     self.assertIn("Environment=TAPTUNE_HTTP_PORT_80=true", output)
                     self.assertIn("Environment=TAPTUNE_WIFI_SETUP=true", output)
@@ -129,7 +130,7 @@ class InstallServiceScriptTests(unittest.TestCase):
             exec_path = path.replace("$", "$$")
             self.assertIn(f'ExecStart="{exec_path}/.venv/bin/python"', result.stdout)
 
-    def test_reinstall_restarts_existing_service_without_real_system_changes(self):
+    def test_reinstall_adds_missing_qr_encoder_on_pi_even_without_active_network_manager(self):
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory) / "TapTune"
             shutil.copytree(REPO_ROOT / "systemd", repo / "systemd")
@@ -139,20 +140,32 @@ class InstallServiceScriptTests(unittest.TestCase):
             python.chmod(0o755)
             (repo / ".env").write_text("NFC_READER_ENABLED=false\n")
             log = Path(directory) / "calls"
-            sudo = Path(directory) / "sudo"
-            sudo.write_text(
-                '#!/bin/sh\nprintf "%s\\n" "$*" >> "$CALL_LOG"\n'
-                'if [ "$1" = tee ]; then cat >/dev/null; fi\n'
-            )
-            sudo.chmod(0o755)
-            env = dict(os.environ, PATH=directory + os.pathsep + os.environ["PATH"], CALL_LOG=str(log))
-            subprocess.run(
-                ["bash", str(repo / "systemd/install-service.sh")],
-                env=env, capture_output=True, text=True, check=True,
-            )
-            calls = log.read_text().splitlines()
-            self.assertIn("systemctl enable raspi-spotify-nfc.service", calls)
-            self.assertIn("systemctl restart raspi-spotify-nfc.service", calls)
+            bin_dir = Path(directory) / "bin"
+            bin_dir.mkdir()
+            for tool in ("cat", "cmp", "cut", "dirname", "grep", "sed", "tail"):
+                (bin_dir / tool).symlink_to(shutil.which(tool))
+            for tool, script in (
+                ("id", 'if [ "$1" = -u ]; then echo 1000; else echo pi; fi'),
+                ("nmcli", "exit 0"),
+                ("systemctl", "exit 3"),
+                ("sudo", 'printf "%s\\n" "$*" >> "$CALL_LOG"\n'
+                         'if [ "$1" = tee ]; then cat >/dev/null; fi'),
+            ):
+                executable = bin_dir / tool
+                executable.write_text(f"#!/bin/sh\n{script}\n")
+                executable.chmod(0o755)
+            env = dict(os.environ, PATH=str(bin_dir), CALL_LOG=str(log))
+            for mode, install_qr in (("app-only", False), ("lite", True), ("desktop", True)):
+                with self.subTest(mode=mode):
+                    log.write_text("")
+                    subprocess.run(
+                        [shutil.which("bash"), str(repo / "systemd/install-service.sh"), f"--{mode}"],
+                        env=env, capture_output=True, text=True, check=True,
+                    )
+                    calls = log.read_text().splitlines()
+                    self.assertEqual("apt-get install -y qrencode" in calls, install_qr)
+                    self.assertIn("systemctl enable raspi-spotify-nfc.service", calls)
+                    self.assertIn("systemctl restart raspi-spotify-nfc.service", calls)
 
 
 if __name__ == "__main__":

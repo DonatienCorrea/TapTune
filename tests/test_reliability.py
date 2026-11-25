@@ -319,7 +319,19 @@ class TaptuneResetTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("QR[WIFI:T:WPA;S:TapTune-Setup;P:0123456789abcdef0123;;]", result.stdout)
         self.assertIn("Password: 0123456789abcdef0123", result.stdout)
-        self.assertIn("Keep this code and password private", result.stdout)
+        self.assertIn("Keep these credentials private", result.stdout)
+
+    def test_setup_wifi_shows_password_without_the_qr_encoder(self):
+        bin_dir = self.repo / "bin"
+        (bin_dir / "qrencode").unlink()
+        (bin_dir / "dirname").symlink_to(shutil.which("dirname"))
+        result = subprocess.run(
+            [shutil.which("bash"), str(self.repo / "taptune"), "setup-wifi"],
+            env=dict(self.env, PATH=str(bin_dir)), capture_output=True, text=True, check=True,
+        )
+        self.assertIn("Password: 0123456789abcdef0123", result.stdout)
+        self.assertNotIn("Scan this code", result.stdout)
+        self.assertIn("QR code unavailable; run 'taptune update'", result.stderr)
 
     def test_setup_wifi_rejects_an_unexpected_or_missing_password(self):
         (self.repo / "bin/nmcli").write_text("#!/bin/sh\necho 'not-a-valid-key'\n")
