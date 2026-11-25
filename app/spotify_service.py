@@ -599,13 +599,24 @@ def _librespot_command(device: dict, endpoint: str, **fields) -> dict:
 
 
 def _librespot_latest_episode(show_id: str) -> Optional[dict]:
-    """Latest episode via the Web API: developer credentials if set, else go-librespot's session token."""
+    """Latest episode via the Web API: developer credentials if set, then go-librespot's session token."""
+    def receiver_client():
+        access_token = librespot.token()
+        if not access_token or Spotify is None:
+            raise RuntimeError("no Spotify access token from go-librespot")
+        return Spotify(auth=access_token, requests_timeout=SPOTIFY_REQUEST_TIMEOUT_SECONDS)
+
+    sources = [("go-librespot token", receiver_client)]
     if is_live_spotify_configured():
-        return _latest_episode(build_spotify_client(), show_id)
-    access_token = librespot.token()
-    if not access_token or Spotify is None:
-        raise RuntimeError("no Spotify access token from go-librespot")
-    return _latest_episode(Spotify(auth=access_token, requests_timeout=SPOTIFY_REQUEST_TIMEOUT_SECONDS), show_id)
+        sources.insert(0, ("developer credentials", build_spotify_client))
+    errors = []
+    for label, make_client in sources:
+        try:
+            return _latest_episode(make_client(), show_id)
+        except Exception as error:  # noqa: BLE001 - try the next Web API source.
+            logger.info("Latest-episode lookup with %s failed: %s", label, error)
+            errors.append(f"{label}: {error}")
+    raise RuntimeError("; ".join(errors))
 
 
 def _librespot_play(kind: str, item_id: str, uri: str, position_ms: int) -> dict:
