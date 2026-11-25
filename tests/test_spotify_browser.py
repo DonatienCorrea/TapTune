@@ -24,8 +24,8 @@ class SpotifyBrowserTests(unittest.TestCase):
     def setUp(self):
         self.spotify = Mock()
         self.patches = [
-            patch.object(spotify_browser, "is_live_spotify_configured", return_value=True),
-            patch.object(spotify_browser, "build_spotify_client", return_value=self.spotify),
+            patch.object(spotify_browser, "is_web_api_configured", return_value=True),
+            patch.object(spotify_browser, "build_web_api_client", return_value=self.spotify),
         ]
         for patcher in self.patches:
             patcher.start()
@@ -123,10 +123,10 @@ class SpotifyBrowserTests(unittest.TestCase):
         ]:
             with self.subTest(collection=collection, params=params), self.assertRaises(ValueError):
                 spotify_browser.browse_music(collection, **params)
-        spotify_browser.build_spotify_client.assert_not_called()
+        spotify_browser.build_web_api_client.assert_not_called()
 
     def test_demo_is_explicit_and_never_calls_spotify(self):
-        with patch.object(spotify_browser, "is_live_spotify_configured", return_value=False):
+        with patch.object(spotify_browser, "is_web_api_configured", return_value=False):
             for collection in ("albums", "playlists", "recent"):
                 result = spotify_browser.browse_music(collection)
                 self.assertEqual(result["mode"], "fake")
@@ -135,7 +135,7 @@ class SpotifyBrowserTests(unittest.TestCase):
             self.assertEqual(spotify_browser.browse_music("search", query="no match")["items"], [])
             self.assertEqual(spotify_browser.browse_music("search", query="workshop", kind="show")["items"][0]["uri"],
                              "spotify:show:demoshow")
-        spotify_browser.build_spotify_client.assert_not_called()
+        spotify_browser.build_web_api_client.assert_not_called()
 
     def test_unsafe_image_and_unsupported_uri_are_not_exposed(self):
         item = album()
@@ -159,6 +159,7 @@ class MusicWebTests(unittest.TestCase):
         patcher = patch.multiple(
             config.settings, DATABASE_PATH=str(Path(temporary.name) / "tags.db"),
             NFC_READER_ENABLED=False, SPOTIFY_CLIENT_ID="", SPOTIFY_CLIENT_SECRET="", SPOTIFY_REFRESH_TOKEN="",
+            SPOTIFY_RECEIVER="legacy",
         )
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -191,6 +192,8 @@ class MusicWebTests(unittest.TestCase):
                 self.assertNotIn(secret, page.data)
             # Rendering reports configuration, not a successful API connection.
             browse.assert_not_called()
+        with patch.object(config.settings, "SPOTIFY_RECEIVER", "go-librespot"):
+            self.assertIn("Checking Spotify".encode(), self.client.get("/").data)
 
     def test_saved_assignment_keeps_advanced_form_open(self):
         response = self.client.post("/assign", data={"uid": "040102", "value": "spotify:album:abc"},
@@ -237,6 +240,18 @@ class MusicWebTests(unittest.TestCase):
             (SpotifyOauthError("secret", error="invalid_grant"), "spotify_auth_error", 403),
             (ConnectionError("secret"), "spotify_unavailable", 502),
             (SpotifyException(500, -1, "secret"), "spotify_unavailable", 502),
+        ):
+            with self.subTest(code=code), patch("app.web.browse_music", side_effect=error):
+                response = self.client.get("/api/music")
+                self.assertEqual(response.status_code, status)
+                self.assertEqual(response.json, {"error": code})
+                self.assertNotIn(b"secret", response.data)
+
+    def test_go_librespot_sign_in_errors_are_actionable(self):
+        from app.librespot import LibrespotUnavailable, NotLoggedIn
+        for error, code, status in (
+            (NotLoggedIn("secret"), "spotify_not_signed_in", 409),
+            (LibrespotUnavailable("secret"), "spotify_unavailable", 502),
         ):
             with self.subTest(code=code), patch("app.web.browse_music", side_effect=error):
                 response = self.client.get("/api/music")

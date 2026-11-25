@@ -12,7 +12,7 @@ Lite, PipeWire runs in the background without a desktop.
 | Receiver | go-librespot | Raspotify (Lite), Spotifyd (Desktop) |
 | Audio | PipeWire on both | BlueALSA (Lite), PipeWire (Desktop) |
 | Spotify sign-in | Choose TapTune once in the Spotify app | Receiver login, plus a Web API refresh token |
-| Spotify Developer app | Only for the music browser on the web page | Required |
+| Spotify Developer app | Not needed (optional fallback) | Required |
 
 ## Sign in once
 
@@ -52,10 +52,14 @@ before checking. A Bluetooth connection alone does not confirm A2DP.
   filled them in, then the sign-in that go-librespot already has. If neither
   works, the show plays from its start. If that happens, fill in the
   credentials below.
-- **The music browser** (saved albums, playlists, search) still uses the Spotify
-  Web API. It is optional: to use it, fill in `SPOTIFY_CLIENT_ID`,
-  `SPOTIFY_CLIENT_SECRET` and `SPOTIFY_REFRESH_TOKEN` as described in
-  [Spotify authorization](spotify-authorization.md).
+- **The music browser** (saved albums, playlists, recently played, search)
+  uses the Spotify Web API with the sign-in that go-librespot already has, so
+  it works without a Spotify Developer app. If the Pi is not signed in yet, the
+  page asks you to choose TapTune once in Spotify → Devices. If you filled in
+  `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` and `SPOTIFY_REFRESH_TOKEN`
+  ([Spotify authorization](spotify-authorization.md)), TapTune uses those
+  instead. If Spotify refuses or rate-limits the go-librespot sign-in, adding
+  these credentials is the fallback.
 
 ## Move an existing install
 
