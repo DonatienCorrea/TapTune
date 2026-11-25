@@ -18,7 +18,11 @@ except ModuleNotFoundError:  # pragma: no cover - exercised when the optional de
     MemoryCacheHandler = None
 
 try:
+    from requests import Session
+    from requests.adapters import HTTPAdapter
     from requests.exceptions import ConnectionError as RequestsConnectionError, Timeout as RequestsTimeout
+    from urllib3.util.retry import Retry
+
     NETWORK_ERRORS: tuple = (RequestsConnectionError, RequestsTimeout)
 except ModuleNotFoundError:  # pragma: no cover - requests ships with spotipy.
     NETWORK_ERRORS = ()
@@ -227,6 +231,19 @@ def is_web_api_configured() -> bool:
     return is_live_spotify_configured() or uses_librespot()
 
 
+def _web_api_session() -> Session:
+    # urllib3 retries a 429 with Retry-After even if 429 isn't in status_forcelist.
+    # Pass that response to TapTune so it can enforce the cooldown without sleeping.
+    retry = Retry(
+        total=3, read=False, allowed_methods=frozenset({"GET"}),
+        status_forcelist=(500, 502, 503, 504), backoff_factor=0.3,
+        respect_retry_after_header=False, raise_on_status=False,
+    )
+    session = Session()
+    session.mount("https://", HTTPAdapter(max_retries=retry))
+    return session
+
+
 def build_receiver_spotify_client() -> Any:
     """A Web API client using go-librespot's session token (no developer app needed)."""
     access_token = librespot.token()
@@ -234,18 +251,16 @@ def build_receiver_spotify_client() -> Any:
         raise librespot.NotLoggedIn("no Spotify access token from go-librespot")
     if Spotify is None:
         raise RuntimeError("Spotify support requires the 'spotipy' dependency.")
-    # Spotify can answer 429 with a Retry-After of minutes or hours; spotipy's
-    # default retries would sleep through it and leave the music page hanging.
     return Spotify(
         auth=access_token, requests_timeout=SPOTIFY_REQUEST_TIMEOUT_SECONDS,
-        status_forcelist=(500, 502, 503, 504),
+        requests_session=_web_api_session(),
     )
 
 
 def build_web_api_client() -> Any:
     """Developer credentials when set, otherwise go-librespot's sign-in."""
     if is_live_spotify_configured() or not uses_librespot():
-        return build_spotify_client()
+        return build_spotify_client(for_browsing=True)
     return build_receiver_spotify_client()
 
 
@@ -257,7 +272,7 @@ def get_tag_type(value: str) -> Optional[str]:
     return None
 
 
-def build_spotify_client() -> Any:
+def build_spotify_client(*, for_browsing: bool = False) -> Any:
     global _fake_spotify_client
 
     if not is_live_spotify_configured():
@@ -280,7 +295,10 @@ def build_spotify_client() -> Any:
         requests_timeout=SPOTIFY_REQUEST_TIMEOUT_SECONDS,
     )
     _refresh_token_with_retries(auth_manager)
-    return Spotify(auth_manager=auth_manager, requests_timeout=SPOTIFY_REQUEST_TIMEOUT_SECONDS)
+    return Spotify(
+        auth_manager=auth_manager, requests_timeout=SPOTIFY_REQUEST_TIMEOUT_SECONDS,
+        requests_session=_web_api_session() if for_browsing else True,
+    )
 
 
 def find_device(spotify: Any, name: Optional[str] = None) -> Optional[dict]:

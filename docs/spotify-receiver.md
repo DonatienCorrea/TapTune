@@ -58,8 +58,10 @@ before checking. A Bluetooth connection alone does not confirm A2DP.
   page asks you to choose TapTune once in Spotify → Devices. If you filled in
   `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` and `SPOTIFY_REFRESH_TOKEN`
   ([Spotify authorization](spotify-authorization.md)), TapTune uses those
-  instead. If Spotify refuses or rate-limits the go-librespot sign-in, adding
-  these credentials is the fallback.
+  instead. If Spotify rate-limits browsing, TapTune shows a message and waits
+  for Spotify's cooldown before making another browse request. If Spotify
+  consistently refuses the go-librespot sign-in, adding developer credentials
+  is the fallback.
 
 ## Move an existing install
 
