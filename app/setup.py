@@ -89,16 +89,20 @@ def write_env(updates: Dict[str, str], path: Path = ENV_PATH) -> None:
         os.close(directory)
 
 
-def restart_service(runner: Callable = subprocess.Popen) -> bool:
-    """Restart after the HTTP response has been sent; best effort."""
+def restart_service(runner: Callable = subprocess.run) -> bool:
+    """Ask systemd to restart the service; True only if systemd accepted the job.
+
+    Uses --no-block so the call returns before this process is stopped. Callers
+    must not report a restart unless this returns True.
+    """
     try:
-        runner(
-            ["sh", "-c", f"sleep 1; sudo -n systemctl restart {SERVICE_NAME}"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+        result = runner(
+            ["sudo", "-n", "systemctl", "--no-block", "restart", SERVICE_NAME],
+            capture_output=True, text=True, timeout=10,
         )
-        return True
-    except OSError:
+    except (OSError, subprocess.SubprocessError):
         return False
+    return result.returncode == 0
 
 
 def _run(args: List[str], runner: Callable) -> Optional[str]:
@@ -153,7 +157,34 @@ def setup_steps() -> List[dict]:
     return [wifi_status(), bluetooth_status(), spotify_status()]
 
 
-def setup_complete(steps: Optional[List[dict]] = None) -> bool:
-    if settings.SETUP_SKIP:
+def _marker_path() -> Path:
+    return Path(settings.DATABASE_PATH).parent / "setup_complete"
+
+
+def configured_manually() -> bool:
+    """Existing installs (credentials and speaker already in .env) skip onboarding."""
+    return bool(is_live_spotify_configured() and settings.BLUETOOTH_SPEAKER_MAC.strip())
+
+
+def mark_complete() -> None:
+    try:
+        marker = _marker_path()
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.touch()
+    except OSError:
+        pass
+
+
+def onboarding_complete() -> bool:
+    """Stable first-run state: never depends on live Wi-Fi or speaker power."""
+    if settings.SETUP_SKIP or configured_manually():
         return True
-    return all(step["state"] == "done" for step in (steps if steps is not None else setup_steps()))
+    return _marker_path().exists()
+
+
+def setup_complete(steps: Optional[List[dict]] = None) -> bool:
+    """Live readiness of every step; latches onboarding as complete once true."""
+    done = all(step["state"] == "done" for step in (steps if steps is not None else setup_steps()))
+    if done:
+        mark_complete()
+    return done

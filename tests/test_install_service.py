@@ -35,6 +35,12 @@ class InstallServiceScriptTests(unittest.TestCase):
         output = self.run_dry_run(REPO_ROOT)
         self.assertIn("[Service]", output)
 
+    def test_installer_enables_avahi_without_touching_hostname_or_hosts(self):
+        script = SCRIPT_PATH.read_text()
+        self.assertIn("avahi-daemon", script)
+        self.assertNotIn("hostnamectl", script)
+        self.assertNotIn("/etc/hosts", script)
+
     def test_rejects_unknown_argument(self):
         result = subprocess.run(
             ["bash", str(SCRIPT_PATH), "--bogus"],

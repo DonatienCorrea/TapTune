@@ -383,7 +383,7 @@ def create_app() -> Flask:
         )
 
     def setup_redirect(locale):
-        if setup_state.setup_complete():
+        if setup_state.onboarding_complete():
             return None
         return redirect("/fr/setup" if locale == "fr" else "/setup")
 
@@ -403,38 +403,12 @@ def create_app() -> Flask:
     @app.get("/fr/setup")
     def setup_page():
         return render_setup("fr" if request.path.startswith("/fr/") else "en",
-                            request.args.get("saved") and "saved")
+                            None)
 
     @app.get("/api/setup")
     def setup_api():
         steps = setup_state.setup_steps()
         return api_response({"steps": steps, "complete": setup_state.setup_complete(steps)})
-
-    @app.post("/setup")
-    @app.post("/fr/setup")
-    def setup_save():
-        locale = "fr" if request.path.startswith("/fr/") else "en"
-        origin = request.headers.get("Origin")
-        if request.headers.get("Sec-Fetch-Site") == "cross-site" or (
-            origin and urlsplit(origin)[:2] != urlsplit(request.host_url)[:2]
-        ):
-            return render_setup(locale, "invalid_origin", 403)
-        # Blank fields keep the stored value instead of erasing it.
-        updates = {
-            key: request.form[key].strip() for key in setup_state.EDITABLE_KEYS
-            if request.form.get(key, "").strip()
-        }
-        try:
-            if updates:
-                setup_state.write_env(updates)
-        except setup_state.InvalidSetting:
-            return render_setup(locale, "invalid", 400)
-        except OSError:
-            app.logger.exception("Could not save setup settings.")
-            return render_setup(locale, "write_failed", 500)
-        if updates:
-            setup_state.restart_service()
-        return redirect(("/fr/setup" if locale == "fr" else "/setup") + "?saved=1", 303)
 
     @app.get("/")
     def index_en():

@@ -69,48 +69,67 @@ class StatusTests(unittest.TestCase):
             self.assertEqual(setup.bluetooth_status(runner_for({}))["reason"], "not_paired")
 
 
+TODO = [
+    {"id": "wifi", "state": "todo", "reason": "disconnected"},
+    {"id": "bluetooth", "state": "attention", "reason": "not_connected", "detail": "AA:BB:CC:DD:EE:FF"},
+    {"id": "spotify", "state": "done", "reason": "configured"},
+]
+
+
 class RouteTests(unittest.TestCase):
     def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
         for p in (patch.object(config.settings, "SETUP_SKIP", False),
-                  patch("app.setup.setup_steps", return_value=[
-                      {"id": "wifi", "state": "done", "reason": "wired"},
-                      {"id": "bluetooth", "state": "todo", "reason": "not_configured"},
-                      {"id": "spotify", "state": "todo", "reason": "not_configured"}])):
+                  patch.object(config.settings, "DATABASE_PATH", str(Path(self.dir.name) / "t.db")),
+                  patch.object(config.settings, "BLUETOOTH_SPEAKER_MAC", ""),
+                  patch.object(config.settings, "SPOTIFY_CLIENT_ID", ""),
+                  patch("app.setup.setup_steps", return_value=TODO)):
             p.start()
             self.addCleanup(p.stop)
         self.client = create_app().test_client()
 
-    def test_incomplete_setup_redirects_home_in_both_languages(self):
+    def test_first_run_redirects_home_in_both_languages(self):
         self.assertEqual(self.client.get("/").headers["Location"], "/setup")
         self.assertEqual(self.client.get("/fr/").headers["Location"], "/fr/setup")
 
-    def test_setup_pages_show_status_in_both_languages(self):
+    def test_setup_pages_show_live_status_in_both_languages(self):
         en = self.client.get("/setup").get_data(as_text=True)
         fr = self.client.get("/fr/setup").get_data(as_text=True)
-        self.assertIn('data-step="bluetooth" data-state="todo"', en)
-        self.assertIn("No speaker chosen", en)
-        self.assertIn("Aucune enceinte choisie", fr)
-        self.assertEqual(self.client.get("/api/setup").get_json()["complete"], False)
+        self.assertIn('data-step="bluetooth" data-state="attention"', en)
+        self.assertIn("Speaker saved but not connected", en)
+        self.assertIn("Enceinte enregistrée mais non connectée", fr)
+        self.assertFalse(self.client.get("/api/setup").get_json()["complete"])
 
-    def test_complete_setup_serves_home(self):
+    def test_manually_configured_pi_keeps_home_when_speaker_or_network_is_down(self):
+        with patch.multiple(config.settings, SPOTIFY_CLIENT_ID="i", SPOTIFY_CLIENT_SECRET="s",
+                            SPOTIFY_REFRESH_TOKEN="t", BLUETOOTH_SPEAKER_MAC="AA:BB:CC:DD:EE:FF"):
+            self.assertEqual(self.client.get("/").status_code, 200)
+            self.assertEqual(self.client.get("/fr/").status_code, 200)
+
+    def test_completed_setup_is_latched_so_later_outages_keep_home(self):
         done = [{"id": i, "state": "done", "reason": "x"} for i in ("wifi", "bluetooth", "spotify")]
         with patch("app.setup.setup_steps", return_value=done):
-            self.assertEqual(self.client.get("/").status_code, 200)
+            self.assertTrue(self.client.get("/api/setup").get_json()["complete"])
+        self.assertEqual(self.client.get("/").status_code, 200)
+        self.assertEqual(self.client.get("/fr/").status_code, 200)
+        self.assertFalse(self.client.get("/api/setup").get_json()["complete"])
 
-    def test_save_writes_env_and_restarts_and_rejects_cross_site(self):
-        with patch("app.setup.write_env") as write, patch("app.setup.restart_service") as restart:
-            response = self.client.post("/setup", data={"SPOTIFY_CLIENT_ID": "id", "SPOTIFY_CLIENT_SECRET": ""})
-            self.assertEqual(response.status_code, 303)
-            write.assert_called_once_with({"SPOTIFY_CLIENT_ID": "id"})
-            restart.assert_called_once()
-            write.reset_mock()
-            blocked = self.client.post("/setup", data={"SPOTIFY_CLIENT_ID": "id"}, headers={"Sec-Fetch-Site": "cross-site"})
-            self.assertEqual(blocked.status_code, 403)
+    def test_setup_does_not_accept_or_expose_settings(self):
+        with patch("app.setup.write_env") as write:
+            self.assertEqual(self.client.post("/setup", data={"SPOTIFY_CLIENT_ID": "x"}).status_code, 405)
+            self.assertEqual(self.client.post("/fr/setup", data={"SPOTIFY_CLIENT_ID": "x"}).status_code, 405)
             write.assert_not_called()
-        with patch("app.setup.restart_service") as restart:
-            bad = self.client.post("/setup", data={"BLUETOOTH_SPEAKER_MAC": "zz"})
-            self.assertEqual(bad.status_code, 400)
-            restart.assert_not_called()
+        self.assertNotIn("<input", self.client.get("/setup").get_data(as_text=True))
+
+
+class RestartTests(unittest.TestCase):
+    def test_only_reports_success_when_systemd_accepts_the_restart(self):
+        self.assertTrue(setup.restart_service(lambda *a, **k: CompletedProcess(a, 0, "", "")))
+        self.assertFalse(setup.restart_service(lambda *a, **k: CompletedProcess(a, 1, "", "")))
+        def boom(*a, **k):
+            raise OSError
+        self.assertFalse(setup.restart_service(boom))
 
 
 if __name__ == "__main__":

@@ -75,27 +75,19 @@ esac
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "# $MODE setup: $UNIT_DST"
   printf '%s\n' "$RENDERED"
-  echo "# mDNS: install avahi-daemon and set hostname taptune (taptune.local)"
+  echo "# mDNS: install and enable avahi-daemon (existing hostname is kept)"
   remove_legacy_system_units
   exit 0
 fi
 
 remove_legacy_system_units
 
-# taptune.local must resolve from a phone: mDNS via avahi and a "taptune" hostname.
+# Advertise <hostname>.local over mDNS. The Pi's chosen hostname and
+# /etc/hosts are left untouched.
 if ! command -v avahi-daemon >/dev/null 2>&1; then
   sudo apt-get install -y avahi-daemon
 fi
 sudo systemctl enable --now avahi-daemon.service
-if [ "$(hostname)" != "taptune" ]; then
-  sudo hostnamectl set-hostname taptune
-  if grep -q '^127\.0\.1\.1' /etc/hosts; then
-    sudo sed -i 's/^127\.0\.1\.1.*/127.0.1.1\ttaptune/' /etc/hosts
-  else
-    printf '127.0.1.1\ttaptune\n' | sudo tee -a /etc/hosts > /dev/null
-  fi
-  sudo systemctl restart avahi-daemon.service
-fi
 
 printf '%s\n' "$RENDERED" | sudo tee "$UNIT_DST" > /dev/null
 sudo chmod 644 "$UNIT_DST"

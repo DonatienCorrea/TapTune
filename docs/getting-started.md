@@ -86,3 +86,9 @@ The default database is `data/raspi_spotify_nfc.db`. It is ignored by Git.
 - Connect live playback with [Spotify authorization](spotify-authorization.md).
 - Prepare the physical reader with [Hardware setup](hardware-setup.md).
 - Install the long-running Pi service with [Raspberry Pi service](raspberry-pi-service.md).
+
+## Reaching TapTune from your phone
+
+TapTune enables Avahi (mDNS) when the service is installed, so the Pi answers at `<hostname>.local`. In Raspberry Pi Imager, set the hostname to `taptune` and open `http://taptune.local:5000/setup`. An existing installation keeps its hostname: use `http://<hostname>.local:5000/setup` (run `hostname` on the Pi). The installer never changes the hostname or `/etc/hosts`.
+
+The setup page shows live Wi-Fi, speaker and Spotify status. The home page only redirects to setup on a first run; installations whose `.env` already has the speaker and Spotify credentials, or that completed setup once, keep their home page even when the speaker is off or the network drops. The setup page does not accept settings yet, so credentials are never exposed to the local network.

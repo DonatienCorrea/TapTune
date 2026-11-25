@@ -29,12 +29,6 @@
     'not_configured': 'Identifiant, secret et jeton Spotify requis.' if fr else 'Spotify client ID, secret and refresh token required.'
   }
 } %}
-{% set messages = {
-  'saved': 'Réglages enregistrés. TapTune redémarre, rechargez dans un instant.' if fr else 'Settings saved. TapTune is restarting; reload in a moment.',
-  'invalid': 'Valeur invalide. Vérifiez les champs.' if fr else 'Invalid value. Check the fields.',
-  'invalid_origin': 'Requête refusée. Rechargez la page.' if fr else 'Request refused. Reload the page.',
-  'write_failed': 'Impossible d’enregistrer les réglages.' if fr else 'Could not save the settings.'
-} %}
 <html lang="{{ locale }}">
 <head>
   <meta charset="utf-8">
@@ -52,7 +46,6 @@
     </header>
     <main class="log-page">
       <h1>{{ 'Configuration' if fr else 'Setup' }}</h1>
-      {% if message %}<p role="status" class="music-caption">{{ messages[message] }}</p>{% endif %}
       {% if complete %}
       <p role="status"><strong>{{ 'Tout est prêt.' if fr else 'Everything is ready.' }}</strong> <a href="{{ home_url }}">{{ 'Créer un tag' if fr else 'Make a tag' }}</a></p>
       {% endif %}
@@ -64,26 +57,9 @@
         </li>
         {% endfor %}
       </ol>
-      <form method="post" action="{{ action }}" class="setup-form">
-        <div class="field">
-          <label for="mac">{{ 'Adresse Bluetooth de l’enceinte' if fr else 'Speaker Bluetooth address' }}</label>
-          <input id="mac" name="BLUETOOTH_SPEAKER_MAC" inputmode="text" autocomplete="off" placeholder="AA:BB:CC:DD:EE:FF" maxlength="17">
-        </div>
-        <div class="field">
-          <label for="cid">Spotify client ID</label>
-          <input id="cid" name="SPOTIFY_CLIENT_ID" autocomplete="off" autocapitalize="off" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="secret">Spotify client secret</label>
-          <input id="secret" name="SPOTIFY_CLIENT_SECRET" type="password" autocomplete="off">
-        </div>
-        <div class="field">
-          <label for="token">Spotify refresh token</label>
-          <input id="token" name="SPOTIFY_REFRESH_TOKEN" type="password" autocomplete="off">
-        </div>
-        <p class="music-caption">{{ 'Les champs vides conservent la valeur actuelle (sauf l’adresse Bluetooth).' if fr else 'Empty fields keep the current value (except the Bluetooth address).' }}</p>
-        <button type="submit" class="badge">{{ 'Enregistrer' if fr else 'Save' }}</button>
-      </form>
+      {% if not complete %}
+      <p class="music-caption">{{ 'Le pas à pas de configuration depuis le téléphone arrive prochainement. En attendant, renseignez BLUETOOTH_SPEAKER_MAC et les identifiants SPOTIFY_* dans le fichier .env, puis redémarrez TapTune.' if fr else 'Guided phone setup is coming. Until then, set BLUETOOTH_SPEAKER_MAC and the SPOTIFY_* credentials in the .env file, then restart TapTune.' }}</p>
+      {% endif %}
     </main>
   </div>
 </body>
