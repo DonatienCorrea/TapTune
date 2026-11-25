@@ -10,7 +10,7 @@ from app import config, readiness
 
 class ReadySoundTests(unittest.TestCase):
     def setUp(self):
-        patcher = patch.object(config.settings, "BLUETOOTH_SPEAKER_MAC", "")
+        patcher = patch.multiple(config.settings, SPOTIFY_RECEIVER="legacy", BLUETOOTH_SPEAKER_MAC="")
         patcher.start()
         self.addCleanup(patcher.stop)
 

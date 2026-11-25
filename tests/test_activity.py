@@ -21,6 +21,7 @@ class ActivityTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         settings = patch.multiple(
             config.settings, DATABASE_PATH=str(Path(temporary.name) / "activity.db"),
+            SPOTIFY_RECEIVER="legacy",
             SPOTIFY_CLIENT_ID="", SPOTIFY_CLIENT_SECRET="", SPOTIFY_REFRESH_TOKEN="",
         )
         settings.start()
