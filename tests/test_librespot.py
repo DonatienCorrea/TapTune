@@ -107,6 +107,8 @@ class FakeLibrespot:
 
 class PlaybackTests(unittest.TestCase):
     def setUp(self):
+        spotify_service.clear_web_api_state()
+        self.addCleanup(spotify_service.clear_web_api_state)
         for p in (patch.multiple(config.settings, SPOTIFY_RECEIVER="go-librespot", SPOTIFY_DEVICE_NAME="TapTune",
                                  BLUETOOTH_SPEAKER_MAC="AA:BB:CC:DD:EE:FF", SPOTIFY_CLIENT_ID="",
                                  SPOTIFY_CLIENT_SECRET="", SPOTIFY_REFRESH_TOKEN=""),
@@ -194,12 +196,30 @@ class PlaybackTests(unittest.TestCase):
                 patch("app.spotify_service._latest_episode", side_effect=lookup):
             self.assertEqual(spotify_service.play_content("spotify:show:s")["uri"], "spotify:episode:new")
         # Developer credentials failing: the receiver's token is used instead.
+        spotify_service.clear_web_api_state()
         fake.access_token = "tok"
         with patch("app.spotify_service.build_spotify_client", side_effect=RuntimeError("revoked")), \
                 patch("app.spotify_service.Spotify", return_value=receiver_client), \
                 patch("app.spotify_service._latest_episode", side_effect=lookup):
             self.assertEqual(spotify_service.play_content("spotify:show:s")["uri"], "spotify:episode:new")
         self.assertEqual([body["skip_to_uri"] for _, body in fake.posts], ["spotify:episode:new"] * 2)
+
+    def test_show_lookup_is_cached_and_skipped_while_rate_limited(self):
+        from spotipy import SpotifyException
+        fake = self.use(FakeLibrespot(status={}))
+        episode = {"uri": "spotify:episode:new", "name": "Latest"}
+        with patch("app.spotify_service.Spotify"), \
+                patch("app.spotify_service._latest_episode", return_value=episode) as latest:
+            spotify_service.play_content("spotify:show:s")
+            spotify_service.play_content("spotify:show:s")
+        latest.assert_called_once()
+        limit = SpotifyException(429, -1, "limit", headers={"Retry-After": "600"})
+        with patch("app.spotify_service.Spotify"), \
+                patch("app.spotify_service._latest_episode", side_effect=limit) as latest:
+            spotify_service.play_content("spotify:show:other")
+            spotify_service.play_content("spotify:show:other")
+        latest.assert_called_once()
+        self.assertEqual(fake.posts[-1], ("/player/play", {"uri": "spotify:show:other"}))
 
     def test_active_phone_receives_the_commands_instead_of_the_pi(self):
         cluster = {"active_device_id": "phone", "devices": [SELF, PHONE], "now_playing": {"playing": True}}

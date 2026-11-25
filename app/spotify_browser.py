@@ -1,12 +1,26 @@
 """Small, credential-free response shapes for the local music picker."""
 
-from .spotify_service import build_web_api_client, get_tag_type, is_web_api_configured
+import threading
+import time
+
+from .spotify_service import build_web_api_client, check_rate_limit, get_tag_type, is_web_api_configured
 
 
 COLLECTIONS = frozenset({"albums", "playlists", "recent", "search"})
 SEARCH_ORDER = ("album", "playlist", "track", "show")
 SEARCH_TYPES = frozenset(SEARCH_ORDER + ("all",))
 PAGE_SIZE = 20
+# Reopening a tab or reloading the page reuses recent answers instead of
+# calling Spotify again.
+CACHE_SECONDS = 300
+CACHE_LIMIT = 64
+_cache: dict = {}
+_cache_lock = threading.Lock()
+
+
+def clear_cache():
+    with _cache_lock:
+        _cache.clear()
 
 
 def music_item(item):
@@ -61,6 +75,24 @@ def browse_music(collection, *, query="", kind="all", offset=0, before=None):
             items = [item for item in items if query.casefold() in (item["name"] + " " + item["detail"]).casefold()]
         return {"items": items if not offset and not before else [], "next": None, "mode": "fake"}
 
+    key = (collection, query.casefold(), kind, offset, before)
+    now = time.monotonic()
+    with _cache_lock:
+        cached = _cache.get(key)
+    if cached and now - cached[0] < CACHE_SECONDS:
+        return cached[1]
+    check_rate_limit()
+    result = _fetch(collection, query, kind, offset, before)
+    with _cache_lock:
+        for stale in [k for k, (at, _) in _cache.items() if now - at >= CACHE_SECONDS]:
+            del _cache[stale]
+        if len(_cache) >= CACHE_LIMIT:
+            del _cache[min(_cache, key=lambda k: _cache[k][0])]
+        _cache[key] = (now, result)
+    return result
+
+
+def _fetch(collection, query, kind, offset, before):
     spotify = build_web_api_client()
     if collection == "albums":
         page = spotify.current_user_saved_albums(limit=PAGE_SIZE, offset=offset)
