@@ -79,13 +79,14 @@ class ReadySoundTests(unittest.TestCase):
         self.assertGreater(duration, 0.2)
         self.assertLess(duration, 1.0)
 
-    def test_chime_plays_at_half_its_original_volume(self):
+    def test_chime_plays_as_loud_as_spotify_at_ten_percent(self):
         import array
         with wave.open(io.BytesIO(readiness.build_chime_wav())) as sound:
             samples = array.array("h", sound.readframes(sound.getnframes()))
         peak = max(abs(sample) for sample in samples)
-        self.assertLessEqual(peak, int(0.35 / 2 * 32767))
-        self.assertGreater(peak, int(0.35 / 2 * 32767 * 0.9))
+        # go-librespot scales samples by volume², so 10% is 1% of full scale.
+        self.assertLessEqual(peak, int(0.01 * 32767))
+        self.assertGreater(peak, int(0.01 * 32767 * 0.9))
 
     def test_waits_for_device_then_plays_once(self):
         visible = iter([False, False, True])

@@ -35,8 +35,11 @@ CHIME_NOTES = ((659.25, 0.14), (880.0, 0.22))
 BOOT_SPEAKER_ATTEMPTS = 12
 
 
-# Half of the original 0.35 amplitude: audible without startling anyone.
-CHIME_VOLUME = 0.175
+# Every TapTune sound (startup and setup-page test) plays at 10% volume, on the
+# same curve as go-librespot's software volume (amplitude = volume²), so it is
+# as loud as Spotify set to 10%.
+SYSTEM_SOUND_VOLUME_PERCENT = 10
+CHIME_VOLUME = (SYSTEM_SOUND_VOLUME_PERCENT / 100) ** 2
 
 
 def build_chime_wav(sample_rate: int = SAMPLE_RATE, volume: float = CHIME_VOLUME) -> bytes:
