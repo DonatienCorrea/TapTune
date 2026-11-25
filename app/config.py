@@ -53,6 +53,7 @@ def parse_volume(value: str) -> int:
 class Settings:
     APP_HOST = os.getenv("APP_HOST", "0.0.0.0")
     APP_PORT = parse_port(os.getenv("APP_PORT", "5000"))
+    TAPTUNE_HTTP_PORT_80 = parse_bool(os.getenv("TAPTUNE_HTTP_PORT_80", "false"), "TAPTUNE_HTTP_PORT_80")
     DATABASE_PATH = os.getenv("DATABASE_PATH", str(BASE_DIR / "data" / "raspi_spotify_nfc.db"))
     SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID", "")
     SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET", "")

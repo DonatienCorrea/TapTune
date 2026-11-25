@@ -105,7 +105,7 @@ uses_go_librespot() {
 app_url() {
   local port
   port="$(env_value APP_PORT)"
-  printf 'http://127.0.0.1:%s' "${port:-5000}"
+  printf 'http://%s:%s' "${1:-127.0.0.1}" "${port:-5000}"
 }
 
 # Uses TapTune's Python so curl is not required. Prints the body, even for 503.
@@ -513,7 +513,7 @@ cmd_reset() {
   [ "$#" -eq 0 ] || die "reset takes no options"
   require_normal_user
   detect_mode
-  local db marker mac answer wifi=() uuid
+  local db marker mac answer wifi=() uuid host setup_url
   db="$(env_value DATABASE_PATH)"
   db="${db:-./data/raspi_spotify_nfc.db}"
   case "$db" in
@@ -522,6 +522,9 @@ cmd_reset() {
   esac
   marker="$(dirname "$db")/setup_complete"
   mac="$(env_value BLUETOOTH_SPEAKER_MAC)"
+  host="$(hostname)"
+  host="${host%%.*}.local"
+  setup_url="$(app_url "$host")/setup"
 
   cat <<EOF
 This resets TapTune to a freshly installed Pi:
@@ -566,7 +569,7 @@ EOF
   if [ "$MODE" = app ] || ! command -v nmcli >/dev/null 2>&1; then
     run sudo systemctl start "$APP_UNIT"
     wait_for_health || die "reset finished but TapTune is not running; run 'taptune logs -n 100'"
-    info "Reset finished. Open http://$(hostname).local/setup"
+    info "Reset finished. Open $setup_url"
     return
   fi
 
@@ -579,7 +582,8 @@ EOF
   info "Forgetting saved Wi-Fi networks and starting TapTune"
   cat <<EOF
 If the Pi has no other network, it opens the TapTune-Setup Wi-Fi in about a minute.
-Join it from your phone to set TapTune up again. Over Ethernet, open http://$(hostname).local/setup
+Join it from your phone to set TapTune up again. Over Ethernet, open http://$host/setup
+If that address does not respond, try $setup_url
 EOF
   # Detached: deleting the Wi-Fi this SSH session uses must not stop the reset halfway.
   local delete=":"

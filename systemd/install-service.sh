@@ -79,6 +79,7 @@ esac
 
 WIFI_SETUP=0
 if [ "$MODE" != app-only ]; then
+  RENDERED="${RENDERED/Environment=PYTHONUNBUFFERED=1/Environment=PYTHONUNBUFFERED=1$'\n'Environment=TAPTUNE_HTTP_PORT_80=true}"
   if [ "$DRY_RUN" -eq 1 ] || { command -v nmcli >/dev/null 2>&1 && systemctl is-active --quiet NetworkManager.service; }; then
     WIFI_SETUP=1
     CLEANUP="ExecStopPost=-$(unit_path "$REPO_DIR/.venv/bin/python" exec) -m app.wifi_setup cleanup"

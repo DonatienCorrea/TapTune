@@ -7,6 +7,9 @@
     <h2>{{ 'Tentative de connexion…' if fr else 'Trying to connect…' }}</h2>
     <p>{{ 'Le réseau de configuration va disparaître. Reconnectez votre téléphone au réseau choisi, puis ouvrez :' if fr else 'The setup network will disappear. Rejoin the Wi-Fi you selected on your phone, then open:' }}</p>
     <p><a href="{{ wifi.lan_url }}">{{ wifi.lan_url }}</a></p>
+    {% if wifi.lan_fallback %}
+    <p>{{ 'Si cette adresse ne répond pas, essayez' if fr else 'If that address does not respond, try' }} <a href="{{ wifi.lan_fallback }}">{{ wifi.lan_fallback }}</a>.</p>
+    {% endif %}
     <p>{{ 'Si le Pi ne se connecte pas, rejoignez de nouveau le réseau TapTune-Setup et réessayez.' if fr else 'If the Pi cannot connect, the TapTune-Setup network will return. Rejoin it and try again.' }}</p>
   </div>
   {% else %}

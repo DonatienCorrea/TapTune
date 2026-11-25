@@ -161,7 +161,8 @@ table inet {FIREWALL_TABLE} {{
         logger.warning("Wi-Fi setup could not join the selected network; restoring the hotspot.")
         return False
 
-    def run(self, wait_for_credentials, *, uptime=None, sleep=time.sleep):
+    def run(self, wait_for_credentials, *, uptime=None, sleep=time.sleep) -> bool:
+        """Return whether an uplink is ready and TapTune's hotspot has been shut down."""
         if uptime is None:
             uptime = lambda: time.clock_gettime(time.CLOCK_BOOTTIME)
         guarding = False
@@ -170,7 +171,7 @@ table inet {FIREWALL_TABLE} {{
             self.cleanup()
             interface = self._fallback_interface(uptime, sleep)
             if interface is None:
-                return
+                return True
             failed = False
             networks = ()
             while True:
@@ -181,7 +182,7 @@ table inet {FIREWALL_TABLE} {{
                 if devices is None:
                     raise WifiSetupError("NetworkManager became unavailable after the Wi-Fi scan.")
                 if self._has_uplink(devices):
-                    return
+                    return True
                 self._apply_firewall(interface)
                 guarding = True
                 if self._nm("connection", "up", "uuid", HOTSPOT_UUID, "ifname", interface, wait=15) is None:
@@ -195,7 +196,7 @@ table inet {FIREWALL_TABLE} {{
                 if scanned is not None:
                     networks = scanned
                 if self._connect(interface, ssid, password, hidden=ssid not in networks):
-                    return
+                    return True
                 del password
                 failed = True
         except (OSError, WifiSetupError) as error:
@@ -206,6 +207,7 @@ table inet {FIREWALL_TABLE} {{
                     self.cleanup()
                 except WifiSetupError as error:
                     logger.error("Wi-Fi setup cleanup failed: %s", error)
+        return False
 
 
 def provision(path=HOTSPOT_PROFILE, runner=subprocess.run):

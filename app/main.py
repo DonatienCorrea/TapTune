@@ -3,6 +3,8 @@ import logging
 import threading
 import time
 
+from werkzeug.serving import make_server
+
 from .config import BASE_DIR, settings
 from .db import record_event
 from .activity import install_activity_logging, record_activity, record_playback
@@ -10,7 +12,7 @@ from .nfc_reader import NFCEvent, PN532Reader
 from .readiness import start_speaker_thread
 from .spotify_service import dispatch_tag_value, get_tag_type, is_playback_configured, uses_librespot
 from .web import app
-from .wifi_portal import start_wifi_setup
+from .wifi_portal import run_wifi_setup
 
 logger = logging.getLogger(__name__)
 
@@ -195,6 +197,23 @@ def log_thread_exception(args) -> None:
     )
 
 
+def run_network_services() -> None:
+    # The captive portal owns port 80 until Wi-Fi setup hands off to the LAN.
+    if settings.TAPTUNE_WIFI_SETUP and not run_wifi_setup():
+        return
+    if not settings.TAPTUNE_HTTP_PORT_80 or settings.APP_PORT == 80:
+        return
+    try:
+        server = make_server(settings.APP_HOST, 80, app, threaded=True)
+    except SystemExit:
+        # Werkzeug exits on bind errors, e.g. if another service owns port 80.
+        logger.warning("Could not start TapTune on port 80; use port %s instead.", settings.APP_PORT)
+        return
+    with server:
+        logger.info("TapTune is also available on HTTP port 80.")
+        server.serve_forever()
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     install_activity_logging()
@@ -203,7 +222,8 @@ def main() -> None:
     if settings.NFC_READER_ENABLED:
         app.config["NFC_READER_THREAD"] = start_reader_thread(writer=app.config["TAG_WRITER"])
     start_speaker_thread()
-    start_wifi_setup()
+    if settings.TAPTUNE_WIFI_SETUP or settings.TAPTUNE_HTTP_PORT_80:
+        threading.Thread(target=run_network_services, name="network-setup", daemon=True).start()
     try:
         app.run(host=settings.APP_HOST, port=settings.APP_PORT, debug=False)
     except OSError:
