@@ -182,9 +182,12 @@ if [ "$DRY_RUN" -eq 1 ]; then
 else
   printf '\nConfigured %s. Inspect: taptune status; taptune logs\n' "$MODE"
   if [ "$MODE" != app-only ]; then
+    printf 'The TapTune-Setup Wi-Fi QR code and password are shown when the protected hotspot is first created.\n'
+    printf 'To display them again, run: taptune setup-wifi\n'
     printf 'First install: open Spotify on a phone on this Wi-Fi, tap Devices and choose %s once;\n' \
       "$(env_value SPOTIFY_DEVICE_NAME)"
-    printf 'the Pi keeps that sign-in. http://%s.local:%s/setup shows when it is done.\n' \
+    printf 'the Pi keeps that sign-in. http://%s.local/setup shows when it is done.\n' "$(hostname)"
+    printf 'If that address does not respond, try http://%s.local:%s/setup.\n' \
       "$(hostname)" "$(port="$(env_value APP_PORT)"; printf '%s' "${port:-5000}")"
   fi
 fi

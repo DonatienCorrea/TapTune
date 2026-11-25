@@ -78,6 +78,7 @@ case "$MODE" in
 esac
 
 WIFI_SETUP=0
+SHOW_SETUP_WIFI=0
 if [ "$MODE" != app-only ]; then
   RENDERED="${RENDERED/Environment=PYTHONUNBUFFERED=1/Environment=PYTHONUNBUFFERED=1$'\n'Environment=TAPTUNE_HTTP_PORT_80=true}"
   if [ "$DRY_RUN" -eq 1 ] || { command -v nmcli >/dev/null 2>&1 && systemctl is-active --quiet NetworkManager.service; }; then
@@ -95,6 +96,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
   echo "# mDNS: install and enable avahi-daemon (existing hostname is kept)"
   if [ "$WIFI_SETUP" -eq 1 ]; then
     echo "# Wi-Fi fallback (when NetworkManager is installed): install dnsmasq-base and nftables if needed"
+    echo "# Install qrencode; show the protected setup-network QR code if creating its profile"
     echo "# Provision a private TapTune-Setup profile without replacing an existing key"
   fi
   remove_legacy_system_units
@@ -110,8 +112,15 @@ fi
 sudo systemctl enable --now avahi-daemon.service
 
 if [ "$WIFI_SETUP" -eq 1 ]; then
+  SETUP_WIFI_PROFILE="/etc/NetworkManager/system-connections/taptune-setup.nmconnection"
+  if [ ! -f "$SETUP_WIFI_PROFILE" ]; then
+    SHOW_SETUP_WIFI=1
+  fi
   if [ ! -x /usr/sbin/dnsmasq ] || [ ! -x /usr/sbin/nft ]; then
     sudo apt-get install -y dnsmasq-base nftables
+  fi
+  if ! command -v qrencode >/dev/null 2>&1; then
+    sudo apt-get install -y qrencode
   fi
   (cd "$REPO_DIR" && sudo "$REPO_DIR/.venv/bin/python" -m app.wifi_setup provision)
 fi
@@ -137,3 +146,7 @@ sudo systemctl restart raspi-spotify-nfc.service
 
 echo "Installed and started raspi-spotify-nfc.service ($MODE setup) for checkout: $REPO_DIR"
 echo "Use 'taptune status', 'taptune logs -f' and 'taptune update' from now on."
+if [ "$SHOW_SETUP_WIFI" -eq 1 ]; then
+  printf '\nThe per-Pi protected setup network is ready. Save this QR code before moving the Pi:\n'
+  "$REPO_DIR/taptune" setup-wifi
+fi

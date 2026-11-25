@@ -18,16 +18,25 @@ Sous Raspberry Pi OS Lite et Desktop avec NetworkManager, si le Pi ne trouve
 pas de connexion Wi-Fi connue ni de liaison Ethernet après environ une minute
 au démarrage, il diffuse le réseau `TapTune-Setup`.
 
-**Avant de déplacer le Pi**, notez le mot de passe propre à son point d’accès
-dans un endroit sûr :
+Le point d’accès reste protégé par WPA2 avec un mot de passe unique au Pi.
+Lors de la première configuration, TapTune affiche un QR Wi-Fi et le mot de
+passe lorsqu’il crée le profil. Scannez le code dans les réglages Wi-Fi du
+téléphone pour le connecter : le mot de passe est transmis au téléphone, mais
+le point d’accès reste protégé. Gardez le QR et le mot de passe privés : toute
+personne qui rejoint le réseau peut configurer le Pi.
 
 ```bash
-sudo nmcli --show-secrets -g 802-11-wireless-security.psk connection show id TapTune-Setup
+taptune setup-wifi
 ```
 
-1. Démarrez le Pi au nouvel emplacement. Sur votre téléphone, rejoignez
-   `TapTune-Setup` avec ce mot de passe. Restez connecté même si le téléphone
-   indique que le réseau n’a pas accès à Internet.
+Exécutez cette commande avant de déplacer le Pi pour réafficher le QR et le
+mot de passe. `taptune reset` les affiche aussi avant d’effacer les réseaux
+Wi-Fi enregistrés.
+
+1. Démarrez le Pi au nouvel emplacement. Scannez le QR dans les réglages Wi-Fi
+   du téléphone ou choisissez `TapTune-Setup` et saisissez le mot de passe
+   imprimé. Restez connecté même si le téléphone indique que le réseau n’a pas
+   accès à Internet.
 2. Si la page de connexion ne s’ouvre pas, ouvrez `http://10.42.66.1/fr/setup`
    dans le navigateur (utilisez `http://`, sans `s`). Sélectionnez un réseau
    détecté avant le démarrage du point d’accès, ou saisissez son nom, puis
