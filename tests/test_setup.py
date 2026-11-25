@@ -57,6 +57,10 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(setup.wifi_status(up)["state"], "done")
         down = runner_for({"nmcli": "wifi:disconnected:\n"})
         self.assertEqual(setup.wifi_status(down)["reason"], "disconnected")
+        hotspot = runner_for({"nmcli": "wifi:connected:TapTune-Setup\n"})
+        self.assertEqual(setup.wifi_status(hotspot), {"id": "wifi", "state": "todo", "reason": "hotspot"})
+        wired = runner_for({"nmcli": "wifi:connected:TapTune-Setup\nethernet:connected:Wired\n"})
+        self.assertEqual(setup.wifi_status(wired)["reason"], "wired")
         self.assertEqual(setup.wifi_status(runner_for({}))["reason"], "unavailable")
 
     def test_bluetooth(self):

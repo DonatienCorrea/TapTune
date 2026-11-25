@@ -60,6 +60,7 @@ class Settings:
     AUDIO_OUTPUT_DEVICE = os.getenv("AUDIO_OUTPUT_DEVICE", "bluealsa").strip()
     # Set to true to disable the first-run redirect from / to /setup.
     SETUP_SKIP = parse_bool(os.getenv("SETUP_SKIP", "false"), "SETUP_SKIP")
+    TAPTUNE_WIFI_SETUP = parse_bool(os.getenv("TAPTUNE_WIFI_SETUP", "false"), "TAPTUNE_WIFI_SETUP")
     READY_SOUND_ENABLED = parse_bool(os.getenv("READY_SOUND_ENABLED", "true"), "READY_SOUND_ENABLED")
 
 

@@ -13,6 +13,16 @@ Developer app. A phone/computer with Spotify is needed for initial authorization
 not for everyday tag use. For a software-only trial, use the separate
 [fake-mode guide](getting-started.md).
 
+## Set Wi-Fi in Raspberry Pi Imager
+
+When writing Raspberry Pi OS Lite or Desktop, use Imager's OS customization to
+set the hostname (for example, `taptune`), Wi-Fi network name, password and
+wireless country before writing the card. Set your user and enable SSH if
+you plan to install remotely. On first boot, join the same network on your
+computer and connect to `taptune.local` (or your chosen hostname). The fallback
+hotspot is available **after** installing the TapTune service, not on a freshly
+written card.
+
 ## Install the project
 
 Run as your normal user, **not with sudo**. On Desktop, use the one dedicated
@@ -134,6 +144,40 @@ Reboot with the speaker powered on. **Before logging into the Pi**, wait for
 the single ready chime and tap a music tag. Confirm sound comes from the
 Bluetooth speaker rather than HDMI. This cold-boot check is necessary on real
 hardware; software tests alone cannot prove it.
+
+## Move TapTune to a different Wi-Fi network
+
+On supported Raspberry Pi OS Lite and Desktop installs, TapTune uses
+NetworkManager to start a temporary `TapTune-Setup` hotspot if there is no
+working Wi-Fi or wired connection about 60 seconds after boot.
+
+**Before moving the Pi**, save its unique hotspot password somewhere private:
+
+```bash
+sudo nmcli --show-secrets -g 802-11-wireless-security.psk connection show id TapTune-Setup
+```
+
+1. Boot the Pi at the new location. On your phone, join `TapTune-Setup` with the
+   saved hotspot password. Stay connected if the phone warns that this network
+   has no internet.
+2. The sign-in page should open. If not, open `http://10.42.66.1/setup` in your
+   browser (use `http://`, not `https://`). Pick a network from the pre-hotspot
+   scan, or type its name, and enter its **Wi-Fi** password. Leave the password
+   blank only for an open network. Use a personal Wi-Fi network; enterprise and
+   networks that require a browser sign-in are not supported.
+3. The hotspot disconnects while the Pi tries to join. Rejoin the selected Wi-Fi
+   on your phone and open `http://taptune.local:5000/` (substitute your hostname
+   and configured port). If joining failed, look for `TapTune-Setup` again after
+   the connection attempt times out, reconnect and retry.
+
+The password form only runs on the hotspot. The hotspot does not share internet
+access or expose the normal TapTune app. Successful Wi-Fi credentials are stored
+by NetworkManager, not in TapTune's `.env`. Reinstalling the service preserves the
+hotspot key. The hotspot needs an AP-capable Wi-Fi adapter and uses port 80 on
+its own address; leave that port free while using the fallback. To opt out, set
+`TAPTUNE_WIFI_SETUP=false` in `.env` and restart TapTune.
+
+[Instructions en français](fr/wi-fi.md).
 
 ## Startup and Bluetooth behavior
 

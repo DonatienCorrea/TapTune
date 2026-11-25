@@ -83,6 +83,22 @@ class InstallServiceScriptTests(unittest.TestCase):
         self.assertIn("After=network-online.target bluetooth.service bluealsa.service raspotify.service\n", result.stdout)
         self.assertNotIn("DESKTOP_AUDIO_USER", result.stdout)
 
+    def test_only_pi_install_modes_provision_wifi_fallback(self):
+        path = str(REPO_ROOT).replace(" ", "\\x20")
+        for mode in ("lite", "desktop", "app-only"):
+            with self.subTest(mode=mode):
+                output = subprocess.run(
+                    ["bash", str(SCRIPT_PATH), f"--{mode}", "--dry-run"],
+                    capture_output=True, text=True, check=True,
+                ).stdout
+                if mode == "app-only":
+                    self.assertNotIn("TAPTUNE_WIFI_SETUP", output)
+                    self.assertNotIn("TapTune-Setup", output)
+                else:
+                    self.assertIn("Environment=TAPTUNE_WIFI_SETUP=true", output)
+                    self.assertIn(f'ExecStopPost=-"{path}/.venv/bin/python" -m app.wifi_setup cleanup', output)
+                    self.assertIn("Provision a private TapTune-Setup profile", output)
+
     def test_dry_run_shows_removal_of_the_periodic_reconnect_service(self):
         output = self.run_dry_run(REPO_ROOT)
         self.assertIn("sudo systemctl disable --now taptune-bluetooth.service", output)

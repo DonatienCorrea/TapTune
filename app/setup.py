@@ -8,6 +8,7 @@ from typing import Callable, Dict, List, Optional
 from .bluetooth import BluetoothNotReady, speaker_mac
 from .config import BASE_DIR, settings
 from .spotify_service import is_live_spotify_configured
+from .wifi_setup import HOTSPOT_SSID
 
 SERVICE_NAME = "raspi-spotify-nfc.service"
 ENV_PATH = BASE_DIR / ".env"
@@ -118,17 +119,23 @@ def wifi_status(runner: Callable = subprocess.run) -> dict:
     if output is None:
         return {"id": "wifi", "state": "todo", "reason": "unavailable"}
     wired = False
+    hotspot = False
     for line in output.splitlines():
         kind, _, rest = line.partition(":")
         state, _, name = rest.partition(":")
         if state != "connected":
             continue
         if kind == "wifi":
+            if name == HOTSPOT_SSID:
+                hotspot = True
+                continue
             return {"id": "wifi", "state": "done", "reason": "connected", "detail": name}
         if kind == "ethernet":
             wired = True
     if wired:
         return {"id": "wifi", "state": "done", "reason": "wired"}
+    if hotspot:
+        return {"id": "wifi", "state": "todo", "reason": "hotspot"}
     return {"id": "wifi", "state": "todo", "reason": "disconnected"}
 
 

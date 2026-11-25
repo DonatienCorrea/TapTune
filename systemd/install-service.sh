@@ -72,10 +72,25 @@ case "$MODE" in
     ;;
 esac
 
+WIFI_SETUP=0
+if [ "$MODE" != app-only ]; then
+  if [ "$DRY_RUN" -eq 1 ] || { command -v nmcli >/dev/null 2>&1 && systemctl is-active --quiet NetworkManager.service; }; then
+    WIFI_SETUP=1
+    CLEANUP="ExecStopPost=-$(unit_path "$REPO_DIR/.venv/bin/python" exec) -m app.wifi_setup cleanup"
+    RENDERED="${RENDERED/Environment=PYTHONUNBUFFERED=1/Environment=PYTHONUNBUFFERED=1$'\n'Environment=TAPTUNE_WIFI_SETUP=true$'\n'$CLEANUP}"
+  else
+    echo "warning: NetworkManager is not running; the Wi-Fi setup hotspot will not be enabled." >&2
+  fi
+fi
+
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "# $MODE setup: $UNIT_DST"
   printf '%s\n' "$RENDERED"
   echo "# mDNS: install and enable avahi-daemon (existing hostname is kept)"
+  if [ "$WIFI_SETUP" -eq 1 ]; then
+    echo "# Wi-Fi fallback (when NetworkManager is installed): install dnsmasq-base and nftables if needed"
+    echo "# Provision a private TapTune-Setup profile without replacing an existing key"
+  fi
   remove_legacy_system_units
   exit 0
 fi
@@ -87,6 +102,13 @@ if ! command -v avahi-daemon >/dev/null 2>&1; then
   sudo apt-get install -y avahi-daemon
 fi
 sudo systemctl enable --now avahi-daemon.service
+
+if [ "$WIFI_SETUP" -eq 1 ]; then
+  if [ ! -x /usr/sbin/dnsmasq ] || [ ! -x /usr/sbin/nft ]; then
+    sudo apt-get install -y dnsmasq-base nftables
+  fi
+  (cd "$REPO_DIR" && sudo "$REPO_DIR/.venv/bin/python" -m app.wifi_setup provision)
+fi
 
 printf '%s\n' "$RENDERED" | sudo tee "$UNIT_DST" > /dev/null
 sudo chmod 644 "$UNIT_DST"

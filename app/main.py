@@ -10,6 +10,7 @@ from .nfc_reader import NFCEvent, PN532Reader
 from .readiness import start_speaker_thread
 from .spotify_service import dispatch_tag_value, get_tag_type, is_live_spotify_configured
 from .web import app
+from .wifi_portal import start_wifi_setup
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +203,7 @@ def main() -> None:
     if settings.NFC_READER_ENABLED:
         app.config["NFC_READER_THREAD"] = start_reader_thread(writer=app.config["TAG_WRITER"])
     start_speaker_thread()
+    start_wifi_setup()
     try:
         app.run(host=settings.APP_HOST, port=settings.APP_PORT, debug=False)
     except OSError:

@@ -21,7 +21,7 @@
     .log-filters .log-search { flex: 2 1 280px; }
     .log-filters input, .log-filters select { width: 100%; min-width: 0; min-height: 44px; }
     .log-filters input::placeholder { color: var(--muted); opacity: 1; }
-    .log-filters select {
+    .log-filters select, .wifi-portal select {
       appearance: none;
       padding: 12px 36px 12px 12px;
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath d='m3 6 5 5 5-5' fill='none' stroke='%23182027' stroke-width='2'/%3E%3C/svg%3E");
@@ -742,3 +742,19 @@
 .setup-step h2 { font-size: 1.05rem; margin: 0 0 .25rem; }
 .setup-step[data-state="done"] .setup-state { font-weight: 700; }
 .setup-form { display: grid; gap: .75rem; max-width: 32rem; }
+.wifi-portal { max-width: 65ch; overflow-wrap: anywhere; }
+.wifi-portal .setup-form { margin-block-start: 1.5rem; gap: 1rem; }
+.wifi-portal .setup-form p { margin: 0; }
+.wifi-portal input:not([type="hidden"]), .wifi-portal select {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: .7rem .85rem;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  background-color: var(--white);
+  color: var(--ink);
+  font: inherit;
+}
+.wifi-portal select { padding-inline-end: 36px; }
+.wifi-portal select:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
