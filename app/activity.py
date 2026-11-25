@@ -5,26 +5,21 @@ import re
 import sqlite3
 import sys
 
-from .config import settings
 from .db import get_connection
 
 ACTIVITY_LIMIT = 2000
 PAGE_SIZE = 50
 
 
-def redact(value):
+def redact(value, limit=4000):
     text = str(value)
-    for name in ("SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET", "SPOTIFY_REFRESH_TOKEN"):
-        secret = getattr(settings, name)
-        if secret:
-            text = text.replace(secret, "[redacted]")
     text = re.sub(r"(?i)\b(Bearer|Basic)\s+[^\s,'\";]+", r"\1 [redacted]", text)
     text = re.sub(
         r"(?i)(\b(?:access_token|refresh_token|client_secret|client_id|authorization|password|code)\b"
         r"['\"]?\s*[:=]\s*['\"]?)[^\s,'\"&;]+",
         r"\1[redacted]", text,
     )
-    return text[:4000]
+    return text[:limit]
 
 
 def record_activity(kind, level, source, message, uid="", value="", resolved_uri=""):
@@ -53,8 +48,6 @@ def record_playback(uid, value, source, result):
         result.get("episode_name") or "Playback command sent to Spotify."
         if success else result.get("message") or result.get("error") or status
     )
-    if success and result.get("mode") == "fake":
-        message = "Demo mode: no real playback. " + message
     record_activity(
         "playback", "INFO" if success else "ERROR", source, message,
         uid=uid, value=value, resolved_uri=result.get("uri") or "",

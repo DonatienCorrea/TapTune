@@ -1,3 +1,4 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,30 +15,21 @@ class SmokeTests(unittest.TestCase):
         skip_setup = patch.object(config.settings, "SETUP_SKIP", True)
         skip_setup.start()
         self.addCleanup(skip_setup.stop)
-        spotify_service.reset_state_memory()
-        self.addCleanup(spotify_service.reset_state_memory)
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.database_path = str(Path(self.temporary_directory.name) / "taptune.db")
         self.original_database_path = config.settings.DATABASE_PATH
         config.settings.DATABASE_PATH = self.database_path
-        spotify_credentials = patch.multiple(
-            config.settings,
-            SPOTIFY_RECEIVER="legacy",
-            SPOTIFY_CLIENT_ID="",
-            SPOTIFY_CLIENT_SECRET="",
-            SPOTIFY_REFRESH_TOKEN="",
-            SPOTIFY_INITIAL_VOLUME=10,
-        )
-        spotify_credentials.start()
-        self.addCleanup(spotify_credentials.stop)
-        spotify_service._fake_spotify_client = None
+        self.dispatch = Mock(return_value={"status": "ok", "mode": "go-librespot", "device": "TapTune"})
+        for target in ("app.web.dispatch_tag_value", "app.simulate.dispatch_tag_value"):
+            dispatch = patch(target, self.dispatch)
+            dispatch.start()
+            self.addCleanup(dispatch.stop)
         clear_all_tags()
         self.app = create_app()
         self.client = self.app.test_client()
 
     def tearDown(self):
         config.settings.DATABASE_PATH = self.original_database_path
-        spotify_service._fake_spotify_client = None
         self.temporary_directory.cleanup()
 
     def test_health(self):
@@ -45,17 +37,8 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()['status'], 'ok')
 
-    def test_ready_does_not_announce_fake_mode_as_live_readiness(self):
-        with patch.object(config.settings, "NFC_READER_ENABLED", False):
-            response = self.client.get("/ready")
-        self.assertEqual(response.status_code, 503)
-        self.assertEqual(response.get_json()["spotify_mode"], "fake")
-
     def test_ready_requires_initialized_running_reader_when_enabled(self):
-        with patch.multiple(
-            config.settings, NFC_READER_ENABLED=True,
-            SPOTIFY_CLIENT_ID="id", SPOTIFY_CLIENT_SECRET="secret", SPOTIFY_REFRESH_TOKEN="token",
-        ):
+        with patch.object(config.settings, "NFC_READER_ENABLED", True):
             self.assertEqual(self.client.get("/ready").status_code, 503)
             reader = Mock()
             self.app.config["NFC_READER_THREAD"] = reader
@@ -65,23 +48,11 @@ class SmokeTests(unittest.TestCase):
             self.assertEqual(self.client.get("/ready").status_code, 503)
 
     def test_ready_allows_deliberately_disabled_reader(self):
-        with patch.multiple(
-            config.settings, NFC_READER_ENABLED=False,
-            SPOTIFY_CLIENT_ID="id", SPOTIFY_CLIENT_SECRET="secret", SPOTIFY_REFRESH_TOKEN="token",
-        ):
+        with patch.object(config.settings, "NFC_READER_ENABLED", False):
             response = self.client.get("/ready")
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.get_json()["reader_ready"])
 
-    def test_live_oauth_does_not_write_a_shared_disk_token_cache(self):
-        with patch.multiple(
-            config.settings, SPOTIFY_CLIENT_ID="id", SPOTIFY_CLIENT_SECRET="secret", SPOTIFY_REFRESH_TOKEN="token",
-        ), patch.object(spotify_service, "SpotifyOAuth") as oauth, \
-                patch.object(spotify_service, "Spotify"):
-            spotify_service.build_spotify_client()
-        self.assertIsInstance(oauth.call_args.kwargs["cache_handler"], spotify_service.MemoryCacheHandler)
-        self.assertNotIn("cache_path", oauth.call_args.kwargs)
-        oauth.return_value.refresh_access_token.assert_called_once_with("token")
     def test_assign_and_dispatch_playlist(self):
         assign = self.client.post('/assign', data={
             'uid': 'UID-001',
@@ -94,13 +65,9 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(dispatch.status_code, 200)
         payload = dispatch.get_json()
         self.assertEqual(payload['status'], 'ok')
-        self.assertIn('mode', payload['result'])
+        self.assertEqual(payload['result']['device'], 'TapTune')
+        self.dispatch.assert_called_once_with('spotify:playlist:123abc')
 
-    def test_show_tag_plays_demo_latest_episode(self):
-        response = self.client.post("/dispatch", data={"value": "spotify:show:demoshow"})
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get_json()["result"]["uri"], "spotify:episode:demoepisode")
 
     def test_assignment_pages_are_available_in_english_and_french(self):
         english = self.client.get('/')
@@ -151,31 +118,16 @@ class SmokeTests(unittest.TestCase):
         self.assertIn('Unsupported value', response.get_json()['error'])
         self.assertIsNone(get_tag_by_uid('UID-INVALID'))
 
-    def test_play_pause_action(self):
-        first = self.client.post('/dispatch', data={'value': 'action:play_pause'})
-        second = self.client.post('/dispatch', data={'value': 'action:play_pause'})
-
-        self.assertEqual(first.status_code, 200)
-        self.assertEqual(first.get_json()['result']['status'], 'ok')
-        self.assertEqual(second.status_code, 200)
-        self.assertTrue(second.get_json()['result']['paused'])
-
-    def test_next_track_alias(self):
-        dispatch = self.client.post('/dispatch', data={'value': 'action:next_track'})
-
-        self.assertEqual(dispatch.status_code, 200)
-        self.assertEqual(dispatch.get_json()['result']['action'], 'next')
-
     def test_volume_tags_can_be_assigned_and_dispatched_in_both_locales(self):
-        for path, action, expected in (("/assign", "up", 20), ("/fr/assign", "down", 10)):
+        for path, action in (("/assign", "up"), ("/fr/assign", "down")):
             value = f"action:volume_{action}"
             uid = f"VOLUME-{action}"
             response = self.client.post(path, data={"uid": uid, "value": value}, follow_redirects=True)
             self.assertEqual(response.status_code, 200)
             self.assertIn(f'data-value="{value}"'.encode(), response.data)
             self.assertEqual(get_tag_by_uid(uid)["tag_type"], "action")
-            result = self.client.post("/dispatch", data={"uid": uid}).get_json()["result"]
-            self.assertEqual(result["volume_percent"], expected)
+            self.assertEqual(self.client.post("/dispatch", data={"uid": uid}).status_code, 200)
+            self.assertEqual(self.dispatch.call_args.args, (value,))
 
     def test_invalid_simulated_value_is_not_persisted(self):
         with self.assertRaisesRegex(ValueError, "Unsupported simulated tag value"):
@@ -187,59 +139,22 @@ class SmokeTests(unittest.TestCase):
         result = spotify_service.dispatch_tag_value("spotify:playlist:not-an-id")
 
         self.assertEqual(result, {"status": "unsupported_uri", "uri": "spotify:playlist:not-an-id"})
-        self.assertIsNone(spotify_service._fake_spotify_client)
 
     def test_invalid_playback_position_is_rejected(self):
         result = spotify_service.play_content("spotify:track:123abc", -1)
 
         self.assertEqual(result, {"status": "invalid_position", "position_ms": -1})
-        self.assertIsNone(spotify_service._fake_spotify_client)
 
-    def test_no_active_device_error_is_translated_instead_of_raised(self):
-        from spotipy import SpotifyException
+    def test_dispatch_returns_502_when_playback_fails(self):
+        self.client.post('/assign', data={'uid': 'UID-NOT-READY', 'value': 'action:play_pause'})
+        self.dispatch.return_value = {"status": "error", "error": "speaker_not_ready", "reason": "SPEAKER_NOT_READY"}
 
-        class NoDeviceClient:
-            def current_playback(self):
-                return None
-
-            def start_playback(self, *args, **kwargs):
-                raise SpotifyException(
-                    404, -1, "No active device found", reason="NO_ACTIVE_DEVICE"
-                )
-
-        with patch.object(spotify_service, "build_spotify_client", return_value=NoDeviceClient()), \
-                patch.object(config.settings, "SPOTIFY_DEVICE_NAME", ""):
-            result = spotify_service.toggle_playback()
-
-        self.assertEqual(result["status"], "error")
-        self.assertEqual(result["reason"], "NO_ACTIVE_DEVICE")
-        self.assertIn("No active Spotify device", result["message"])
-
-    def test_dispatch_returns_502_when_spotify_has_no_active_device(self):
-        from spotipy import SpotifyException
-
-        self.client.post('/assign', data={
-            'uid': 'UID-NO-DEVICE',
-            'value': 'action:play_pause',
-        })
-
-        class NoDeviceClient:
-            def current_playback(self):
-                return None
-
-            def start_playback(self, *args, **kwargs):
-                raise SpotifyException(
-                    404, -1, "No active device found", reason="NO_ACTIVE_DEVICE"
-                )
-
-        with patch.object(spotify_service, "build_spotify_client", return_value=NoDeviceClient()), \
-                patch.object(config.settings, "SPOTIFY_DEVICE_NAME", ""):
-            dispatch = self.client.post('/dispatch', data={'uid': 'UID-NO-DEVICE'})
+        dispatch = self.client.post('/dispatch', data={'uid': 'UID-NOT-READY'})
 
         self.assertEqual(dispatch.status_code, 502)
         payload = dispatch.get_json()
         self.assertEqual(payload['status'], 'error')
-        self.assertEqual(payload['result']['reason'], 'NO_ACTIVE_DEVICE')
+        self.assertEqual(payload['result']['reason'], 'SPEAKER_NOT_READY')
 
     def test_pn532_reader_uses_the_value_assigned_to_the_scanned_uid(self):
         class FakeReader:
@@ -303,22 +218,6 @@ class SmokeTests(unittest.TestCase):
                 with self.assertRaisesRegex(FileNotFoundError, "Database schema not found"):
                     db.get_connection()
 
-    def test_missing_spotify_dependency_uses_fake_client(self):
-        from app import spotify_service
-
-        original_spotify = spotify_service.Spotify
-        original_oauth = spotify_service.SpotifyOAuth
-        spotify_service.Spotify = None
-        spotify_service.SpotifyOAuth = None
-
-        try:
-            client = spotify_service.build_spotify_client()
-            self.assertIsInstance(client, spotify_service.FakeSpotifyClient)
-            self.assertEqual(spotify_service.dispatch_tag_value('spotify:track:demo')['status'], 'ok')
-        finally:
-            spotify_service.Spotify = original_spotify
-            spotify_service.SpotifyOAuth = original_oauth
-
 
 class ConfigurationTests(unittest.TestCase):
     def test_parse_bool_accepts_common_environment_values(self):
@@ -340,6 +239,36 @@ class ConfigurationTests(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaisesRegex(ValueError, "APP_PORT"):
                     config.parse_port(value)
+
+    def test_parse_volume_boundaries_and_invalid_values(self):
+        self.assertEqual(config.parse_volume("0"), 0)
+        self.assertEqual(config.parse_volume("100"), 100)
+        for value in ("-1", "101", "30.5", "", "loud"):
+            with self.assertRaisesRegex(ValueError, "SPOTIFY_INITIAL_VOLUME"):
+                config.parse_volume(value)
+
+    def test_load_env_reads_simple_lines_without_overriding_the_environment(self):
+        keys = ("TT_EXPORTED", "TT_QUOTED", "TT_SINGLE", "TT_COMMENTED", "TT_HASH", "TT_EXISTING")
+        with tempfile.TemporaryDirectory() as directory, patch.dict("os.environ", {"TT_EXISTING": "real"}):
+            path = Path(directory) / ".env"
+            path.write_text(
+                "# comment\n\n"
+                "export TT_EXPORTED=yes\n"
+                'TT_QUOTED="two words # kept"\n'
+                "TT_SINGLE='single'\n"
+                "TT_COMMENTED=value # note\n"
+                "TT_HASH=a#b\n"
+                "TT_EXISTING=from-file\n"
+                "not a setting\n",
+                encoding="utf-8",
+            )
+            config.load_env(path)
+            config.load_env(Path(directory) / "missing.env")
+            values = {key: os.environ.get(key) for key in keys}
+        self.assertEqual(values, {
+            "TT_EXPORTED": "yes", "TT_QUOTED": "two words # kept", "TT_SINGLE": "single",
+            "TT_COMMENTED": "value", "TT_HASH": "a#b", "TT_EXISTING": "real",
+        })
 
 
 if __name__ == '__main__':

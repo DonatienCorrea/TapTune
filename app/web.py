@@ -4,35 +4,21 @@ from urllib.parse import urlsplit
 from flask import Flask, jsonify, redirect, render_template, request, url_for
 
 from .config import settings
-from .db import get_tag_by_uid, list_tags, record_event, upsert_tag
-from .spotify_service import (
-    dispatch_tag_value, get_tag_type, is_live_spotify_configured, is_playback_configured,
-    is_web_api_configured, uses_librespot,
-)
+from .db import get_tag_by_uid, list_tags, upsert_tag
+from .spotify_service import dispatch_tag_value, get_tag_type
 from . import spotify_service
 from .spotify_browser import LinkPreviewUnavailable, browse_music, import_spotify_link
 from .tag_writer import TagWriter, WriterBusy
 from . import setup as setup_state
 from . import speaker_pairing
-from .activity import ACTIVITY_LIMIT, list_activity, record_activity, record_playback
-
-SPOTIFY_BROWSER_ERRORS = spotify_service.NETWORK_ERRORS + (RuntimeError,) + tuple(
-    error for error in (spotify_service.SpotifyException, spotify_service.SpotifyOauthError)
-    if error is not None
-)
+from . import system
+from .activity import ACTIVITY_LIMIT, list_activity, record_activity, record_playback, redact
 
 TRANSLATIONS = {
     "en": {
-        "switch_label": "Français",
         "switch_url": "/fr/",
-        "page_title": "TapTune",
-        "badge_top": "Tag assignment / field guide",
-        "badge_right": "Physical input → playback",
-        "subtitle": "Your music, one tap away.",
         "saved": "Tag saved.",
-        "badge_step": "01 / Map a physical input",
         "section_title": "Assign a UID",
-        "intro": "Enter the UID printed by the reader, then point it at a Spotify URI or a playback action.",
         "quick_fill": "Quick fill",
         "uid_label": "Tag UID",
         "uid_placeholder": "Example: 04A7B2F1…",
@@ -46,10 +32,7 @@ TRANSLATIONS = {
         "label": "Label",
         "unlabeled": "Unlabeled",
         "empty": "No tags assigned yet.",
-        "skip": "Skip to tag assignment",
         "error_required": "uid and value are required",
-        "error_unknown": "Unknown tag",
-        "error_missing": "uid or value required",
         "error_unsupported": "Unsupported value. Use a Spotify track, playlist, album or show URI, or action:play_pause, action:next, action:next_track, action:volume_up, or action:volume_down.",
         "helper_playlist": "Spotify playlist",
         "helper_pause": "Play / pause",
@@ -57,15 +40,13 @@ TRANSLATIONS = {
         "helper_volume_up": "Volume +10%",
         "helper_volume_down": "Volume -10%",
         "browse_title": "Make a tag",
-        "browse_intro": "Choose an album, playlist, song or podcast show. Then write it to a tag using the reader on your Pi.",
         "choose_title": "Choose music",
         "write_title": "Write tag",
         "albums": "My albums",
         "playlists": "My playlists",
         "recent": "TapTune history",
         "playing": "What's playing",
-        "search": "Search Spotify",
-        "spotify_link": "Spotify link",
+        "link": "Spotify link",
         "spotify_link_label": "Paste a Spotify link",
         "spotify_link_placeholder": "https://open.spotify.com/album/…",
         "spotify_link_button": "Load link",
@@ -73,46 +54,24 @@ TRANSLATIONS = {
         "spotify_search_placeholder": "Artist, album, song, or podcast…",
         "spotify_search_button": "Search in Spotify",
         "spotify_search_help": "Opens Spotify in a new tab. Use Share → Copy link, then paste it below.",
-        "spotify_link_prompt": "Paste a Spotify album, playlist, song, or podcast-show link below.",
-        "spotify_link_preview": "Spotify link loaded",
-        "spotify_link_preview_note": "Preview loaded without a Spotify Developer app.",
         "spotify_link_invalid": "Paste a valid Spotify album, playlist, track, or podcast-show link.",
         "spotify_link_unavailable": "Spotify could not load this link preview. Check the internet connection and try again.",
-        "search_label": "Search Spotify",
-        "search_placeholder": "Search Spotify…",
-        "group_album": "Albums",
-        "group_playlist": "Playlists",
-        "group_track": "Songs",
-        "group_show": "Podcasts",
         "album": "Album",
         "playlist": "Playlist",
         "track": "Track",
         "show": "Podcast show",
-        "search_button": "Search",
         "load_more": "Load more",
         "loading": "Loading music…",
-        "empty_music": "No results for this search. Try another name.",
-        "empty_albums": "No saved albums. Try Search.",
-        "empty_playlists": "No playlists. Try Search.",
+        "empty_albums": "No saved albums. Try Spotify link.",
+        "empty_playlists": "No playlists. Try Spotify link.",
         "empty_recent": "No music played from TapTune tags yet.",
         "empty_playing": "Nothing is playing on TapTune right now. Start Spotify on a phone and select TapTune under Devices.",
-        "demo_title": "Demo — sample music only",
-        "demo_music": "No Spotify account is configured here. Open TapTune on your Pi for your library.",
-        "demo_help": "Your token on the Pi is not available in this computer's preview. Open TapTune on your Pi to use its saved Spotify connection. You do not need to paste the token into this page.",
         "connection_checking": "Checking Spotify…",
-        "connection_saved": "Uses this device’s saved Spotify connection.",
         "connection_live": "Spotify connected",
-        "connection_live_note": "Uses this device’s saved Spotify connection.",
-        "connection_help": "About this connection",
+        "connection_note": "Uses this device’s saved Spotify connection.",
         "connection_blocked": "Spotify needs attention",
-        "connection_permissions": "Spotify needs permission for this view",
-        "connection_permissions_note": "Your saved token is being used, but Spotify refused access. A playback-only token needs a one-time approval for saved albums, private playlists and listening history. You can also try Search Spotify.",
-        "connection_auth": "Spotify did not accept the saved connection",
-        "spotify_auth_error": "The saved Spotify token is invalid or expired. Follow the setup guide to authorize TapTune again, then restart it.",
         "retry_music": "Try again",
-        "search_prompt": "",
         "recent_note": "History of music started with TapTune tags, stored on this Pi.",
-        "recent_note_api": "Albums from your last 50 tracks.",
         "select_music": "Choose",
         "selected_music": "Selected",
         "open_spotify": "Open in Spotify",
@@ -122,7 +81,7 @@ TRANSLATIONS = {
         "write_instruction": "Place the tag on the Pi reader, not your phone.",
         "write_warning": "Replaces existing tag content.",
         "tag_help": "Reader help",
-        "tag_help_note": "Use an unlocked NTAG213/215/216, a supported Feiju 144-byte Type 2 tag, or a writable NFC Type 4 NDEF tag. On the Pi, enable NFC_READER_ENABLED and run python -m app.main (or the TapTune service).",
+        "tag_help_note": "Use an unlocked NTAG213/215/216, a supported Feiju 144-byte Type 2 tag, or a writable NFC Type 4 NDEF tag. If the reader stays unavailable, use Restart TapTune on the Maintenance page.",
         "writer_disabled": "Reader unavailable · See Reader help",
         "writer_ready": "Reader ready",
         "check_reader": "Check reader",
@@ -143,15 +102,13 @@ TRANSLATIONS = {
         "pending_selection": "Restored selection",
         "advanced_options": "Manual setup",
         "assigned_note": "UID mappings only, not tags written above.",
-        "manual_assignment": "Manual UID assignment",
         "manual_note": "Map a tag UID to music or a playback shortcut.",
         "error_network": "Cannot reach TapTune. Check the connection and status. Pending writes expire after 60 seconds; remove the tag before retrying.",
-        "spotify_permissions": "Spotify access is missing or expired. Re-authorize with library, private playlist and recently played permissions, then update the Pi's refresh token and restart TapTune.",
         "spotify_rate_limit": "Spotify is limiting requests. Wait a little before retrying.",
-        "spotify_unavailable": "Spotify is unavailable. Check the Pi's internet connection and Spotify configuration, then retry.",
+        "spotify_unavailable": "Spotify is not answering. Check the Pi's internet connection, then try again.",
         "spotify_not_signed_in": "The Pi is not signed in to Spotify yet. Open Spotify on a phone on the same Wi-Fi, tap Devices and choose TapTune once, then retry.",
-        "invalid_music_request": "Enter a search between 1 and 200 characters.",
-        "reader_unavailable": "The Pi's reader is unavailable. Check its connection and restart TapTune if needed.",
+        "invalid_music_request": "This view could not load. Reload the page.",
+        "reader_unavailable": "The Pi's reader is unavailable. Check its cable, then use Restart TapTune on the Maintenance page.",
         "writer_busy": "Another tag write is pending. Wait for it to finish or expire.",
         "write_timeout": "No tag was written within 60 seconds. Remove any tag and try again.",
         "tag_changed": "The tag was removed or changed. Keep one tag on the reader and try again.",
@@ -164,19 +121,11 @@ TRANSLATIONS = {
         "write_not_found": "This write session is no longer available. Remove the tag, then start a new write.",
         "invalid_write": "Choose a Spotify album, playlist, track or podcast show before writing.",
         "invalid_origin": "Writing must be started from this TapTune page. Reload the page and retry.",
-        "authorization_guide": "Spotify authorization guide",
     },
     "fr": {
-        "switch_label": "English",
         "switch_url": "/",
-        "page_title": "TapTune",
-        "badge_top": "Assignation de tags / guide de terrain",
-        "badge_right": "Entrée physique → lecture",
-        "subtitle": "Votre musique à portée de tag.",
         "saved": "Tag enregistré.",
-        "badge_step": "01 / Associer une entrée physique",
         "section_title": "Associer un UID",
-        "intro": "Saisissez le UID affiché par le lecteur, puis pointez vers une URI Spotify ou une action de lecture.",
         "quick_fill": "Remplissage rapide",
         "uid_label": "UID du tag",
         "uid_placeholder": "Exemple : 04A7B2F1…",
@@ -190,10 +139,7 @@ TRANSLATIONS = {
         "label": "Étiquette",
         "unlabeled": "Sans étiquette",
         "empty": "Aucun tag assigné pour le moment.",
-        "skip": "Aller à l’assignation du tag",
         "error_required": "uid et value sont requis",
-        "error_unknown": "Tag inconnu",
-        "error_missing": "uid ou value requis",
         "error_unsupported": "Valeur non prise en charge. Utilisez une URI Spotify de morceau, playlist, album ou podcast, ou action:play_pause, action:next, action:next_track, action:volume_up, ou action:volume_down.",
         "helper_playlist": "Playlist Spotify",
         "helper_pause": "Lecture / pause",
@@ -201,15 +147,13 @@ TRANSLATIONS = {
         "helper_volume_up": "Volume +10 %",
         "helper_volume_down": "Volume -10 %",
         "browse_title": "Créer un tag",
-        "browse_intro": "Choisissez un album, une playlist, un morceau ou un podcast. Écrivez-le ensuite sur un tag avec le lecteur de votre Pi.",
         "choose_title": "Choisir la musique",
         "write_title": "Écrire le tag",
         "albums": "Mes albums",
         "playlists": "Mes playlists",
         "recent": "Historique TapTune",
         "playing": "En cours",
-        "search": "Rechercher sur Spotify",
-        "spotify_link": "Lien Spotify",
+        "link": "Lien Spotify",
         "spotify_link_label": "Coller un lien Spotify",
         "spotify_link_placeholder": "https://open.spotify.com/album/…",
         "spotify_link_button": "Charger le lien",
@@ -217,46 +161,24 @@ TRANSLATIONS = {
         "spotify_search_placeholder": "Artiste, album, morceau ou podcast…",
         "spotify_search_button": "Rechercher sur Spotify",
         "spotify_search_help": "Spotify s’ouvre dans un nouvel onglet. Utilisez Partager → Copier le lien, puis collez-le ci-dessous.",
-        "spotify_link_prompt": "Collez ci-dessous un lien Spotify vers un album, une playlist, un morceau ou un podcast.",
-        "spotify_link_preview": "Lien Spotify chargé",
-        "spotify_link_preview_note": "Aperçu chargé sans application Spotify Developer.",
         "spotify_link_invalid": "Collez un lien Spotify valide vers un album, une playlist, un morceau ou un podcast.",
         "spotify_link_unavailable": "Spotify n’a pas pu charger l’aperçu. Vérifiez la connexion Internet et réessayez.",
-        "search_label": "Rechercher sur Spotify",
-        "search_placeholder": "Rechercher sur Spotify…",
-        "group_album": "Albums",
-        "group_playlist": "Playlists",
-        "group_track": "Morceaux",
-        "group_show": "Podcasts",
         "album": "Album",
         "playlist": "Playlist",
         "track": "Morceau",
         "show": "Podcast",
-        "search_button": "Rechercher",
         "load_more": "Charger la suite",
         "loading": "Chargement de la musique…",
-        "empty_music": "Aucun résultat. Essayez un autre nom.",
-        "empty_albums": "Aucun album enregistré. Essayez la recherche.",
-        "empty_playlists": "Aucune playlist. Essayez la recherche.",
+        "empty_albums": "Aucun album enregistré. Essayez Lien Spotify.",
+        "empty_playlists": "Aucune playlist. Essayez Lien Spotify.",
         "empty_recent": "Aucune musique lancée avec un tag TapTune pour le moment.",
         "empty_playing": "Aucune musique ne joue sur TapTune. Lancez Spotify sur un téléphone, puis choisissez TapTune dans Appareils.",
-        "demo_title": "Démo — musique fictive",
-        "demo_music": "Aucun compte Spotify configuré ici. Ouvrez TapTune sur votre Pi pour retrouver votre bibliothèque.",
-        "demo_help": "Le jeton de votre Pi n’est pas disponible dans l’aperçu de cet ordinateur. Ouvrez TapTune sur votre Pi pour utiliser sa connexion Spotify enregistrée. Aucun jeton à coller dans cette page.",
         "connection_checking": "Vérification de Spotify…",
-        "connection_saved": "Utilise la connexion Spotify enregistrée sur cet appareil.",
         "connection_live": "Spotify connecté",
-        "connection_live_note": "Utilise la connexion Spotify enregistrée sur cet appareil.",
-        "connection_help": "À propos de cette connexion",
+        "connection_note": "Utilise la connexion Spotify enregistrée sur cet appareil.",
         "connection_blocked": "Vérifiez la connexion Spotify",
-        "connection_permissions": "Spotify demande une autorisation pour cette vue",
-        "connection_permissions_note": "Votre jeton enregistré est utilisé, mais Spotify refuse l’accès. Un jeton limité à la lecture musicale nécessite une nouvelle approbation pour les albums enregistrés, les playlists privées et l’historique. Vous pouvez aussi essayer Rechercher sur Spotify.",
-        "connection_auth": "Spotify refuse la connexion enregistrée",
-        "spotify_auth_error": "Le jeton Spotify enregistré est invalide ou expiré. Suivez le guide pour autoriser TapTune à nouveau, puis redémarrez-le.",
         "retry_music": "Réessayer",
-        "search_prompt": "",
         "recent_note": "Historique local des musiques lancées avec les tags TapTune.",
-        "recent_note_api": "Albums des 50 derniers morceaux écoutés.",
         "select_music": "Choisir",
         "selected_music": "Sélection",
         "open_spotify": "Ouvrir dans Spotify",
@@ -266,7 +188,7 @@ TRANSLATIONS = {
         "write_instruction": "Posez le tag sur le lecteur du Pi, pas sur votre téléphone.",
         "write_warning": "Remplace le contenu existant du tag.",
         "tag_help": "Aide du lecteur",
-        "tag_help_note": "Utilisez un NTAG213/215/216 non verrouillé, un tag Feiju Type 2 de 144 octets pris en charge ou un tag NFC Type 4 NDEF accessible en écriture. Sur le Pi, activez NFC_READER_ENABLED et lancez python -m app.main (ou le service TapTune).",
+        "tag_help_note": "Utilisez un NTAG213/215/216 non verrouillé, un tag Feiju Type 2 de 144 octets pris en charge ou un tag NFC Type 4 NDEF accessible en écriture. Si le lecteur reste indisponible, utilisez Redémarrer TapTune sur la page Maintenance.",
         "writer_disabled": "Lecteur indisponible · Voir Aide du lecteur",
         "writer_ready": "Lecteur prêt",
         "check_reader": "Vérifier le lecteur",
@@ -287,15 +209,13 @@ TRANSLATIONS = {
         "pending_selection": "Sélection restaurée",
         "advanced_options": "Configuration manuelle",
         "assigned_note": "Associations par UID uniquement, pas les tags écrits ci-dessus.",
-        "manual_assignment": "Assignation manuelle par UID",
         "manual_note": "Associez un UID à la musique ou à un raccourci de lecture.",
         "error_network": "TapTune est inaccessible. Vérifiez la connexion et l’état. Une écriture expire après 60 secondes ; retirez le tag avant de réessayer.",
-        "spotify_permissions": "L’accès Spotify est absent ou expiré. Autorisez à nouveau l’accès à la bibliothèque, aux playlists privées et à l’historique, puis mettez à jour le jeton du Pi et redémarrez TapTune.",
         "spotify_rate_limit": "Spotify limite les requêtes. Patientez avant de réessayer.",
-        "spotify_unavailable": "Spotify est indisponible. Vérifiez la connexion Internet et la configuration Spotify du Pi, puis réessayez.",
+        "spotify_unavailable": "Spotify ne répond pas. Vérifiez la connexion Internet du Pi, puis réessayez.",
         "spotify_not_signed_in": "Le Pi n’est pas encore connecté à Spotify. Ouvrez Spotify sur un téléphone connecté au même Wi-Fi, touchez Appareils et choisissez TapTune une fois, puis réessayez.",
-        "invalid_music_request": "Saisissez une recherche de 1 à 200 caractères.",
-        "reader_unavailable": "Le lecteur du Pi est indisponible. Vérifiez sa connexion et redémarrez TapTune si nécessaire.",
+        "invalid_music_request": "Cette vue n’a pas pu se charger. Rechargez la page.",
+        "reader_unavailable": "Le lecteur du Pi est indisponible. Vérifiez son câble, puis utilisez Redémarrer TapTune sur la page Maintenance.",
         "writer_busy": "Une autre écriture est en attente. Attendez sa fin ou son expiration.",
         "write_timeout": "Aucun tag écrit dans les 60 secondes. Retirez tout tag et réessayez.",
         "tag_changed": "Le tag a été retiré ou remplacé. Gardez un seul tag sur le lecteur et réessayez.",
@@ -308,7 +228,6 @@ TRANSLATIONS = {
         "write_not_found": "Cette session d’écriture n’est plus disponible. Retirez le tag et recommencez.",
         "invalid_write": "Choisissez un album, une playlist, un morceau ou un podcast Spotify avant l’écriture.",
         "invalid_origin": "L’écriture doit être lancée depuis cette page TapTune. Rechargez la page et réessayez.",
-        "authorization_guide": "Guide d’autorisation Spotify",
     },
 }
 
@@ -344,10 +263,7 @@ def create_app() -> Flask:
     def music():
         try:
             result = browse_music(
-                request.args.get("collection", "albums"),
-                query=request.args.get("q", ""), kind=request.args.get("kind", "all"),
-                offset=int(request.args.get("offset", "0")),
-                before=int(request.args["before"]) if "before" in request.args else None,
+                request.args.get("collection", "albums"), offset=int(request.args.get("offset", "0")),
             )
         except ValueError:
             return api_error("invalid_music_request", 400)
@@ -357,22 +273,7 @@ def create_app() -> Flask:
             app.logger.warning("Spotify browsing needs the Pi to be signed in to Spotify (go-librespot).")
             return api_error("spotify_not_signed_in", 409)
         except (spotify_service.LibrespotUnavailable, spotify_service.LibrespotError) as error:
-            app.logger.warning("Spotify browsing could not get a token from go-librespot (%s).", type(error).__name__)
-            return api_error("spotify_unavailable", 502)
-        except SPOTIFY_BROWSER_ERRORS as error:
-            if spotify_service.SpotifyException and isinstance(error, spotify_service.SpotifyException):
-                status = error.http_status
-                app.logger.warning("Spotify browsing failed (HTTP %s).", status)
-                if status == 401:
-                    return api_error("spotify_auth_error", 403)
-                if status == 403:
-                    return api_error("spotify_permissions", 403)
-                if status == 429:
-                    return rate_limit_response(spotify_service.note_rate_limit(error))
-            elif spotify_service.SpotifyOauthError and isinstance(error, spotify_service.SpotifyOauthError):
-                app.logger.warning("Spotify browsing authorization failed.")
-                return api_error("spotify_auth_error", 403)
-            app.logger.warning("Spotify browsing is unavailable (%s).", type(error).__name__)
+            app.logger.warning("Spotify browsing failed: go-librespot is unavailable (%s).", error)
             return api_error("spotify_unavailable", 502)
         return api_response(result)
 
@@ -441,9 +342,6 @@ def create_app() -> Flask:
             translations=translations,
             switch_url=translations["switch_url"],
             form_action=url_for("assign_tag_fr" if locale == "fr" else "assign_tag_en"),
-            spotify_configured=is_web_api_configured(),
-            librespot_receiver=uses_librespot(),
-            link_mode=uses_librespot() and not is_live_spotify_configured(),
         )
 
     def setup_redirect(locale):
@@ -496,11 +394,11 @@ def create_app() -> Flask:
             data = request.get_json()
             speaker = speaker_pairing.pair_speaker(data.get("mac") if isinstance(data, dict) else None)
             try:
-                receiver = speaker_pairing.save_speaker(speaker["mac"])
+                speaker_pairing.save_speaker(speaker["mac"])
             except (OSError, setup_state.InvalidSetting):
                 app.logger.exception("Could not save the Bluetooth speaker.")
                 return api_error("save_failed", 500)
-            return api_response({"speaker": speaker, "receiver": receiver})
+            return api_response({"speaker": speaker})
         return speaker_call(pair)
 
     @app.post("/api/setup/speaker/test")
@@ -541,6 +439,60 @@ def create_app() -> Flask:
         response.headers["Cache-Control"] = "no-store"
         return response
 
+    @app.get("/api/system")
+    def system_status():
+        return api_response({"version": system.code_version(), "update": system.update_status()})
+
+    def system_action(name, action):
+        if not valid_write_request():
+            return api_error("invalid_origin", 403)
+        record_activity("diagnostic", "WARNING", "web", f"{name} requested from the web page.")
+        action()
+        return api_response({"status": "started"}, 202)
+
+    @app.post("/api/system/update")
+    def system_update():
+        if not valid_write_request():
+            return api_error("invalid_origin", 403)
+        try:
+            system.start_update()
+        except system.UpdateRunning:
+            return api_error("update_running", 409)
+        except (OSError, KeyError) as error:
+            app.logger.error("Could not start the update: %s", error)
+            return api_error("update_failed", 500)
+        record_activity("diagnostic", "WARNING", "web", "Update requested from the web page.")
+        return api_response({"status": "started"}, 202)
+
+    @app.post("/api/system/restart")
+    def system_restart():
+        return system_action("Restart", system.restart_app)
+
+    @app.post("/api/system/reboot")
+    def system_reboot():
+        return system_action("Reboot", system.reboot)
+
+    @app.get("/api/system/diagnostics")
+    def system_diagnostics():
+        entries, _ = list_activity(page=1)
+        activity = "\n".join(
+            f"{row.get('created_at', '')} {row.get('level', '')} {row.get('kind', '')} {row.get('message', '')}"
+            for row in entries
+        )
+        text = (
+            f"TapTune {system.code_version()}\n"
+            f"Receiver: {settings.SPOTIFY_DEVICE_NAME}\nSpeaker: {settings.BLUETOOTH_SPEAKER_MAC or '(none)'}\n"
+            f"NFC reader: {'enabled' if settings.NFC_READER_ENABLED else 'disabled'}\n"
+            f"Setup: {[(step['id'], step['state'], step.get('reason')) for step in setup_state.setup_steps()]}\n\n"
+            f"== Last update ==\n{system.update_status()['log']}\n\n"
+            f"== Activity (newest first) ==\n{activity}\n\n"
+            f"== System journal (this boot) ==\n{system.journal()}"
+        )
+        response = app.make_response((redact(text, None), 200, {"Content-Type": "text/plain; charset=utf-8"}))
+        response.headers["Content-Disposition"] = "attachment; filename=taptune-diagnostics.txt"
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
     @app.get("/health")
     def health():
         return jsonify({"status": "ok", "app": "TapTune"})
@@ -553,14 +505,11 @@ def create_app() -> Flask:
             reader is not None and reader.is_alive()
             and (not isinstance(reader_event, threading.Event) or reader_event.is_set())
         )
-        live = is_playback_configured()
-        ready = bool(reader_ready and live)
         return jsonify({
-            "status": "ready" if ready else "not_ready",
+            "status": "ready" if reader_ready else "not_ready",
             "app": "TapTune",
             "reader_ready": bool(reader_ready),
-            "spotify_mode": "spotify" if live else "fake",
-        }), 200 if ready else 503
+        }), 200 if reader_ready else 503
 
     @app.post("/assign")
     def assign_tag_en():
@@ -602,7 +551,6 @@ def create_app() -> Flask:
                 return jsonify({"error": "Unknown tag"}), 404
             value = tag["value"]
 
-        record_event(uid or "simulated", "content" if value.startswith("spotify:") else "action", value, source="web")
         try:
             result = dispatch_tag_value(value)
         except Exception:

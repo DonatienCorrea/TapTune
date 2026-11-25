@@ -1,6 +1,6 @@
 [Unit]
 Description=TapTune service
-# install-service.sh --lite adds the Lite receiver ordering; --desktop sets the audio user.
+# install-service.sh rewrites the checkout paths and the audio user.
 # The app connects the Bluetooth speaker itself (boot, then tags that start music).
 Wants=network-online.target
 After=network-online.target bluetooth.service
@@ -11,10 +11,16 @@ StartLimitIntervalSec=0
 Type=simple
 WorkingDirectory=/home/pi/TapTune
 ExecStart=/home/pi/TapTune/.venv/bin/python -m app.main
+# Removed when NetworkManager is not running (no Wi-Fi setup hotspot then).
+ExecStopPost=-/home/pi/TapTune/.venv/bin/python -m app.wifi_setup cleanup
 Restart=always
 RestartSec=5
 EnvironmentFile=/home/pi/TapTune/.env
 Environment=PYTHONUNBUFFERED=1
+# The user whose PipeWire plays the audio (reached with runuser).
+Environment=DESKTOP_AUDIO_USER=pi
+Environment=TAPTUNE_HTTP_PORT_80=true
+Environment=TAPTUNE_WIFI_SETUP=true
 SyslogIdentifier=taptune
 
 [Install]

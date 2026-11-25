@@ -3,9 +3,9 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
-from app import activity, config, main, spotify_service
+from app import activity, config, librespot, main, spotify_service
 from app.db import get_connection
 from app.nfc_reader import NFCEvent
 from app.simulate import dispatch_simulated_value
@@ -20,9 +20,7 @@ class ActivityTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         settings = patch.multiple(
-            config.settings, DATABASE_PATH=str(Path(temporary.name) / "activity.db"),
-            SPOTIFY_RECEIVER="legacy",
-            SPOTIFY_CLIENT_ID="", SPOTIFY_CLIENT_SECRET="", SPOTIFY_REFRESH_TOKEN="",
+            config.settings, DATABASE_PATH=str(Path(temporary.name) / "activity.db"), BLUETOOTH_SPEAKER_MAC="",
         )
         settings.start()
         self.addCleanup(settings.stop)
@@ -61,15 +59,14 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual([row["message"] for row in activity.list_activity()[0]], ["5", "4", "3"])
 
     def test_logging_redacts_credentials_and_does_not_store_tracebacks(self):
-        with patch.multiple(config.settings, SPOTIFY_CLIENT_SECRET="knownsecret", SPOTIFY_REFRESH_TOKEN="knownrefresh"):
-            handler = activity.ActivityHandler()
-            record = logging.LogRecord(
-                "app.spotify_service", logging.ERROR, "", 1,
-                "knownsecret knownrefresh Bearer randomtoken access_token=anothersecret Basic encodedsecret", (), None,
-            )
-            handler.emit(record)
+        handler = activity.ActivityHandler()
+        record = logging.LogRecord(
+            "app.spotify_service", logging.ERROR, "", 1,
+            "Bearer randomtoken access_token=anothersecret Basic encodedsecret", (), None,
+        )
+        handler.emit(record)
         message = activity.list_activity()[0][0]["message"]
-        for secret in ("knownsecret", "knownrefresh", "randomtoken", "anothersecret", "encodedsecret"):
+        for secret in ("randomtoken", "anothersecret", "encodedsecret"):
             self.assertNotIn(secret, message)
         self.assertIn("[redacted]", message)
 
@@ -92,26 +89,26 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual(rows[0]["uid"], "bad")
 
     def test_show_dispatch_records_resolved_episode_name_and_uri(self):
-        spotify = Mock()
-        spotify.show_episodes.return_value = {"items": [{
-            "uri": "spotify:episode:newest", "name": "Morning news", "release_date": "2026-11-07",
-        }]}
-        spotify.current_playback.return_value = {"is_playing": True}
-        spotify.start_playback.return_value = None
-        with patch.object(spotify_service, "build_spotify_client", return_value=spotify):
+        spotify_service.clear_web_api_state()
+        self.addCleanup(spotify_service.clear_web_api_state)
+        page = {"items": [{"uri": "spotify:episode:newest", "name": "Morning news", "release_date": "2026-11-07"}]}
+        with patch.object(spotify_service, "web_api_get", return_value=page), \
+                patch.object(librespot, "require_session", return_value={}), \
+                patch.object(librespot, "devices", return_value=None), \
+                patch.object(librespot, "post") as post:
             response = self.client.post("/dispatch", data={"value": "spotify:show:news"})
+        post.assert_called_once_with("/player/play", {"uri": "spotify:show:news", "skip_to_uri": "spotify:episode:newest"})
         self.assertEqual(response.status_code, 200)
         row = activity.list_activity()[0][0]
         self.assertEqual(row["value"], "spotify:show:news")
         self.assertEqual(row["resolved_uri"], "spotify:episode:newest")
         self.assertEqual(row["message"], "Morning news")
 
-    def test_simulator_records_demo_and_error_results(self):
-        with patch("app.simulate.dispatch_tag_value", return_value={"status": "ok", "mode": "fake"}):
-            dispatch_simulated_value("demo", "action:next")
+    def test_simulator_records_its_results(self):
+        with patch("app.simulate.dispatch_tag_value", return_value={"status": "ok", "mode": "go-librespot"}):
+            dispatch_simulated_value("sim", "action:next")
         row = activity.list_activity()[0][0]
-        self.assertEqual(row["source"], "simulate")
-        self.assertIn("Demo mode", row["message"])
+        self.assertEqual((row["source"], row["uid"], row["level"]), ("simulate", "sim", "INFO"))
 
     def test_unexpected_dispatch_failures_are_recorded_without_exception_secrets(self):
         with patch("app.web.dispatch_tag_value", side_effect=RuntimeError("secret")):

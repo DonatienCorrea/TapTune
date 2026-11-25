@@ -4,7 +4,7 @@ TapTune is presented as a workshop field guide: warm paper, ink-black type, coba
 
 ## Product UI instructions
 
-Use this document as the source of truth for every TapTune surface, including the Raspberry Pi web UI, documentation, simulator screens, and future product pages. A page should feel like another page in the same workshop field guide, not like a separate SaaS dashboard.
+Use this document as the source of truth for every TapTune surface, including the Raspberry Pi web UI, documentation, and future product pages. A page should feel like another page in the same workshop field guide, not like a separate SaaS dashboard.
 
 - **Typography:** Load Space Grotesk for expressive headings and labels, DM Sans for readable copy, and DM Mono only for UIDs, URIs, code, timestamps, and system labels. Use tight, editorial heading tracking and generous line-height for body copy.
 - **Color:** Use paper `#f4f1e8` as the default canvas, paper deep `#e8e3d5` for secondary surfaces, ink `#182027` for primary text and dark bands, cobalt `#1945e8` for system marks and primary actions, signal orange `#f06328` for physical input and attention, playback green `#20734f` for successful playback states, muted `#5c635f`, and line `#c9c5b9`.
@@ -26,10 +26,10 @@ The music browsing/search section is an intentional, user-requested exception
 to the paper field-guide surface. Scope its Spotify-inspired styling to
 `.spotify-browser`: near-black `#121212`, charcoal `#1f1f1f` cards, white text,
 secondary text `#b3b3b3`, and green `#1ed760` selection actions. Use rounded
-search fields and collection chips. Saved albums, playlists and recent albums
+search fields and collection chips. Saved albums, playlists, What's playing and TapTune history
 use an artwork-led grid (two columns on phones) with uncropped artwork.
-Search uses one input and compact lists grouped by albums, playlists, songs
-and podcasts, with small square thumbnails and 44px minimum action targets.
+The Spotify link tab shows a compact preview with a small square thumbnail;
+its search field only opens Spotify in a new tab. Keep 44px minimum action targets.
 Keep visible Choose/Selected labels,
 keyboard focus, and an Open in Spotify link. Do not add pretend playback
 controls: choosing music prepares a tag, not a listening session.
@@ -42,8 +42,8 @@ tag-writing steps and advanced UID form retain TapTune's established style.
 
 Keep the main flow short: choose music, write the tag. Do not repeat titles
 in explanatory paragraphs. Connection details, reader setup, manual UID
-mapping and log metadata use expandable Help/Details sections; preserve
-the distinction between demo music and a live Spotify account.
+mapping and log metadata use expandable Help/Details sections; keep the
+main flow free of setup detail.
 
 Writing feedback is an inline panel with a distinct icon, a short heading,
 the necessary next step and the tag UID when known. Use different shapes
@@ -53,6 +53,7 @@ status rather than enabling another write. Keep overwrite warnings,
 reader placement and timeout guidance visible at the relevant step.
 
 The activity page leads with search, filters and chronological messages.
-Retention, UTC timestamps and the TapTune-only diagnostic scope belong in
-About this log. Raw tag values, resolved URIs and components remain
+Maintenance actions (update, restart, reboot, diagnostic download) sit in
+their own section and confirm before acting. Retention, UTC timestamps and
+the TapTune-only diagnostic scope belong in About this log. Raw tag values, resolved URIs and components remain
 inspectable in each row's Details.

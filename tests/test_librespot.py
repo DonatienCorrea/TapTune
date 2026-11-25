@@ -4,9 +4,10 @@ import tempfile
 import unittest
 import urllib.error
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from app import config, librespot, readiness, setup, spotify_service
+from app.bluetooth import BluetoothNotReady
 from app.web import create_app
 
 
@@ -23,6 +24,12 @@ class FakeResponse(io.BytesIO):
 
 
 class ClientTests(unittest.TestCase):
+    def setUp(self):
+        self.sleeps = []
+        p = patch.object(librespot, "_sleep", self.sleeps.append)
+        p.start()
+        self.addCleanup(p.stop)
+
     def test_no_session_is_none_and_json_is_decoded(self):
         self.assertIsNone(librespot.status(opener=lambda req, timeout: FakeResponse(204)))
         body = json.dumps({"username": "ana"}).encode()
@@ -62,11 +69,69 @@ class ClientTests(unittest.TestCase):
 
         self.assertIsNone(librespot.devices(opener=not_found))
 
-    def test_parse_receiver(self):
-        self.assertEqual(config.parse_receiver(""), "legacy")
-        self.assertEqual(config.parse_receiver(" Go-Librespot "), "go-librespot")
-        with self.assertRaises(ValueError):
-            config.parse_receiver("raspotify")
+
+    def test_refused_connection_is_retried_even_for_post(self):
+        calls = []
+
+        def opener(req, timeout):
+            calls.append(req.get_method())
+            if len(calls) == 1:
+                raise urllib.error.URLError(ConnectionRefusedError())
+            return FakeResponse(200, b'{"token": "abc"}')
+
+        self.assertEqual(librespot.token(opener=opener), "abc")
+        self.assertEqual(calls, ["POST", "POST"])
+        self.assertEqual(len(self.sleeps), 1)
+
+    def test_post_is_not_resent_after_a_generic_network_error(self):
+        calls = []
+
+        def opener(req, timeout):
+            calls.append(req.get_method())
+            raise urllib.error.URLError(TimeoutError("timed out"))
+
+        with self.assertRaises(librespot.LibrespotUnavailable):
+            librespot.post("/player/next", opener=opener)
+        self.assertEqual(calls, ["POST"])
+        with self.assertRaises(librespot.LibrespotUnavailable):
+            librespot.status(opener=opener)
+        self.assertEqual(calls.count("GET"), librespot.ATTEMPTS)
+
+
+class WebApiTests(unittest.TestCase):
+    def setUp(self):
+        spotify_service.clear_web_api_state()
+        self.addCleanup(spotify_service.clear_web_api_state)
+        for p in (patch.object(spotify_service, "_sleep", lambda seconds: None),
+                  patch.object(librespot, "token", return_value="tok")):
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_server_errors_are_retried_with_the_receivers_token(self):
+        calls = []
+
+        def opener(req, timeout):
+            calls.append(req.get_header("Authorization"))
+            if len(calls) < 3:
+                raise urllib.error.HTTPError(req.full_url, 503, "busy", {}, None)
+            return FakeResponse(200, b'{"items": []}')
+
+        self.assertEqual(spotify_service.web_api_get("/shows/s/episodes", opener=opener), {"items": []})
+        self.assertEqual(calls, ["Bearer tok"] * 3)
+
+    def test_rate_limit_starts_a_cooldown_without_retrying(self):
+        calls = []
+
+        def opener(req, timeout):
+            calls.append(req.full_url)
+            raise urllib.error.HTTPError(req.full_url, 429, "slow down", {"Retry-After": "600"}, None)
+
+        with self.assertRaises(spotify_service.RateLimited) as raised:
+            spotify_service.web_api_get("/me", opener=opener)
+        self.assertEqual(raised.exception.seconds, 600)
+        with self.assertRaises(spotify_service.RateLimited):
+            spotify_service.web_api_get("/me", opener=opener)
+        self.assertEqual(len(calls), 1)
 
 
 SELF = {"id": "pi", "name": "TapTune", "is_self": True, "volume": 0}
@@ -109,12 +174,9 @@ class PlaybackTests(unittest.TestCase):
     def setUp(self):
         spotify_service.clear_web_api_state()
         self.addCleanup(spotify_service.clear_web_api_state)
-        for p in (patch.multiple(config.settings, SPOTIFY_RECEIVER="go-librespot", SPOTIFY_DEVICE_NAME="TapTune",
-                                 BLUETOOTH_SPEAKER_MAC="AA:BB:CC:DD:EE:FF", SPOTIFY_CLIENT_ID="",
-                                 SPOTIFY_CLIENT_SECRET="", SPOTIFY_REFRESH_TOKEN=""),
-                  patch("app.spotify_service.build_spotify_client", side_effect=AssertionError("Web API used"))):
-            p.start()
-            self.addCleanup(p.stop)
+        p = patch.multiple(config.settings, SPOTIFY_DEVICE_NAME="TapTune", BLUETOOTH_SPEAKER_MAC="AA:BB:CC:DD:EE:FF")
+        p.start()
+        self.addCleanup(p.stop)
         self.prepare = patch("app.spotify_service.prepare_speaker").start()
         self.addCleanup(patch.stopall)
 
@@ -125,29 +187,6 @@ class PlaybackTests(unittest.TestCase):
             self.addCleanup(p.stop)
         return fake
 
-    def test_no_developer_app_is_needed(self):
-        self.assertFalse(spotify_service.is_live_spotify_configured())
-        self.assertTrue(spotify_service.is_playback_configured())
-        self.assertTrue(spotify_service.is_web_api_configured())
-
-    def test_music_browser_uses_the_pi_sign_in_token(self):
-        self.use(FakeLibrespot(status={"username": "ana"}, token="session-token"))
-        with patch("app.spotify_service.Spotify") as spotify:
-            self.assertIs(spotify_service.build_web_api_client(), spotify.return_value)
-        self.assertEqual(spotify.call_args.kwargs["auth"], "session-token")
-
-    def test_music_browser_without_sign_in_raises_not_logged_in(self):
-        self.use(FakeLibrespot(status={"username": "ana"}, token=None))
-        with self.assertRaises(librespot.NotLoggedIn):
-            spotify_service.build_web_api_client()
-
-    def test_developer_credentials_take_precedence_for_the_music_browser(self):
-        with patch.multiple(config.settings, SPOTIFY_CLIENT_ID="id", SPOTIFY_CLIENT_SECRET="secret",
-                            SPOTIFY_REFRESH_TOKEN="token"), \
-                patch("app.spotify_service.build_spotify_client", return_value="developer") as developer:
-            self.assertEqual(spotify_service.build_web_api_client(), "developer")
-        developer.assert_called_once_with(for_browsing=True)
-
     def test_track_album_and_playlist_tags_play_on_the_pi(self):
         fake = self.use(FakeLibrespot(status={"username": "ana"}))
         for uri in ("spotify:track:t", "spotify:album:a", "spotify:playlist:p"):
@@ -157,14 +196,16 @@ class PlaybackTests(unittest.TestCase):
                 self.assertEqual(fake.posts[-1], ("/player/play", {"uri": uri}))
         self.assertEqual(self.prepare.call_count, 3)
 
-    def test_show_tag_starts_its_latest_episode_with_the_receivers_token(self):
+    def test_show_tag_starts_its_latest_episode(self):
         fake = self.use(FakeLibrespot(status={}))
-        episode = {"uri": "spotify:episode:new", "name": "Latest"}
-        with patch("app.spotify_service.Spotify") as client, \
-                patch("app.spotify_service._latest_episode", return_value=episode) as latest:
+        page = {"items": [
+            {"uri": "spotify:episode:old", "name": "Old", "release_date": "2024-01-01"},
+            {"uri": "spotify:episode:new", "name": "Latest", "release_date": "2024-02-01"},
+            {"uri": "spotify:episode:locked", "release_date": "2024-03-01", "is_playable": False},
+        ]}
+        with patch("app.spotify_service.web_api_get", return_value=page) as web_api:
             result = spotify_service.play_content("spotify:show:s")
-        self.assertEqual(client.call_args.kwargs["auth"], "tok")
-        self.assertEqual(latest.call_args.args[1], "s")
+        web_api.assert_called_once_with("/shows/s/episodes?limit=50")
         self.assertEqual(fake.posts, [("/player/play", {"uri": "spotify:show:s", "skip_to_uri": "spotify:episode:new"})])
         self.assertEqual(result["episode_name"], "Latest")
         self.assertEqual(result["uri"], "spotify:episode:new")
@@ -174,52 +215,26 @@ class PlaybackTests(unittest.TestCase):
         result = spotify_service.play_content("spotify:show:s")
         self.assertEqual(result["status"], "ok")
         self.assertEqual(fake.posts, [("/player/play", {"uri": "spotify:show:s"})])
-        with patch("app.spotify_service.Spotify"), patch("app.spotify_service._latest_episode", return_value=None):
-            fake.access_token = "tok"
-            self.assertEqual(spotify_service.play_content("spotify:show:s")["error"], "show_no_episodes")
+        with patch("app.spotify_service.web_api_get", return_value={"items": []}):
+            self.assertEqual(spotify_service.play_content("spotify:show:e")["error"], "show_no_episodes")
 
-    def test_show_lookup_falls_back_between_developer_credentials_and_receiver_token(self):
-        episode = {"uri": "spotify:episode:new", "name": "Latest"}
-        creds = patch.multiple(config.settings, SPOTIFY_CLIENT_ID="id", SPOTIFY_CLIENT_SECRET="s",
-                               SPOTIFY_REFRESH_TOKEN="r")
-        creds.start()
-        self.addCleanup(creds.stop)
-        dev_client, receiver_client = object(), object()
-        lookups = {id(dev_client): episode, id(receiver_client): episode}
+    def test_show_lookup_is_cached(self):
+        self.use(FakeLibrespot(status={}))
+        page = {"items": [{"uri": "spotify:episode:new", "name": "Latest"}]}
+        with patch("app.spotify_service.web_api_get", return_value=page) as web_api:
+            spotify_service.play_content("spotify:show:s")
+            spotify_service.play_content("spotify:show:s")
+        web_api.assert_called_once()
 
-        def lookup(client, _show_id):
-            return lookups[id(client)]
-
-        # Receiver token missing: the developer-app credentials still find the newest episode.
-        fake = self.use(FakeLibrespot(status={}, token=None))
-        with patch("app.spotify_service.build_spotify_client", return_value=dev_client), \
-                patch("app.spotify_service._latest_episode", side_effect=lookup):
-            self.assertEqual(spotify_service.play_content("spotify:show:s")["uri"], "spotify:episode:new")
-        # Developer credentials failing: the receiver's token is used instead.
-        spotify_service.clear_web_api_state()
-        fake.access_token = "tok"
-        with patch("app.spotify_service.build_spotify_client", side_effect=RuntimeError("revoked")), \
-                patch("app.spotify_service.Spotify", return_value=receiver_client), \
-                patch("app.spotify_service._latest_episode", side_effect=lookup):
-            self.assertEqual(spotify_service.play_content("spotify:show:s")["uri"], "spotify:episode:new")
-        self.assertEqual([body["skip_to_uri"] for _, body in fake.posts], ["spotify:episode:new"] * 2)
-
-    def test_show_lookup_is_cached_and_skipped_while_rate_limited(self):
-        from spotipy import SpotifyException
+    def test_speaker_is_prepared_before_playing_and_blocks_playback_on_failure(self):
         fake = self.use(FakeLibrespot(status={}))
-        episode = {"uri": "spotify:episode:new", "name": "Latest"}
-        with patch("app.spotify_service.Spotify"), \
-                patch("app.spotify_service._latest_episode", return_value=episode) as latest:
-            spotify_service.play_content("spotify:show:s")
-            spotify_service.play_content("spotify:show:s")
-        latest.assert_called_once()
-        limit = SpotifyException(429, -1, "limit", headers={"Retry-After": "600"})
-        with patch("app.spotify_service.Spotify"), \
-                patch("app.spotify_service._latest_episode", side_effect=limit) as latest:
-            spotify_service.play_content("spotify:show:other")
-            spotify_service.play_content("spotify:show:other")
-        latest.assert_called_once()
-        self.assertEqual(fake.posts[-1], ("/player/play", {"uri": "spotify:show:other"}))
+        self.prepare.side_effect = lambda: self.assertEqual(fake.posts, [])
+        self.assertEqual(spotify_service.play_content("spotify:track:t")["status"], "ok")
+        self.assertEqual(len(fake.posts), 1)
+        self.prepare.side_effect = BluetoothNotReady("Speaker is off")
+        result = spotify_service.play_content("spotify:track:t")
+        self.assertEqual((result["error"], result["message"]), ("bluetooth_not_ready", "Speaker is off"))
+        self.assertEqual(len(fake.posts), 1)
 
     def test_active_phone_receives_the_commands_instead_of_the_pi(self):
         cluster = {"active_device_id": "phone", "devices": [SELF, PHONE], "now_playing": {"playing": True}}
@@ -269,8 +284,7 @@ class PlaybackTests(unittest.TestCase):
 
 class ReadinessTests(unittest.TestCase):
     def setUp(self):
-        p = patch.multiple(config.settings, SPOTIFY_RECEIVER="go-librespot", SPOTIFY_DEVICE_NAME="TapTune",
-                           SPOTIFY_CLIENT_ID="", READY_SOUND_ENABLED=True)
+        p = patch.multiple(config.settings, SPOTIFY_DEVICE_NAME="TapTune", READY_SOUND_ENABLED=True)
         p.start()
         self.addCleanup(p.stop)
 
@@ -286,8 +300,7 @@ class ReadinessTests(unittest.TestCase):
 
 class SetupStepTests(unittest.TestCase):
     def setUp(self):
-        p = patch.multiple(config.settings, SPOTIFY_RECEIVER="go-librespot", SPOTIFY_DEVICE_NAME="TapTune",
-                           SPOTIFY_CLIENT_ID="", BLUETOOTH_SPEAKER_MAC="AA:BB:CC:DD:EE:FF")
+        p = patch.multiple(config.settings, SPOTIFY_DEVICE_NAME="TapTune", BLUETOOTH_SPEAKER_MAC="AA:BB:CC:DD:EE:FF")
         p.start()
         self.addCleanup(p.stop)
 

@@ -5,12 +5,12 @@ import time
 
 from werkzeug.serving import make_server
 
-from .config import BASE_DIR, settings
-from .db import record_event
+from .config import settings
 from .activity import install_activity_logging, record_activity, record_playback
 from .nfc_reader import NFCEvent, PN532Reader
 from .readiness import start_speaker_thread
-from .spotify_service import dispatch_tag_value, get_tag_type, is_playback_configured, uses_librespot
+from .system import code_version
+from .spotify_service import dispatch_tag_value, get_tag_type
 from .web import app
 from .wifi_portal import run_wifi_setup
 
@@ -25,8 +25,7 @@ READER_HEALTHY_RUN_SECONDS = 60.0
 
 
 def dispatch_nfc_event(event: NFCEvent):
-    tag_type = get_tag_type(event.payload)
-    if tag_type is None:
+    if get_tag_type(event.payload) is None:
         record_activity(
             "playback", "WARNING", event.source, "Unassigned tag: assign its UID on the music page.",
             uid=event.uid, value=event.payload,
@@ -38,7 +37,6 @@ def dispatch_nfc_event(event: NFCEvent):
         return None
 
     try:
-        record_event(event.uid, tag_type, event.payload, source=event.source)
         result = dispatch_tag_value(event.payload)
         record_playback(event.uid, event.payload, event.source, result)
     except Exception:  # noqa: BLE001 - one failed tap must never stop the reader.
@@ -101,10 +99,7 @@ def run_reader_supervisor(
                 logger.info("PN532 reader started.")
             if ready_event is not None:
                 ready_event.set()
-            if writer is None:
-                run_reader_loop(reader, stop_event=stop_event)
-            else:
-                run_reader_loop(reader, stop_event=stop_event, writer=writer)
+            run_reader_loop(reader, stop_event=stop_event, writer=writer)
             return
         except Exception as error:  # noqa: BLE001 - I2C/PN532 errors are often transient at boot.
             if writer is not None:
@@ -149,43 +144,15 @@ def start_reader_thread(reader_factory=PN532Reader, writer=None) -> threading.Th
     return thread
 
 
-def code_version() -> str:
-    """Return the checked-out commit without needing git."""
-    try:
-        head = (BASE_DIR / ".git" / "HEAD").read_text().strip()
-        if head.startswith("ref: "):
-            ref = BASE_DIR / ".git" / head[5:]
-            if ref.is_file():
-                return ref.read_text().strip()[:7]
-            packed = BASE_DIR / ".git" / "packed-refs"
-            for line in packed.read_text().splitlines() if packed.is_file() else []:
-                if line.endswith(" " + head[5:]):
-                    return line[:7]
-            return head[5:]
-        return head[:7]
-    except OSError:
-        return "unknown"
-
-
 def log_startup_summary() -> None:
-    live = is_playback_configured()
     logger.info(
-        "TapTune %s starting: http://%s:%s, Spotify %s, receiver %r, reader %s, "
+        "TapTune %s starting: http://%s:%s, Spotify receiver %r, reader %s, "
         "speaker %s, ready sound %s, database %s.",
-        code_version(), settings.APP_HOST, settings.APP_PORT,
-        ("live via go-librespot" if uses_librespot() else "live") if live else "FAKE", settings.SPOTIFY_DEVICE_NAME or "(none)",
+        code_version(), settings.APP_HOST, settings.APP_PORT, settings.SPOTIFY_DEVICE_NAME,
         "enabled" if settings.NFC_READER_ENABLED else "disabled",
         settings.BLUETOOTH_SPEAKER_MAC or "(none)",
         "on" if settings.READY_SOUND_ENABLED else "off", settings.DATABASE_PATH,
     )
-    if not live:
-        missing = [
-            name for name in ("SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET", "SPOTIFY_REFRESH_TOKEN")
-            if not getattr(settings, name)
-        ]
-        logger.warning(
-            "Spotify is in FAKE mode: nothing will play. Missing in .env: %s.", ", ".join(missing)
-        )
     if not settings.NFC_READER_ENABLED:
         logger.warning("NFC_READER_ENABLED=false: tags are not read, only the web page works.")
 

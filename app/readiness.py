@@ -1,10 +1,8 @@
 """Startup of the Pi's own speaker: volume, one bounded Bluetooth connection and
-a short ready sound. Runs in the TapTune app for both Lite (BlueALSA) and
-Desktop (the audio user's PipeWire), so there is no separate chime service."""
+a short ready sound through the audio user's PipeWire."""
 
 from __future__ import annotations
 
-import argparse
 import io
 import json
 import logging
@@ -21,7 +19,6 @@ from urllib.request import urlopen
 from .bluetooth import BluetoothNotReady, desktop_command, prepare_speaker, speaker_mac
 from .config import settings
 from . import librespot
-from .spotify_service import build_spotify_client, find_device_id, is_playback_configured, uses_librespot
 
 logger = logging.getLogger(__name__)
 
@@ -62,9 +59,6 @@ def build_chime_wav(sample_rate: int = SAMPLE_RATE, volume: float = CHIME_VOLUME
     return buffer.getvalue()
 
 
-_last_play_failure = [None]
-
-
 class _WaitLog:
     """Log each waiting reason once (and again every minute), not every 5 seconds.
 
@@ -94,44 +88,6 @@ class _WaitLog:
 _wait_log = _WaitLog()
 
 
-def _summarize_aplay_error(stderr: str) -> str:
-    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
-    # aplay's own error line is the useful one; BlueALSA debug lines are noise.
-    for line in reversed(lines):
-        if line.startswith("aplay:"):
-            return line
-    return lines[-1] if lines else "no error output"
-
-
-def _aplay(wav: bytes, device: str, runner):
-    command = ["aplay", "-q"]
-    if device:
-        command += ["-D", device]
-    command.append("-")
-    return runner(command, input=wav, capture_output=True, timeout=10)
-
-
-def play_sound(wav: bytes, audio_device: Optional[str] = None, runner=subprocess.run) -> bool:
-    device = settings.AUDIO_OUTPUT_DEVICE if audio_device is None else audio_device
-    if device == "bluealsa" and settings.BLUETOOTH_SPEAKER_MAC:
-        device = f"bluealsa:DEV={settings.BLUETOOTH_SPEAKER_MAC},PROFILE=a2dp"
-    try:
-        result = _aplay(wav, device, runner)
-    except (OSError, subprocess.SubprocessError) as error:
-        logger.warning("Could not play the ready sound: %s", error)
-        return False
-    if result.returncode != 0:
-        stderr = (result.stderr or b"").decode(errors="replace").strip()
-        reason = _summarize_aplay_error(stderr)
-        # Retried every few seconds while the speaker connects: log each distinct reason once.
-        level = logging.INFO if reason != _last_play_failure[0] else logging.DEBUG
-        _last_play_failure[0] = reason
-        _wait_log.last = f"Ready sound not played yet (speaker not connected?): {reason}"
-        logger.log(level, "%s", _wait_log.last)
-        return False
-    return True
-
-
 def _pcm_frames(wav: bytes) -> bytes:
     with wave.open(io.BytesIO(wav)) as sound:
         return sound.readframes(sound.getnframes())
@@ -153,27 +109,18 @@ def _play_pipewire(wav: bytes, sink: str, runner, user: Optional[str]) -> bool:
 def play_ready_sound(
     wav: bytes,
     runner=subprocess.run,
-    desktop: Optional[bool] = None,
     user: Optional[str] = None,
 ) -> bool:
     """Connect the speaker (one attempt), route audio to it, then play the chime."""
-    desktop = bool(settings.DESKTOP_AUDIO_USER) if desktop is None else desktop
-    if desktop and not settings.BLUETOOTH_SPEAKER_MAC:
-        logger.warning("Desktop ready sound requires BLUETOOTH_SPEAKER_MAC.")
-        return False
+    if not settings.BLUETOOTH_SPEAKER_MAC:
+        logger.info("No Bluetooth speaker configured: no ready sound.")
+        return True
     try:
-        output = prepare_speaker(runner=runner, connect_attempts=1, desktop=desktop, user=user)
-        if desktop:
-            return _play_pipewire(wav, output, runner, user)
+        output = prepare_speaker(runner=runner, connect_attempts=1, user=user)
+        return _play_pipewire(wav, output, runner, user)
     except (BluetoothNotReady, OSError, subprocess.SubprocessError) as error:
         _wait_log("Waiting for the Bluetooth speaker: %s", error)
         return False
-    return play_sound(wav, runner=runner)
-
-
-def play_desktop_sound(wav: bytes, runner=subprocess.run) -> bool:
-    """`python -m app.readiness --desktop`: play in the current user's PipeWire session."""
-    return play_ready_sound(wav, runner=runner, desktop=True, user="")
 
 
 def app_ready() -> bool:
@@ -191,9 +138,7 @@ def app_ready() -> bool:
             payload = json.load(error)
         except (OSError, ValueError):
             payload = {}
-        if payload.get("spotify_mode") == "fake":
-            _wait_log("Waiting for TapTune: it runs in fake Spotify mode; check the Spotify values in .env.")
-        elif payload.get("reader_ready") is False:
+        if payload.get("reader_ready") is False:
             _wait_log("Waiting for TapTune: the NFC reader is not open yet (see the PN532 errors in the logs).")
         else:
             _wait_log("Waiting for TapTune: /ready answered %s.", error.code)
@@ -203,7 +148,8 @@ def app_ready() -> bool:
         return False
 
 
-def _librespot_logged_in() -> bool:
+def speaker_device_visible() -> bool:
+    """Whether go-librespot runs and is signed in to Spotify."""
     try:
         logged_in = librespot.status() is not None
     except Exception as error:  # noqa: BLE001 - go-librespot may still be starting.
@@ -215,23 +161,6 @@ def _librespot_logged_in() -> bool:
             "and choose '%s' once.", settings.SPOTIFY_DEVICE_NAME,
         )
     return logged_in
-
-
-def speaker_device_visible() -> bool:
-    if uses_librespot():
-        return _librespot_logged_in()
-    try:
-        visible = find_device_id(build_spotify_client()) is not None
-    except Exception as error:  # noqa: BLE001 - network may not be up yet during boot.
-        _wait_log("Waiting for Spotify: %r", error)
-        return False
-    if not visible:
-        _wait_log(
-            "Waiting for the Spotify receiver '%s' to appear in Spotify's device list "
-            "(is Spotifyd/Raspotify running and logged in to the same account?).",
-            settings.SPOTIFY_DEVICE_NAME,
-        )
-    return visible
 
 
 def wait_until_ready_then_chime(
@@ -317,7 +246,7 @@ def connect_speaker_at_boot(
 
 
 def should_announce_ready() -> bool:
-    return bool(settings.READY_SOUND_ENABLED and settings.SPOTIFY_DEVICE_NAME and is_playback_configured())
+    return bool(settings.READY_SOUND_ENABLED and settings.SPOTIFY_DEVICE_NAME)
 
 
 def initialize_speaker(
@@ -334,29 +263,14 @@ def initialize_speaker(
             return False
         attempt_started = time.monotonic()
         try:
-            if uses_librespot():
-                current = librespot.request("GET", "/player/volume") or {}
-                maximum = current.get("max") or 100
-                librespot.post("/player/volume", {"volume": round(settings.SPOTIFY_INITIAL_VOLUME * maximum / 100)})
-                device_id = settings.SPOTIFY_DEVICE_NAME
-                spotify = None
-            else:
-                spotify = build_spotify_client()
-                device_id = find_device_id(spotify)
-            if device_id is None:
-                _wait_log(
-                    "Waiting for the Spotify receiver '%s' before setting the startup volume "
-                    "(is Spotifyd/Raspotify running and logged in?).",
-                    settings.SPOTIFY_DEVICE_NAME,
-                )
-            else:
-                if spotify is not None:
-                    spotify.volume(settings.SPOTIFY_INITIAL_VOLUME, device_id=device_id)
-                logger.info("Set '%s' startup volume to %s%%.", settings.SPOTIFY_DEVICE_NAME, settings.SPOTIFY_INITIAL_VOLUME)
-                remaining = max(0.0, timeout_seconds - waited - (time.monotonic() - attempt_started))
-                if should_announce_ready():
-                    return wait_until_ready_then_chime(stop_event=stop_event, timeout_seconds=remaining)
-                return connect_speaker_at_boot(sleep=sleep, interval_seconds=interval_seconds, stop_event=stop_event)
+            current = librespot.request("GET", "/player/volume") or {}
+            maximum = current.get("max") or 100
+            librespot.post("/player/volume", {"volume": round(settings.SPOTIFY_INITIAL_VOLUME * maximum / 100)})
+            logger.info("Set '%s' startup volume to %s%%.", settings.SPOTIFY_DEVICE_NAME, settings.SPOTIFY_INITIAL_VOLUME)
+            remaining = max(0.0, timeout_seconds - waited - (time.monotonic() - attempt_started))
+            if should_announce_ready():
+                return wait_until_ready_then_chime(stop_event=stop_event, timeout_seconds=remaining)
+            return connect_speaker_at_boot(sleep=sleep, interval_seconds=interval_seconds, stop_event=stop_event)
         except Exception as error:  # noqa: BLE001 - the receiver/network may still be starting.
             _wait_log("Waiting to set startup volume: %r", error)
         waited += time.monotonic() - attempt_started
@@ -372,34 +286,8 @@ def initialize_speaker(
 
 
 def start_speaker_thread(target: Callable[[], bool] = initialize_speaker) -> Optional[threading.Thread]:
-    if not settings.SPOTIFY_DEVICE_NAME or not is_playback_configured():
+    if not settings.SPOTIFY_DEVICE_NAME:
         return None
     thread = threading.Thread(target=target, name="speaker-startup", daemon=True)
     thread.start()
     return thread
-
-
-def start_readiness_thread(target: Callable[[], bool] = wait_until_ready_then_chime) -> Optional[threading.Thread]:
-    if not should_announce_ready():
-        return None
-    return start_speaker_thread(target=target)
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Play TapTune's startup ready sound once.")
-    parser.add_argument("--desktop", action="store_true", help="Play through the current user's PipeWire session.")
-    args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    if not settings.READY_SOUND_ENABLED:
-        logger.info("Ready sound disabled.")
-        return 0
-    if not should_announce_ready():
-        logger.error("Ready sound requires SPOTIFY_DEVICE_NAME and go-librespot or live Spotify credentials.")
-        # Configuration error: systemd must not retry it (RestartPreventExitStatus=2).
-        return 2
-    play = play_desktop_sound if args.desktop else play_ready_sound
-    return 0 if wait_until_ready_then_chime(play=play) else 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

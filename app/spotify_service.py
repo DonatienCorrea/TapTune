@@ -1,31 +1,15 @@
+"""Play Spotify tags on the Pi's go-librespot receiver through its local API."""
+
 from __future__ import annotations
 
+import json
 import logging
 import re
 import threading
 import time
-from typing import Any, Optional
-
-try:
-    from spotipy import Spotify, SpotifyException
-    from spotipy.cache_handler import MemoryCacheHandler
-    from spotipy.oauth2 import SpotifyOAuth, SpotifyOauthError
-except ModuleNotFoundError:  # pragma: no cover - exercised when the optional dependency is absent.
-    Spotify = None
-    SpotifyOAuth = None
-    SpotifyException = None
-    SpotifyOauthError = None
-    MemoryCacheHandler = None
-
-try:
-    from requests import Session
-    from requests.adapters import HTTPAdapter
-    from requests.exceptions import ConnectionError as RequestsConnectionError, Timeout as RequestsTimeout
-    from urllib3.util.retry import Retry
-
-    NETWORK_ERRORS: tuple = (RequestsConnectionError, RequestsTimeout)
-except ModuleNotFoundError:  # pragma: no cover - requests ships with spotipy.
-    NETWORK_ERRORS = ()
+import urllib.error
+import urllib.request
+from typing import Optional
 
 from .config import settings
 from .bluetooth import BluetoothNotReady, prepare_speaker
@@ -38,11 +22,10 @@ SUPPORTED_ACTIONS = frozenset({
     "action:play_pause", "action:next", "action:next_track",
     "action:volume_up", "action:volume_down",
 })
-_fake_spotify_client: Optional["FakeSpotifyClient"] = None
-_volume_lock = threading.Lock()
-logger = logging.getLogger(__name__)
-
-SPOTIFY_REQUEST_TIMEOUT_SECONDS = 10
+WEB_API_URL = "https://api.spotify.com/v1"
+WEB_API_TIMEOUT_SECONDS = 10
+WEB_API_ATTEMPTS = 3
+RETRY_DELAY_SECONDS = 1.0
 # Spotify limits Web API calls made with go-librespot's token. Remember the
 # limit so nothing calls again during the wait, which only extends it.
 DEFAULT_RATE_LIMIT_SECONDS = 30
@@ -50,12 +33,21 @@ LATEST_EPISODE_CACHE_SECONDS = 600
 _rate_limited_until = 0.0
 _latest_episodes: dict = {}
 _web_api_lock = threading.Lock()
+_volume_lock = threading.Lock()
+_sleep = time.sleep
+logger = logging.getLogger(__name__)
 
 
 class RateLimited(Exception):
     def __init__(self, seconds: float):
         super().__init__(f"Spotify asked to wait {int(seconds)} s")
         self.seconds = max(1, int(seconds))
+
+
+class WebApiError(Exception):
+    def __init__(self, status: int, path: str):
+        super().__init__(f"Spotify Web API returned HTTP {status} for {path}")
+        self.status = status
 
 
 def rate_limit_remaining() -> float:
@@ -68,13 +60,9 @@ def check_rate_limit() -> None:
         raise RateLimited(remaining)
 
 
-def note_rate_limit(error: Exception) -> Optional[int]:
-    """Start the cooldown when `error` is Spotify's 429; return its length."""
+def _start_cooldown(retry_after: str) -> int:
     global _rate_limited_until
-    if not (SpotifyException and isinstance(error, SpotifyException) and error.http_status == 429):
-        return None
-    retry = str((error.headers or {}).get("Retry-After") or "")
-    seconds = int(retry) if retry.isdigit() else DEFAULT_RATE_LIMIT_SECONDS
+    seconds = int(retry_after) if retry_after.isdigit() else DEFAULT_RATE_LIMIT_SECONDS
     with _web_api_lock:
         _rate_limited_until = max(_rate_limited_until, time.monotonic() + seconds)
     logger.warning("Spotify asked to wait %s s before more Web API calls.", seconds)
@@ -86,182 +74,32 @@ def clear_web_api_state() -> None:
     with _web_api_lock:
         _rate_limited_until = 0.0
         _latest_episodes.clear()
-SPOTIFY_SCOPES = (
-    "user-modify-playback-state user-read-playback-state "
-    "user-library-read playlist-read-private playlist-read-collaborative "
-    "user-read-recently-played"
-)
-TOKEN_REFRESH_ATTEMPTS = 3
-# Spotifyd/Raspotify can briefly drop out of Spotify's device list.
-DEVICE_LOOKUP_ATTEMPTS = 3
-RETRY_DELAY_SECONDS = 1.0
-# Spotify's playback state lags a few seconds behind commands, so trust what
-# TapTune just did over a stale report for this long.
-STATE_MEMORY_SECONDS = 30.0
-PLAYBACK_MEMORY_SECONDS = 10.0
-_clock = time.monotonic
-# device id -> (volume TapTune set, stale values Spotify may still report, when)
-_volume_memory: dict = {}
-# (is_playing TapTune set, when)
-_playback_memory: Optional[tuple] = None
 
 
-class FakeSpotifyClient:
-    def __init__(self):
-        self.is_playing = False
-        self.current_uri = "spotify:track:demo"
-        self.position_ms = 0
-        self.device_id = None
-        self.volume_percent = settings.SPOTIFY_INITIAL_VOLUME
-
-    def volume(self, volume_percent, device_id=None):
-        self.volume_percent = volume_percent
-        return {"status": "ok", "mode": "fake", "volume_percent": volume_percent}
-
-    def _device(self):
-        return {
-            "id": "fake-device",
-            "name": settings.SPOTIFY_DEVICE_NAME or "TapTune",
-            "is_active": self.device_id is not None,
-            "volume_percent": self.volume_percent,
-            "supports_volume": True,
-        }
-
-    def start_playback(self, device_id=None, uris=None, context_uri=None, position_ms=0):
-        if uris:
-            self.current_uri = uris[0]
-        elif context_uri:
-            self.current_uri = context_uri
-        else:
-            self.current_uri = "spotify:track:demo"
-        self.position_ms = position_ms
-        self.is_playing = True
-        self.device_id = device_id
-        return {
-            "status": "ok",
-            "mode": "fake",
-            "uri": self.current_uri,
-            "position_ms": self.position_ms,
-        }
-
-    def pause_playback(self, device_id=None):
-        self.is_playing = False
-        return {"status": "ok", "mode": "fake", "paused": True}
-
-    def next_track(self, device_id=None):
-        self.is_playing = True
-        return {"status": "ok", "mode": "fake", "action": "next"}
-
-    def show_episodes(self, show_id, limit=50):
-        return {
-            "items": [{
-                "uri": "spotify:episode:demoepisode",
-                "name": "Latest episode (demo)",
-                "release_date": "2026-01-01",
-                "is_playable": True,
-            }]
-        }
-
-    def transfer_playback(self, device_id, force_play=True):
-        self.device_id = device_id
-        self.is_playing = bool(force_play)
-        return {"status": "ok", "mode": "fake", "device_id": device_id}
-
-    def devices(self):
-        return {
-            "devices": [
-                self._device()
-            ]
-        }
-
-    def current_playback(self):
-        return {
-            "is_playing": self.is_playing,
-            "item": {"uri": self.current_uri},
-            "position_ms": self.position_ms,
-            "mode": "fake",
-            "device": self._device(),
-        }
-
-
-class SpeakerNotReady(Exception):
-    """No device is active and the Pi's own Spotify Connect receiver is not visible."""
-
-
-def _is_transient_auth_error(error: Exception) -> bool:
-    if NETWORK_ERRORS and isinstance(error, NETWORK_ERRORS):
-        return True
-    if SpotifyOauthError is not None and isinstance(error, SpotifyOauthError):
-        # invalid_grant/invalid_client mean bad credentials: retrying cannot help.
-        return getattr(error, "error", None) not in {"invalid_grant", "invalid_client"}
-    return False
-
-
-def _refresh_token_with_retries(auth_manager: Any, sleep=time.sleep) -> None:
-    for attempt in range(1, TOKEN_REFRESH_ATTEMPTS + 1):
-        try:
-            auth_manager.refresh_access_token(settings.SPOTIFY_REFRESH_TOKEN)
-            return
-        except Exception as error:  # noqa: BLE001 - filtered by _is_transient_auth_error.
-            if attempt == TOKEN_REFRESH_ATTEMPTS or not _is_transient_auth_error(error):
-                raise
-            logger.warning(
-                "Spotify token refresh failed (attempt %d/%d): %s; retrying.",
-                attempt, TOKEN_REFRESH_ATTEMPTS, error,
-            )
-            sleep(RETRY_DELAY_SECONDS * attempt)
-
-
-def is_live_spotify_configured() -> bool:
-    """Whether Spotify Web API developer credentials are set (legacy playback, music browser)."""
-    return bool(settings.SPOTIFY_CLIENT_ID and settings.SPOTIFY_CLIENT_SECRET and settings.SPOTIFY_REFRESH_TOKEN)
-
-
-def uses_librespot() -> bool:
-    return settings.SPOTIFY_RECEIVER == "go-librespot"
-
-
-def is_playback_configured() -> bool:
-    """Whether tags really play: through go-librespot, or through the Web API (legacy)."""
-    return uses_librespot() or is_live_spotify_configured()
-
-
-def is_web_api_configured() -> bool:
-    """Whether the Web API (music browser) has an account: developer credentials or go-librespot's sign-in."""
-    return is_live_spotify_configured() or uses_librespot()
-
-
-def _web_api_session() -> Session:
-    # urllib3 retries a 429 with Retry-After even if 429 isn't in status_forcelist.
-    # Pass that response to TapTune so it can enforce the cooldown without sleeping.
-    retry = Retry(
-        total=3, read=False, allowed_methods=frozenset({"GET"}),
-        status_forcelist=(500, 502, 503, 504), backoff_factor=0.3,
-        respect_retry_after_header=False, raise_on_status=False,
-    )
-    session = Session()
-    session.mount("https://", HTTPAdapter(max_retries=retry))
-    return session
-
-
-def build_receiver_spotify_client() -> Any:
-    """A Web API client using go-librespot's session token (no developer app needed)."""
+def web_api_get(path: str, opener=urllib.request.urlopen) -> dict:
+    """GET a Spotify Web API path with go-librespot's token, retrying network and 5xx errors."""
+    check_rate_limit()
     access_token = librespot.token()
     if not access_token:
-        raise librespot.NotLoggedIn("no Spotify access token from go-librespot")
-    if Spotify is None:
-        raise RuntimeError("Spotify support requires the 'spotipy' dependency.")
-    return Spotify(
-        auth=access_token, requests_timeout=SPOTIFY_REQUEST_TIMEOUT_SECONDS,
-        requests_session=_web_api_session(),
-    )
-
-
-def build_web_api_client() -> Any:
-    """Developer credentials when set, otherwise go-librespot's sign-in."""
-    if is_live_spotify_configured() or not uses_librespot():
-        return build_spotify_client(for_browsing=True)
-    return build_receiver_spotify_client()
+        raise NotLoggedIn("no Spotify access token from go-librespot")
+    request = urllib.request.Request(WEB_API_URL + path, headers={"Authorization": f"Bearer {access_token}"})
+    for attempt in range(1, WEB_API_ATTEMPTS + 1):
+        try:
+            with opener(request, timeout=WEB_API_TIMEOUT_SECONDS) as response:
+                return json.loads(response.read() or b"{}")
+        except urllib.error.HTTPError as error:
+            if error.code == 429:
+                raise RateLimited(_start_cooldown(str((error.headers or {}).get("Retry-After") or ""))) from error
+            if error.code < 500 or attempt == WEB_API_ATTEMPTS:
+                raise WebApiError(error.code, path) from error
+            problem = f"HTTP {error.code}"
+        except (urllib.error.URLError, OSError) as error:
+            if attempt == WEB_API_ATTEMPTS:
+                raise
+            problem = str(error)
+        logger.info("Spotify Web API %s failed (%s, attempt %d/%d); retrying.", path, problem, attempt, WEB_API_ATTEMPTS)
+        _sleep(RETRY_DELAY_SECONDS * attempt)
+    raise AssertionError("unreachable")
 
 
 def get_tag_type(value: str) -> Optional[str]:
@@ -272,95 +110,7 @@ def get_tag_type(value: str) -> Optional[str]:
     return None
 
 
-def build_spotify_client(*, for_browsing: bool = False) -> Any:
-    global _fake_spotify_client
-
-    if not is_live_spotify_configured():
-        if _fake_spotify_client is None:
-            _fake_spotify_client = FakeSpotifyClient()
-        return _fake_spotify_client
-
-    if Spotify is None or SpotifyOAuth is None or MemoryCacheHandler is None:
-        raise RuntimeError(
-            "Spotify support requires the 'spotipy' dependency. "
-            "Install it with 'pip install -r requirements.txt'."
-        )
-
-    auth_manager = SpotifyOAuth(
-        client_id=settings.SPOTIFY_CLIENT_ID,
-        client_secret=settings.SPOTIFY_CLIENT_SECRET,
-        redirect_uri=settings.SPOTIFY_REDIRECT_URI,
-        scope=SPOTIFY_SCOPES,
-        cache_handler=MemoryCacheHandler(),
-        requests_timeout=SPOTIFY_REQUEST_TIMEOUT_SECONDS,
-    )
-    _refresh_token_with_retries(auth_manager)
-    return Spotify(
-        auth_manager=auth_manager, requests_timeout=SPOTIFY_REQUEST_TIMEOUT_SECONDS,
-        requests_session=_web_api_session() if for_browsing else True,
-    )
-
-
-def find_device(spotify: Any, name: Optional[str] = None) -> Optional[dict]:
-    """Return the Connect device called ``name`` (case-insensitive)."""
-    name = (settings.SPOTIFY_DEVICE_NAME if name is None else name).strip()
-    if not name:
-        return None
-    response = spotify.devices() or {}
-    for device in response.get("devices") or []:
-        if (device.get("name") or "").strip().casefold() == name.casefold() and device.get("id"):
-            return device
-    return None
-
-
-def find_device_id(spotify: Any, name: Optional[str] = None) -> Optional[str]:
-    device = find_device(spotify, name)
-    return device["id"] if device else None
-
-
-def find_device_with_retries(spotify: Any, sleep=time.sleep) -> Optional[dict]:
-    for attempt in range(DEVICE_LOOKUP_ATTEMPTS):
-        device = find_device(spotify)
-        if device is not None:
-            return device
-        if attempt < DEVICE_LOOKUP_ATTEMPTS - 1:
-            sleep(RETRY_DELAY_SECONDS)
-    return None
-
-
-def resolve_target_device(spotify: Any, current: Optional[dict]) -> Optional[str]:
-    """Keep playback where it is active; otherwise target the Pi's own receiver.
-
-    Returns ``None`` to let Spotify use the active device, a device id for the Pi,
-    or raises ``SpeakerNotReady`` when nothing can play.
-    """
-    if current:
-        return None
-    if not settings.SPOTIFY_DEVICE_NAME:
-        # Pi targeting disabled: let Spotify report NO_ACTIVE_DEVICE as before.
-        return None
-    device = find_device_with_retries(spotify)
-    if device is None:
-        raise SpeakerNotReady(settings.SPOTIFY_DEVICE_NAME)
-    return device["id"]
-
-
-def _speaker_not_ready_response() -> dict:
-    return {
-        "status": "error",
-        "error": "speaker_not_ready",
-        "reason": "SPEAKER_NOT_READY",
-        "device_name": settings.SPOTIFY_DEVICE_NAME,
-        "message": (
-            f"The '{settings.SPOTIFY_DEVICE_NAME}' speaker is not ready yet. Check that the "
-            "Raspberry Pi is connected to the network and that its Spotify receiver "
-            "(go-librespot, Spotifyd or Raspotify) is running, then try again."
-        ),
-    }
-
-
-def _latest_episode(spotify: Any, show_id: str) -> Optional[dict]:
-    page = spotify.show_episodes(show_id, limit=50)
+def _latest_episode(page: dict) -> Optional[dict]:
     episodes = []
     for episode in page.get("items") or []:
         if not isinstance(episode, dict) or episode.get("is_playable") is False or episode.get("restrictions"):
@@ -381,23 +131,43 @@ def _latest_episode(spotify: Any, show_id: str) -> Optional[dict]:
     return max(episodes, key=lambda episode: episode[0])[1] if episodes else None
 
 
+def latest_episode(show_id: str) -> Optional[dict]:
+    cached = _latest_episodes.get(show_id)
+    if cached and time.monotonic() - cached[0] < LATEST_EPISODE_CACHE_SECONDS:
+        return cached[1]
+    episode = _latest_episode(web_api_get(f"/shows/{show_id}/episodes?limit=50"))
+    with _web_api_lock:
+        _latest_episodes[show_id] = (time.monotonic(), episode)
+    return episode
+
+
+def _speaker_not_ready_response() -> dict:
+    return {
+        "status": "error",
+        "error": "speaker_not_ready",
+        "reason": "SPEAKER_NOT_READY",
+        "device_name": settings.SPOTIFY_DEVICE_NAME,
+        "message": (
+            f"The '{settings.SPOTIFY_DEVICE_NAME}' speaker is not ready yet. Check that the "
+            "Raspberry Pi is connected to the network and that go-librespot is running, then try again."
+        ),
+    }
+
+
 def _handle_error(error: Exception) -> dict:
     try:
         response = _error_response(error)
     except Exception:
         logger.exception("Unexpected Spotify playback error.")
         raise
-    logger.warning(
-        "Playback command failed (%s): %s", response.get("reason") or response["error"], response["message"],
-        exc_info=response["error"] in {"network_error", "spotify_auth_error"},
-    )
+    logger.warning("Playback command failed (%s): %s", response.get("reason") or response["error"], response["message"])
     return response
 
 
 def _error_response(error: Exception) -> dict:
     if isinstance(error, BluetoothNotReady):
         return {"status": "error", "error": "bluetooth_not_ready", "message": str(error)}
-    if isinstance(error, (SpeakerNotReady, LibrespotUnavailable)):
+    if isinstance(error, LibrespotUnavailable):
         return _speaker_not_ready_response()
     if isinstance(error, NotLoggedIn):
         return {
@@ -415,39 +185,7 @@ def _error_response(error: Exception) -> dict:
             "http_status": error.status,
             "message": str(error),
         }
-    if SpotifyException is not None and isinstance(error, SpotifyException):
-        return _spotify_error_response(error)
-    if SpotifyOauthError is not None and isinstance(error, SpotifyOauthError):
-        return {
-            "status": "error",
-            "error": "spotify_auth_error",
-            "message": f"Spotify authorization failed: {error}. Check the Spotify values in .env.",
-        }
-    if NETWORK_ERRORS and isinstance(error, NETWORK_ERRORS):
-        return {
-            "status": "error",
-            "error": "network_error",
-            "message": "Spotify could not be reached. Check the Raspberry Pi's network connection and tap again.",
-        }
     raise error
-
-
-def _spotify_error_response(error: "SpotifyException") -> dict:
-    reason = getattr(error, "reason", None)
-    if reason == "NO_ACTIVE_DEVICE":
-        message = (
-            "No active Spotify device found. Check that the TapTune speaker "
-            "(Spotifyd or Raspotify) is running, or open Spotify on a device and start playback there once."
-        )
-    else:
-        message = str(error)
-    return {
-        "status": "error",
-        "error": "spotify_api_error",
-        "http_status": getattr(error, "http_status", None),
-        "reason": reason,
-        "message": message,
-    }
 
 
 def play_content(uri: str, position_ms: int = 0) -> dict:
@@ -456,207 +194,38 @@ def play_content(uri: str, position_ms: int = 0) -> dict:
         return {"status": "unsupported_uri", "uri": uri}
     if isinstance(position_ms, bool) or not isinstance(position_ms, int) or position_ms < 0:
         return {"status": "invalid_position", "position_ms": position_ms}
-    if uses_librespot():
-        return _librespot_call(_librespot_play, match.group(1), match.group(2), uri, position_ms)
-
-    try:
-        spotify = build_spotify_client()
-        if match.group(1) == "show":
-            episode = _latest_episode(spotify, match.group(2))
-            if episode is None:
-                return {
-                    "status": "error",
-                    "error": "show_no_episodes",
-                    "message": "No playable episodes were found for this Spotify show.",
-                }
-            uri = episode["uri"]
-        current = spotify.current_playback()
-        _prepare_local_speaker(current)
-        device_id = resolve_target_device(spotify, current)
-        if match.group(1) == "track":
-            return spotify.start_playback(device_id=device_id, uris=[uri], position_ms=position_ms)
-        if match.group(1) in {"playlist", "album"}:
-            return spotify.start_playback(device_id=device_id, context_uri=uri, position_ms=position_ms)
-        if match.group(1) == "show":
-            result = spotify.start_playback(device_id=device_id, uris=[uri], position_ms=position_ms)
-            return {
-                **(result if isinstance(result, dict) else {"status": "ok", "mode": "spotify"}),
-                "uri": uri, "episode_name": episode.get("name") or uri,
-            }
-    except Exception as error:  # noqa: BLE001 - translate spotipy/network errors into a dict response.
-        return _handle_error(error)
-    raise AssertionError("Validated Spotify URI had an unsupported resource type")
-
-
-def reset_state_memory() -> None:
-    global _playback_memory
-    _playback_memory = None
-    _volume_memory.clear()
-
-
-def _remember_playback(is_playing: bool) -> None:
-    global _playback_memory
-    _playback_memory = (is_playing, _clock())
-
-
-def _believed_playing(current: Optional[dict]) -> bool:
-    reported = bool(current and current.get("is_playing"))
-    if current and _playback_memory is not None:
-        remembered, when = _playback_memory
-        if _clock() - when < PLAYBACK_MEMORY_SECONDS and remembered != reported:
-            logger.info(
-                "Spotify still reports %s; using TapTune's last command (%s) as it was sent %.0f s ago.",
-                "playing" if reported else "paused", "play" if remembered else "pause", _clock() - when,
-            )
-            return remembered
-    return reported
-
-
-def _resume(spotify: Any, current: Optional[dict], device_id: Optional[str]) -> dict:
-    current_device = ((current or {}).get("device") or {}).get("id")
-    target = device_id or current_device
-    if device_id is not None or current is None:
-        # Nothing is active: resume the account's last playback on the Pi.
-        if target is not None:
-            logger.info("Resuming playback by transferring it to device %s.", target)
-            return spotify.transfer_playback(target, force_play=True)
-        return spotify.start_playback()
-    try:
-        if target is None:
-            return spotify.start_playback()
-        return spotify.start_playback(device_id=target)
-    except Exception as error:  # noqa: BLE001 - only Spotify's "device gone" errors are retried.
-        status = getattr(error, "http_status", None)
-        if SpotifyException is None or not isinstance(error, SpotifyException) or status not in {403, 404}:
-            raise
-        logger.warning("Spotify refused to resume on device %s (%s); transferring playback to the Pi.", target, error)
-        if not settings.SPOTIFY_DEVICE_NAME:
-            raise
-        # Playback moves to the Pi: wake its speaker first, as for any local resume.
-        _prepare_local_speaker(None)
-        device = find_device_with_retries(spotify)
-        if device is None:
-            raise SpeakerNotReady(settings.SPOTIFY_DEVICE_NAME) from error
-        return spotify.transfer_playback(device["id"], force_play=True)
+    return _librespot_call(_librespot_play, match.group(1), match.group(2), uri, position_ms)
 
 
 def toggle_playback() -> dict:
-    if uses_librespot():
-        return _librespot_call(_librespot_toggle)
-    try:
-        spotify = build_spotify_client()
-        current = spotify.current_playback()
-        if _believed_playing(current):
-            logger.info("Play/pause: pausing.")
-            result = spotify.pause_playback()
-            _remember_playback(False)
-            return result
-        logger.info("Play/pause: resuming.")
-        _prepare_local_speaker(current)
-        device_id = resolve_target_device(spotify, current)
-        result = _resume(spotify, current, device_id)
-        _remember_playback(True)
-        return result
-    except Exception as error:  # noqa: BLE001 - translate spotipy/network errors into a dict response.
-        return _handle_error(error)
+    return _librespot_call(_librespot_toggle)
 
 
 def next_track() -> dict:
-    if uses_librespot():
-        return _librespot_call(_librespot_next)
-    try:
-        spotify = build_spotify_client()
-        current = spotify.current_playback()
-        device_id = resolve_target_device(spotify, current)
-        return spotify.next_track(device_id=device_id)
-    except Exception as error:  # noqa: BLE001 - translate spotipy/network errors into a dict response.
-        return _handle_error(error)
+    return _librespot_call(_librespot_next)
 
 
-def get_current_playback() -> Optional[dict]:
-    spotify = build_spotify_client()
-    return spotify.current_playback()
+def change_volume(step: int) -> dict:
+    return _librespot_call(_librespot_volume, step)
 
 
-def _prepare_local_speaker(current: Optional[dict]) -> None:
-    """Before starting/resuming music on the Pi's receiver, connect and route its speaker.
+def _prepare_local_speaker() -> None:
+    """Before starting/resuming music on the Pi, connect and route its speaker.
 
     Pause, next and volume never reconnect: a speaker that went to sleep while
     nothing played is only woken when music should come out of it.
     """
-    if not is_playback_configured() or not settings.BLUETOOTH_SPEAKER_MAC:
-        return
-    device = (current or {}).get("device") or {}
-    local_name = settings.SPOTIFY_DEVICE_NAME.casefold()
-    if local_name and (not current or (device.get("name") or "").strip().casefold() == local_name):
+    if settings.BLUETOOTH_SPEAKER_MAC:
         prepare_speaker()
 
 
-def _believed_volume(device_id: str, reported: int) -> int:
-    memory = _volume_memory.get(device_id)
-    if memory is None:
-        return reported
-    remembered, stale_values, when = memory
-    if _clock() - when < STATE_MEMORY_SECONDS and reported != remembered and reported in stale_values:
-        logger.info(
-            "Spotify still reports %d%% volume; using TapTune's last setting %d%%.", reported, remembered,
-        )
-        return remembered
-    return reported
-
-
-def _remember_volume(device_id: str, base: int, new_volume: int) -> None:
-    memory = _volume_memory.get(device_id)
-    stale_values = set()
-    if memory is not None and _clock() - memory[2] < STATE_MEMORY_SECONDS and base == memory[0]:
-        stale_values = set(memory[1])
-    stale_values.update({base, new_volume})
-    _volume_memory[device_id] = (new_volume, frozenset(stale_values), _clock())
-
-
-def change_volume(step: int) -> dict:
-    if uses_librespot():
-        return _librespot_call(_librespot_volume, step)
-    try:
-        spotify = build_spotify_client()
-        with _volume_lock:
-            current = spotify.current_playback()
-            device = current.get("device") if current else None
-            if not device and not current:
-                device = find_device_with_retries(spotify)
-                if device is None:
-                    raise SpeakerNotReady(settings.SPOTIFY_DEVICE_NAME)
-            volume = device.get("volume_percent") if device else None
-            if (
-                not device or not device.get("id")
-                or device.get("supports_volume") is False
-                or device.get("is_restricted") is True
-                or isinstance(volume, bool) or not isinstance(volume, int)
-                or not 0 <= volume <= 100
-            ):
-                return {
-                    "status": "error",
-                    "error": "volume_unavailable",
-                    "message": "Spotify cannot read or change this device's volume. Select a receiver that supports volume control.",
-                }
-            volume = _believed_volume(device["id"], volume)
-            new_volume = max(0, min(100, volume + step))
-            result = spotify.volume(new_volume, device_id=device["id"])
-            _remember_volume(device["id"], volume, new_volume)
-            logger.info("Volume %d%% -> %d%% on device %s.", volume, new_volume, device.get("name") or device["id"])
-            return result if isinstance(result, dict) else {"status": "ok", "volume_percent": new_volume}
-    except Exception as error:  # noqa: BLE001 - use the same API error translation as playback.
-        return _handle_error(error)
-
-
-# go-librespot receiver: everything goes through its local API. When another
-# Connect device (e.g. a phone) is the active one, commands are relayed to it, as
-# the Web API path does; otherwise they act on the Pi's own player.
+# When another Connect device (e.g. a phone) is the active one, commands are
+# relayed to it; otherwise they act on the Pi's own player.
 
 def _librespot_call(function, *args) -> dict:
     try:
         return function(*args)
-    except Exception as error:  # noqa: BLE001 - same translation as the Web API path.
+    except Exception as error:  # noqa: BLE001 - translate receiver errors into a dict response.
         return _handle_error(error)
 
 
@@ -686,39 +255,13 @@ def _librespot_command(device: dict, endpoint: str, **fields) -> dict:
     return {"status": "ok", "mode": "go-librespot", "device": device.get("name") or device["id"]}
 
 
-def _librespot_latest_episode(show_id: str) -> Optional[dict]:
-    """Latest episode via the Web API: developer credentials if set, then go-librespot's session token."""
-    cached = _latest_episodes.get(show_id)
-    if cached and time.monotonic() - cached[0] < LATEST_EPISODE_CACHE_SECONDS:
-        return cached[1]
-    sources = [("go-librespot token", build_receiver_spotify_client)]
-    if is_live_spotify_configured():
-        sources.insert(0, ("developer credentials", build_spotify_client))
-    errors = []
-    for label, make_client in sources:
-        try:
-            if make_client is build_receiver_spotify_client:
-                check_rate_limit()
-            episode = _latest_episode(make_client(), show_id)
-        except Exception as error:  # noqa: BLE001 - try the next Web API source.
-            if make_client is build_receiver_spotify_client:
-                note_rate_limit(error)
-            logger.info("Latest-episode lookup with %s failed: %s", label, error)
-            errors.append(f"{label}: {error}")
-            continue
-        with _web_api_lock:
-            _latest_episodes[show_id] = (time.monotonic(), episode)
-        return episode
-    raise RuntimeError("; ".join(errors))
-
-
 def _librespot_play(kind: str, item_id: str, uri: str, position_ms: int) -> dict:
     librespot.require_session()
     body = {"uri": uri}
     episode = None
     if kind == "show":
         try:
-            episode = _librespot_latest_episode(item_id)
+            episode = latest_episode(item_id)
         except Exception as error:  # noqa: BLE001 - fall back to the show itself.
             logger.warning("Latest-episode lookup failed (%s); playing the show from its start.", error)
         else:
@@ -733,7 +276,7 @@ def _librespot_play(kind: str, item_id: str, uri: str, position_ms: int) -> dict
     if remote is not None:
         result = _librespot_command(remote, "play", **body)
     else:
-        _prepare_local_speaker(None)
+        _prepare_local_speaker()
         if position_ms:
             body["position"] = position_ms
         librespot.post("/player/play", body)
@@ -757,7 +300,7 @@ def _librespot_toggle() -> dict:
         librespot.post("/player/pause")
     elif current.get("track"):
         logger.info("Play/pause: resuming.")
-        _prepare_local_speaker(None)
+        _prepare_local_speaker()
         librespot.post("/player/resume")
     else:
         # Nothing loaded on the Pi: pull the account's last playback onto it.
@@ -769,7 +312,7 @@ def _librespot_toggle() -> dict:
                 "message": "Nothing to resume yet. Tap a music tag first.",
             }
         logger.info("Play/pause: resuming the account's last playback on the Pi.")
-        _prepare_local_speaker(None)
+        _prepare_local_speaker()
         librespot.post("/connect/transfer", {"device_id": self_id})
     return {"status": "ok", "mode": "go-librespot", "device": settings.SPOTIFY_DEVICE_NAME}
 

@@ -99,7 +99,7 @@
             <h2>An accessible idea.<br /><em>A DIY build.</em></h2>
           </div>
           <div class="status-copy">
-            <p>TapTune is working open-source software, but it is not yet a ready-made appliance. Building the current version still requires preparing a Raspberry Pi, connecting a PN532 reader, configuring Python and Spotify, and assembling the physical setup.</p>
+            <p>TapTune is working open-source software, but it is not yet a ready-made appliance. Building the current version still requires preparing a Raspberry Pi, connecting a PN532 reader, and running the installer.</p>
             <p>The goal is to make this technology easier to access for people who cannot do that work themselves. The repository is the foundation: a transparent implementation that makers can build today and improve toward a simpler future.</p>
             <div class="status-labels"><span>Available now: source code</span><span>Not yet: finished product</span></div>
           </div>
@@ -121,7 +121,7 @@
           <article class="path path-maker" id="build">
             <span class="path-number">B</span>
             <h3>Build the current version</h3>
-            <p>Start with one installation checklist. The guided installer prepares Python, then configures the chosen audio stack after wiring, speaker pairing and Spotify authorization. Raspberry Pi OS Lite is the shortest route. On Lite and Desktop, new installs use go-librespot: choose TapTune once in the Spotify app (Devices), with no password to type.</p>
+            <p>Follow one checklist: Raspberry Pi OS Lite, wire the reader, run the installer, then finish in the setup page. Sign in to Spotify by choosing TapTune once in the Spotify app (Devices). No Spotify developer account needed.</p>
             <a class="button button-dark" href="raspberry-pi-service.html">Open the installation checklist <span aria-hidden="true">→</span></a>
             <a class="path-secondary" href="README.html">Browse all documentation</a>
           </article>
@@ -133,7 +133,7 @@
           <div class="section-heading blueprint-heading">
             <p class="section-index">For technical readers</p>
             <h2>A short,<br /><span>inspectable path.</span></h2>
-            <p>A tag supplies supported NDEF content or a saved UID instruction, then a playback request. One bounded startup connection and chime are followed by no periodic Bluetooth reconnect. Only a local music start/resume tap can reconnect; pause and volume taps do not.</p>
+            <p>A tag carries a Spotify link or a saved ID. TapTune turns it into a playback request for go-librespot, the Spotify Connect receiver on the Pi. A short chime at startup confirms everything is ready.</p>
             <a class="text-link light-link" href="architecture.html">Read the architecture guide <span aria-hidden="true">→</span></a>
           </div>
           <figure class="architecture-figure">
@@ -146,12 +146,10 @@
 
       <section class="simulation">
         <div class="shell simulation-grid">
-          <div><p class="section-index">Start without hardware</p><h2>Test the idea<br />from a computer.</h2></div>
+          <div><p class="section-index">No screen needed</p><h2>Set up and look after it<br />from a phone.</h2></div>
           <div>
-            <p>Fake mode exercises the database, assignment page, and playback dispatch without Spotify credentials, a Raspberry Pi, or an NFC reader.</p>
-            <pre><span class="prompt">$</span> python -m app.simulate --uid 01AABBCC \
-  --payload "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M"</pre>
-            <a class="button button-primary" href="getting-started.html">Start in fake mode <span aria-hidden="true">→</span></a>
+            <p>On first start, TapTune opens a <strong>TapTune-Setup</strong> Wi-Fi network with a setup page: home Wi-Fi, Bluetooth speaker, then Spotify. Later, the <strong>Activity log</strong> page lets you update TapTune, restart it, restart the Pi, or download diagnostic logs.</p>
+            <a class="button button-primary" href="troubleshooting.html">If something goes wrong <span aria-hidden="true">→</span></a>
           </div>
         </div>
       </section>

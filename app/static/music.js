@@ -3,9 +3,7 @@
   const t = JSON.parse(document.getElementById("music-translations").textContent);
   const el = (id) => document.getElementById(id);
   const results = el("music-results");
-  const linkMode = el("music-picker").dataset.linkMode === "true";
   let collection = "albums";
-  let query = "";
   let nextPage = null;
   let requestNumber = 0;
   let selected = null;
@@ -180,87 +178,47 @@
     button.setAttribute("aria-pressed", String(selected?.uri === item.uri));
     button.addEventListener("click", () => select(item));
     row.append(art, info, button);
-    listFor(item.kind).append(row);
+    results.append(row);
   }
 
-  function listFor(kind) {
-    const group = results.querySelector(`[data-group="${kind}"]`);
-    if (!group) return results;
-    group.hidden = false;
-    return group.querySelector("ul");
-  }
-
-  function resetResults() {
-    results.replaceChildren();
-    shown.clear();
-    results.classList.toggle("is-grouped", collection === "search");
-    if (collection !== "search") return;
-    ["album", "playlist", "track", "show"].forEach((kind) => {
-      const group = document.createElement("li");
-      group.className = "music-group";
-      group.dataset.group = kind;
-      group.hidden = true;
-      const heading = document.createElement("h5");
-      heading.textContent = t[`group_${kind}`];
-      const list = document.createElement("ul");
-      list.className = "music-results";
-      group.append(heading, list);
-      results.append(group);
-    });
-  }
-
-  async function loadMusic(append = false) {
-    const number = ++requestNumber;
-    const page = append ? nextPage : null;
-    if (!append) resetResults();
+  function showView(append) {
+    requestNumber += 1;
+    if (!append) {
+      results.replaceChildren();
+      shown.clear();
+    }
     nextPage = null;
     el("load-more").hidden = true;
-    el("authorization-guide").hidden = true;
     el("retry-music").hidden = true;
-    el("music-search").hidden = collection !== "search" || linkMode;
-    el("music-link-import").hidden = collection !== "search" || !linkMode;
-    el("spotify-external-search").hidden = collection !== "search" || !linkMode;
-    el("spotify-search-help").hidden = collection !== "search" || !linkMode;
-    el("music-view-heading").textContent = collection === "search" && linkMode ? t.spotify_link : t[collection];
+    el("link-view").hidden = collection !== "link";
     el("recent-note").hidden = collection !== "recent";
-    el("recent-note").textContent = linkMode ? t.recent_note : t.recent_note_api;
-    results.setAttribute("aria-busy", "true");
-    message("music-status", t.loading);
+    el("music-view-heading").textContent = t[collection];
     document.querySelectorAll("[data-collection]").forEach((button) => {
       button.setAttribute("aria-pressed", String(button.dataset.collection === collection));
     });
-    const params = new URLSearchParams({ collection, q: query, ...page });
+    message("music-status", "");
+    return requestNumber;
+  }
+
+  async function loadMusic(append = false) {
+    const page = append ? nextPage : null;
+    const number = showView(append);
+    results.setAttribute("aria-busy", "true");
+    message("music-status", t.loading);
     try {
-      const data = await api(`/api/music?${params}`);
+      const data = await api(`/api/music?${new URLSearchParams({ collection, ...page })}`);
       if (number !== requestNumber) return;
-      if (data.mode === "fake") {
-        connection(t.demo_title, t.demo_music);
-      } else if (collection === "search" && linkMode) {
-        connection(t.spotify_link_preview, t.spotify_link_preview_note);
-      } else {
-        connection(t.connection_live, t.connection_live_note);
-      }
+      connection(t.connection_live, t.connection_note);
       data.items.forEach(addItem);
       updateSelection();
       nextPage = data.next;
       el("load-more").hidden = !nextPage;
-      message("music-status", shown.size ? "" : (t[`empty_${collection}`] || t.empty_music));
+      message("music-status", shown.size ? "" : t[`empty_${collection}`]);
       updateControls();
     } catch (error) {
       if (number !== requestNumber) return;
-      const permissions = error.message === "spotify_permissions";
-      const auth = error.message === "spotify_auth_error";
-      if (permissions || auth) {
-        connection(permissions ? t.connection_permissions : t.connection_auth,
-          permissions ? t.connection_permissions_note : t.spotify_auth_error, true);
-        message("music-status", "");
-      } else {
-        message("music-status", error.message === "invalid_music_request" ? errorText(error) : "", true);
-        if (error.message !== "invalid_music_request") {
-          connection(t.connection_blocked, errorText(error), true);
-        }
-      }
-      el("authorization-guide").hidden = !permissions && !auth;
+      message("music-status", "");
+      connection(t.connection_blocked, errorText(error), true);
       el("retry-music").hidden = false;
       // Keep the failed page retryable without losing already loaded music.
       nextPage = page;
@@ -360,47 +318,18 @@
   document.querySelectorAll("[data-collection]").forEach((button) => {
     button.addEventListener("click", () => {
       collection = button.dataset.collection;
-      if (collection === "search" && !query) {
-        requestNumber += 1;
-        results.replaceChildren();
-        shown.clear();
-        nextPage = null;
-        el("load-more").hidden = true;
-        el("recent-note").hidden = true;
-        el("retry-music").hidden = true;
-        el("authorization-guide").hidden = true;
-        results.setAttribute("aria-busy", "false");
-        document.querySelectorAll("[data-collection]").forEach((tab) => {
-          tab.setAttribute("aria-pressed", String(tab === button));
-        });
-        el("music-search").hidden = linkMode;
-        el("music-link-import").hidden = !linkMode;
-        el("spotify-external-search").hidden = !linkMode;
-        el("spotify-search-help").hidden = !linkMode;
-        el("music-view-heading").textContent = linkMode ? t.spotify_link : t.search;
-        message("music-status", linkMode ? t.spotify_link_prompt : t.search_prompt);
-      } else {
+      if (collection !== "link") {
         loadMusic();
+        return;
       }
-      if (collection === "search") el(linkMode ? "spotify-search-query" : "music-query").focus();
+      showView(false);
+      results.setAttribute("aria-busy", "false");
+      el("spotify-search-query").focus();
     });
-  });
-  el("music-search").addEventListener("submit", (event) => {
-    event.preventDefault();
-    query = el("music-query").value.trim();
-    if (!query) {
-      message("music-status", t.invalid_music_request, true);
-      return;
-    }
-    collection = "search";
-    loadMusic();
   });
   el("music-link-import").addEventListener("submit", async (event) => {
     event.preventDefault();
-    const number = ++requestNumber;
-    resetResults();
-    nextPage = null;
-    el("load-more").hidden = true;
+    const number = showView(false);
     results.setAttribute("aria-busy", "true");
     message("music-status", t.loading);
     try {
@@ -410,7 +339,6 @@
         body: JSON.stringify({ url: el("music-link").value.trim() }),
       });
       if (number !== requestNumber) return;
-      connection(t.spotify_link_preview, t.spotify_link_preview_note);
       addItem(data.item);
       updateSelection();
       message("music-status", "");
@@ -438,6 +366,12 @@
   el("check-write").addEventListener("click", refreshReader);
   el("retry-write").addEventListener("click", () => el("write-tag").click());
   el("write-another").addEventListener("click", () => el("write-tag").click());
+  document.querySelectorAll("[data-value]").forEach((button) => {
+    button.addEventListener("click", () => {
+      el("value").value = button.dataset.value;
+      el("value").focus();
+    });
+  });
   el("use-assignment").addEventListener("click", () => {
     if (!selected) return;
     el("value").value = selected.uri;

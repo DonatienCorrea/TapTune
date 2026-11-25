@@ -56,8 +56,7 @@
       say(fill(text.connecting, speaker.name));
       const data = await post("/api/setup/speaker/pair", { mac: speaker.mac });
       list.replaceChildren();
-      const saved = fill(text.saved, data.speaker.name);
-      say(data.receiver === "failed" ? `${saved} ${text.receiver_failed}` : saved);
+      say(fill(text.saved, data.speaker.name));
       testAfter.hidden = false;
     }).then(() => { if (!testAfter.hidden) testAfter.focus(); });
   }

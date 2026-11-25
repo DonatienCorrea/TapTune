@@ -1,320 +1,179 @@
-# Install and operate TapTune on Raspberry Pi
+# Install TapTune on a Raspberry Pi
 
-[Documentation index](README.md)
+[Documentation index](README.md) · [Wi-Fi en français](fr/wi-fi.md)
 
-**This is the start-to-finish installation checklist.** Use Raspberry Pi OS
-**Lite** for the shortest standalone-player setup. New installs on Lite and
-Desktop use the [go-librespot receiver](spotify-receiver.md) with PipeWire: you
-pair the speaker, then choose TapTune once in the Spotify app. Steps below
-marked *legacy* apply only to existing Raspotify/Spotifyd installs
-(`SPOTIFY_RECEIVER` empty or `legacy`). Do not run two audio stacks.
+One path, start to finish: **Raspberry Pi OS Lite + the setup page**. TapTune runs
+without a screen; once installed, everything is done from a phone.
 
-You need a networked Raspberry Pi, SSH or terminal access, Python 3.10+, a PN532
-in I2C mode, a compatible tag, a Bluetooth speaker, Spotify Premium and a Spotify
-Developer app. A phone/computer with Spotify is needed for initial authorization,
-not for everyday tag use. For a software-only trial, use the separate
-[fake-mode guide](getting-started.md).
+## What you need
 
-## Set Wi-Fi in Raspberry Pi Imager
+- A Raspberry Pi with Wi-Fi, a microSD card and power supply
+- A PN532 NFC reader set to I2C mode, and NFC tags (NTAG213/215/216 work best)
+- A Bluetooth speaker
+- A Spotify Premium account and the Spotify app on a phone
 
-When writing Raspberry Pi OS Lite or Desktop, use Imager's OS customization to
-set the hostname (for example, `taptune`), Wi-Fi network name, password and
-wireless country before writing the card. Set your user and enable SSH if
-you plan to install remotely. On first boot, join the same network on your
-computer and connect to `taptune.local` (or your chosen hostname). The fallback
-hotspot is available **after** installing the TapTune service, not on a freshly
-written card.
+## 1. Prepare the SD card
 
-## Install the project
+In [Raspberry Pi Imager](https://www.raspberrypi.com/software/), choose
+**Raspberry Pi OS Lite**. Before writing, open the OS customisation settings and set:
 
-Run as your normal user, **not with sudo**. On Desktop, use the one dedicated
-audio user who will authenticate Spotifyd.
+- hostname: `taptune`
+- your user name and password, and **enable SSH**
+- your Wi-Fi name, password and country
+
+Start the Pi, then connect from a computer on the same Wi-Fi: `ssh <user>@taptune.local`.
+
+## 2. Download TapTune
+
+Run as your normal user, **not with `sudo`**:
 
 ```bash
 sudo apt update
 sudo apt install -y git python3-venv sqlite3
-cd "$HOME"
+cd ~
 git clone https://github.com/DonatienCorrea/TapTune.git
 cd TapTune
-./install.sh --lite
+./install.sh
 ```
 
-For Desktop, replace `--lite` with `--desktop`. Preparation creates or reuses
-`.venv`, installs base and PN532 Python dependencies, and creates `.env` with
-mode `600` **only if absent**. It starts no services, changes no audio stack,
-and does not overwrite existing settings or permissions. If an old `.env` is
-too open, run `chmod 600 .env` before completion. Do not source `.env` in a shell.
+This prepares TapTune and creates a private `.env` settings file. It starts nothing.
+`./install.sh --help` lists the options.
 
-Preview either phase without modifying the machine:
+## 3. Connect the reader
+
+Follow [Hardware setup](hardware-setup.md) to wire the PN532 and read a first tag.
+Then edit `.env` (`nano .env`) and set:
+
+```dotenv
+NFC_READER_ENABLED=true
+```
+
+## 4. Pair the speaker
+
+Put the speaker in pairing mode, then:
 
 ```bash
-./install.sh --lite --dry-run
-./install.sh --lite --configure --dry-run
-./install.sh --help
+bluetoothctl
 ```
 
-Paths containing spaces are supported: use the installers, which rewrite and
-quote the actual checkout paths in systemd units. Do not copy a unit unchanged
-from the repository; its `/home/pi/TapTune` paths are placeholders.
+```text
+power on
+agent on
+default-agent
+scan on
+pair AA:BB:CC:DD:EE:FF
+trust AA:BB:CC:DD:EE:FF
+scan off
+quit
+```
 
-## Finish the manual prerequisites
+Replace `AA:BB:CC:DD:EE:FF` with your speaker's address from the scan list, and
+save the same address in `.env`:
 
-These steps cannot safely be automated by the installer. Stay in this checklist;
-return here after each linked reference.
+```dotenv
+BLUETOOTH_SPEAKER_MAC=AA:BB:CC:DD:EE:FF
+```
 
-1. **Wire and prove the reader.** Power down before wiring, select I2C mode,
-   enable I2C and reboot as described in [Hardware setup](hardware-setup.md).
-   Run `.venv/bin/python -m app.pn532_diag --seconds 30` and obtain a reliable
-   complete UID. Then set `NFC_READER_ENABLED=true` in `.env`.
-2. **Spotify Web API client (optional with go-librespot).** Needed for the music
-   browser on the web page, and required for *legacy* receivers. Follow
-   [Spotify authorization](spotify-authorization.md), including the SSH callback
-   tunnel if needed. Fill in the client ID, secret and refresh token in `.env`.
-   The dashboard redirect URI and `.env` must match **exactly**.
-3. **Pair the speaker.** Complete
-   [speaker pairing](speaker-setup.md#1-pair-the-bluetooth-speaker) and save its
-   MAC in `.env`; the next checklist step installs the receiver. For a *legacy*
-   **Desktop** install, also complete [Desktop prerequisites](speaker-setup-desktop.md)
-   through Spotifyd authentication, but do not install services separately.
-4. **Review `.env`.** Keep `SPOTIFY_DEVICE_NAME=TapTune` consistent with the
-   receiver name, `SPOTIFY_INITIAL_VOLUME=10` for a safe starting level, and
-   `DATABASE_PATH=./data/raspi_spotify_nfc.db` unless intentionally relocating
-   the database. Set your real `BLUETOOTH_SPEAKER_MAC`.
+Later you can change speaker from the setup page without a terminal.
 
-With go-librespot, the receiver login is simply choosing TapTune once in the
-Spotify app, just after installation below. With *legacy* receivers, the two
-Spotify authorizations are different: the Web API token controls playback;
-Raspotify/Spotifyd must also log into **the same account** to receive audio.
-
-## Configure and start services
-
-From the checkout, after the manual prerequisites:
+## 5. Install the services
 
 ```bash
-./install.sh --lite --configure
+./install.sh --configure
 ```
 
-Use `--desktop --configure` for Desktop. Completion requires existing `.venv`
-and a private `.env`, populated live credential fields, enabled reader and a
-paired/trusted speaker. These checks do **not** validate Spotify tokens online,
-prove wiring or detect whether Spotifyd's cached account is correct.
+This installs the Spotify receiver (go-librespot), PipeWire audio, the TapTune
+service and the `taptune` command. It asks for your password (`sudo`) only for
+system changes. It also prints the `TapTune-Setup` Wi-Fi QR code and password:
+keep them private (see [Move to another Wi-Fi](#move-to-another-wi-fi)).
 
-The command runs the matching speaker installer, then installs and restarts the
-TapTune unit with the correct mode. It invokes `sudo` only for system changes.
-**Do not run another service installer afterwards.**
+## 6. Sign in to Spotify
 
-With go-librespot (new installs), both editions install go-librespot, PipeWire
-and WirePlumber for the audio user, and stop Raspotify, Spotifyd and BlueALSA.
-Then open Spotify on a phone on the same Wi-Fi, tap **Devices** and choose
-**TapTune** once. The `/setup` page shows when the Pi is signed in. See
-[Spotify receiver](spotify-receiver.md).
+On a phone on the **same Wi-Fi**, open Spotify, tap **Devices** and choose
+**TapTune**. That's it: TapTune never asks for your Spotify password, and the
+Pi stays signed in after restarts.
 
-The rest of this section describes the *legacy* receivers.
+Open `http://taptune.local/setup`. It shows Wi-Fi, speaker and Spotify; each
+step turns to *done* by itself.
 
-Lite installs BlueALSA plus the managed Raspotify package. Its installer may
-download and execute the upstream Raspotify installer from
-`https://dtcooper.github.io/raspotify/install.sh`; inspect
-`systemd/install-speaker.sh` before granting permission if that matters for your
-deployment. Desktop does not download Spotifyd automatically: you supply a
-compatible binary and authenticate it first. The chosen installer disables
-competing receiver services and removes obsolete TapTune reconnect/chime units;
-it does not uninstall packages. Desktop also disables the leftover BlueALSA
-player and excludes LightDM's login-screen WirePlumber so the lingering audio
-user owns Bluetooth audio. This disables login-screen sound, not desktop sound
-for the audio user. Other users' receiver services are not managed; see
-[Desktop service ownership](speaker-setup-desktop.md#what-completion-configures).
+## 7. Write your first tag
 
-On a **first Lite install**, now open Spotify on a phone/computer on the same
-network and choose **TapTune** in the device picker. This caches Raspotify's
-account login. Confirm music plays on the Bluetooth speaker, then pause it.
-No chime during this account setup is a reason to inspect the receiver login,
-not to install a second receiver.
+Open `http://taptune.local/`, choose music and write it to a tag
+([Using tags](tag-usage.md)). Then reboot with the speaker on: wait for the short
+chime and tap the tag. Sound should come from the speaker.
 
-If the startup check expired while completing the receiver login, run
-`taptune restart` to request a fresh bounded check and chime.
+If `http://taptune.local/` doesn't answer, use `http://taptune.local:5000/` or
+`http://<pi-ip>:5000/`.
 
-## Assign and verify a tag
+## How it behaves
 
-Open `http://<hostname>.local/` from the same network. If port 80 is unavailable,
-use `http://<hostname>.local:5000/` or `http://<pi-ip>:5000/`, substituting your
-configured `APP_PORT` if changed. Choose music in the Spotify picker, select
-**Write tag**, and place an unlocked NTAG213/215/216, supported Feiju 144-byte Type 2 tag, or writable NFC Type 4 NDEF tag on the Pi's reader
-until the page confirms the write was verified. Remove it, then tap again to
-play. See [Using tags](tag-usage.md#browse-spotify-and-write-a-tag) for details.
+- At startup, TapTune sets the receiver to 10% volume and connects the speaker
+  once. It plays one short chime (at 10% volume) when the reader, Spotify and
+  speaker are ready. **It never starts music by itself.**
+- After that, there is no background reconnecting. A music tap reconnects the
+  speaker if needed; pause and volume taps never do. If the speaker turned
+  itself off, switch it on and tap a music tag.
+- If a phone is already playing, tags control that phone. Choose TapTune under
+  **Devices** to play on the Pi.
+- The web pages have no login: keep the Pi on your home network and never
+  expose it to the internet. Never share `.env` or backups; they contain account secrets.
 
-For manual UID assignments or playback actions, open
-**Manual setup** and assign the UID from
-the diagnostic. Test a saved UID mapping without the reader if needed:
+## The setup page
 
-```bash
-curl -X POST -d 'uid=04A7B2F1' http://127.0.0.1:5000/dispatch
-```
+`http://taptune.local/setup` (French: `/fr/setup`) shows the status of Wi-Fi,
+the speaker and Spotify. Until all three have been done once, the home page
+opens the setup page instead. Under **Bluetooth speaker**, **Change speaker** →
+**Search for speakers** pairs a new speaker and saves it; **Play a test sound**
+checks it.
 
-The UI and dispatch endpoint have **no authentication**. Use a trusted local
-network; do not forward either HTTP port from the internet. `.env`, receiver caches and
-backups contain account secrets: never commit or attach them to an issue.
+## Move to another Wi-Fi
 
-Reboot with the speaker powered on. **Before logging into the Pi**, wait for
-the single ready chime and tap a music tag. Confirm sound comes from the
-Bluetooth speaker rather than HDMI. This cold-boot check is necessary on real
-hardware; software tests alone cannot prove it.
+If the Pi finds no known network about 60 seconds after starting, it opens its
+own Wi-Fi called **TapTune-Setup** (password-protected, unique to this Pi).
 
-## Move TapTune to a different Wi-Fi network
+1. Before moving the Pi, run `taptune setup-wifi` to show its QR code and password.
+2. At the new place, on your phone, scan the QR code or join `TapTune-Setup`
+   with the password. Stay connected if the phone says "no internet".
+3. The setup page opens. If not, go to `http://10.42.66.1/setup` (`http://`, not `https://`).
+4. Pick your Wi-Fi and enter its password. The Pi leaves `TapTune-Setup` and joins it.
+5. Reconnect your phone to your Wi-Fi and open `http://taptune.local/`.
+   If it failed, `TapTune-Setup` comes back: try again.
 
-On supported Raspberry Pi OS Lite and Desktop installs, TapTune uses
-NetworkManager to start a temporary `TapTune-Setup` hotspot if there is no
-working Wi-Fi or wired connection about 60 seconds after boot.
+Wi-Fi passwords can only be entered while connected to `TapTune-Setup`.
+Enterprise Wi-Fi and networks with a browser sign-in page are not supported.
+Anyone with the QR code can configure the Pi, so keep it private.
 
-The hotspot stays WPA2-protected with a unique per-Pi password. On first
-configuration, TapTune prints a scannable Wi-Fi QR code and the password when
-it creates the hotspot profile. Scan it from your phone's Wi-Fi settings to
-join; this shares the password with the phone, it does not remove the password
-or open the hotspot. Keep the QR and printed password private because anyone
-who joins can configure the Pi.
+## Maintenance from the web page
 
-```bash
-taptune setup-wifi
-```
+Open **Activity log** on the music page (`http://taptune.local/logs`). It lists
+taps, played music and messages, and has a **Maintenance** section:
 
-Run the command before moving the Pi to display the QR and password again.
-`taptune reset` also displays them before it removes saved Wi-Fi networks.
-Lite and Desktop service installs and updates automatically install the QR
-encoder without changing the existing hotspot password. If the encoder is
-missing, `taptune setup-wifi` still shows the password; run `taptune update`
-to restore QR display.
+- the current version;
+- **Update TapTune**: downloads and installs the latest version in the
+  background; TapTune restarts by itself when done;
+- **Restart TapTune** and **Restart the Pi**;
+- **Download diagnostic logs**: a text file to send when asking for help.
 
-1. Boot the Pi at the new location. On your phone, scan the QR code in Wi-Fi
-   settings or join `TapTune-Setup` and enter the printed password. Stay
-   connected if the phone warns that this network has no internet.
-2. The sign-in page should open. If not, open `http://10.42.66.1/setup` in your
-   browser (use `http://`, not `https://`). Pick a network from the pre-hotspot
-   scan, or type its name, and enter its **Wi-Fi** password. Leave the password
-   blank only for an open network. Use a personal Wi-Fi network; enterprise and
-   networks that require a browser sign-in are not supported.
-3. The hotspot disconnects while the Pi tries to join. Rejoin the selected Wi-Fi
-   on your phone and open `http://taptune.local/` (substitute your hostname).
-   If joining failed, look for `TapTune-Setup` again after
-   the connection attempt times out, reconnect and retry.
+No screen or terminal is needed for updates or logs.
 
-The password form only runs on the hotspot. The hotspot does not share internet
-access or expose the normal TapTune app. Successful Wi-Fi credentials are stored
-by NetworkManager, not in TapTune's `.env`. Reinstalling the service preserves the
-hotspot key. The hotspot needs an AP-capable Wi-Fi adapter and uses port 80 on
-its own address. On Lite and Desktop, TapTune adds the port-free LAN address
-only once a network is connected and the hotspot is no longer needed. Leave
-`APP_PORT` at 5000 (or another non-80 port) so the hotspot has port 80 available.
-If another service owns port 80, the normal app stays reachable on `APP_PORT`.
-To disable the port-free LAN address, set `TAPTUNE_HTTP_PORT_80=false` in `.env`
-and restart TapTune. To disable the hotspot, set `TAPTUNE_WIFI_SETUP=false`.
+TapTune retries by itself when something is briefly unavailable (the Spotify
+receiver still starting at boot, a short network error), so a slow start
+usually fixes itself.
 
-[Instructions en français](fr/wi-fi.md).
+## Commands (advanced, over SSH)
 
-## Startup and Bluetooth behavior
+| Command | What it does |
+| --- | --- |
+| `taptune status` | Is everything running? Spotify sign-in, speaker profile |
+| `taptune logs` | Logs of all TapTune services (`-f` follow, `-b -1` previous boot, `--since "10 min ago"`, `--save` to a file) |
+| `taptune restart` | Restart everything and replay the startup check |
+| `taptune update` | Back up, download the latest version, test, reinstall and restart |
+| `taptune setup-wifi` | Show the `TapTune-Setup` QR code and password |
+| `taptune reset` | Make the Pi like new (see below) |
 
-TapTune owns one bounded boot connection/readiness phase and at most one chime
-per app start. It waits for the app, initialized reader when enabled, Spotify
-receiver visibility and speaker audio; there is no guarantee of a fixed boot
-time. Boot prepares volume and the receiver but **does not start music**.
-
-After that phase there is **no periodic Bluetooth reconnect**, periodic sound
-or repeated readiness chime. A local content/start/resume tag may reconnect and
-route audio. Pause, volume and commands for another active Spotify device do
-not reconnect. If a speaker powers itself off, turn it back on and tap a local
-music/start tag; software cannot wake an unreachable powered-off speaker.
-Spotify's current device is retained even while paused, so select TapTune in
-Spotify's device picker when testing the local receiver.
-
-TapTune and the receiver can restart after process failures; that is different
-from continuously trying Bluetooth. Reader initialization retries are also
-separate from Bluetooth policy. See [Service boundaries](architecture.md#why-not-one-service)
-for the remaining services and why they cannot all be merged.
-
-## Operate the service
-
-`install.sh --configure` links `taptune` into `/usr/local/bin`; it is also
-runnable as `./taptune`. Run it as your normal user (the audio user on Desktop).
-It detects the setup; explicit `--lite`, `--desktop` or `--app-only` before the
-command overrides detection.
-
-```bash
-taptune status
-taptune restart
-taptune help
-```
-
-Rerunning preparation does not start services or reset credentials. Rerunning
-`--configure` reapplies the selected service/audio configuration and restarts
-the app, so use it after editing the speaker MAC by hand (the `/setup` page's
-**Change speaker** applies it itself), receiver name or startup
-volume, or when deliberately changing stack. Back up first. Do not move the
-checkout after installation without reconfiguring its unit paths.
-
-**Advanced app-only deployment:** `./install.sh --app-only` prepares only base
-Python dependencies. `--app-only --configure` installs only TapTune and requires
-live credentials; it does not install a local receiver or Bluetooth stack.
-Use another authenticated Spotify Connect device, disable local targeting with
-`SPOTIFY_DEVICE_NAME=` and the local chime with `READY_SOUND_ENABLED=false` when
-there is no Pi receiver. Leave NFC disabled unless you have
-separately installed Pi dependencies and passed the reader diagnostic.
-
-## Logs and inspection
-
-```bash
-taptune logs
-taptune logs -f
-taptune logs -b -1
-taptune logs --since "10 min ago"
-taptune logs -- -p warning
-taptune logs --save
-```
-
-Logs cover TapTune (including boot/chime/Bluetooth decisions), the selected
-receiver and OS audio services. The installer enables persistent journaling
-(up to 200 MB) so earlier boots remain inspectable. Review and redact saved logs
-before sharing them.
-
-```bash
-sudo journalctl -u raspi-spotify-nfc.service -n 100 --no-pager
-journalctl --user -u taptune-spotifyd.service -n 100 --no-pager  # Desktop only
-curl http://127.0.0.1:5000/health
-curl http://127.0.0.1:5000/ready
-```
-
-`/health` proves only that Flask responds. `/ready` checks live configuration
-and the initialized reader thread when enabled; Spotify visibility and audio
-are checked separately by the startup worker. None of these can guarantee
-future card reads or Spotify requests. Use [Troubleshooting](troubleshooting.md)
-for the first failing boundary rather than repeatedly reinstalling.
-
-## Safe updates
-
-Fresh install uses `install.sh`; a deployed installation uses:
-
-```bash
-taptune update
-```
-
-The command backs up `.env` and the SQLite tag database to `data/backups/`
-(last 10 kept), pulls with `git pull --ff-only`, installs dependencies, runs
-tests, reapplies the selected installers, restarts and checks `/health`.
-A health response does not prove that Bluetooth or Spotify playback is ready.
-
-Run as the audio user on Desktop. Options include `--no-pull` to reinstall the
-current checkout, `--skip-tests` to intentionally bypass tests, and
-`taptune --dry-run update` to preview. If upgrading an old installation without
-the linked command, run `git pull --ff-only` and `./taptune update` from its
-checkout. Do not use a new clone or recopy `.env.example` over your live `.env`.
-
-`taptune update` keeps the receiver you already have. To move an existing
-Raspotify/Spotifyd install to go-librespot, or back, follow
-[Move an existing install](spotify-receiver.md#move-an-existing-install).
-
-Keep a separate secure backup before changing audio stacks or restoring data.
-If update fails, it reports the failed step and stops; there is no automatic
-rollback. Failures before service installation leave the running services
-alone; a later failure can leave partially updated configuration. Read the
-error before retrying. Inspect `data/backups/` for the actual dated filenames.
-For a database restore, stop TapTune first:
+`taptune update` backs up `.env` and the tag database to `data/backups/` (last
+10 kept) before updating. If a step fails, it stops and says which one; nothing
+is rolled back. To restore the tag database from a backup:
 
 ```bash
 sudo systemctl stop raspi-spotify-nfc.service
@@ -322,24 +181,46 @@ cp data/backups/tags.<date>.db.bak data/raspi_spotify_nfc.db
 taptune restart
 ```
 
-Never overwrite a custom `DATABASE_PATH` with this default-path example.
-Restore `.env` only from a trusted backup, keep mode `600`, and reconfigure if
-restoring audio settings. Repeat the no-login cold-boot check after updates.
-
-## Reset for a new owner or place
+### Reset for a new owner or place
 
 ```bash
 taptune reset
 ```
 
-Makes TapTune behave like a freshly installed Pi, for example before giving it
-away or moving it. After you type `reset` to confirm, it backs up `.env` and the
-tags, signs the Pi out of Spotify (go-librespot), unpairs the Bluetooth speaker,
-forgets every saved Wi-Fi network and reopens the setup wizard. Your tags and
-the optional Spotify Developer settings in `.env` are always kept.
+After you type `reset`, it backs up `.env` and the tags, signs the Pi out of
+Spotify, forgets the speaker and every saved Wi-Fi, and reopens the setup page.
+**Tags are kept.** About a minute later the `TapTune-Setup` Wi-Fi appears: set
+the Pi up again from a phone. (Over Ethernet, open `http://taptune.local/setup`.)
 
-Forgetting Wi-Fi disconnects an SSH session over Wi-Fi; the reset finishes on
-its own. About a minute later the Pi opens the `TapTune-Setup` Wi-Fi: join it
-from a phone to set TapTune up again. Over Ethernet, open
-`http://<hostname>.local/setup` instead, or `http://<hostname>.local:5000/setup`
-if the port-free address is unavailable.
+## Settings (`.env`)
+
+Edit `.env` in the TapTune folder, then run `./install.sh --configure` again.
+Never copy `.env.example` over an existing `.env`.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `NFC_READER_ENABLED` | `false` | Set `true` once the reader works |
+| `BLUETOOTH_SPEAKER_MAC` | empty | Speaker address (the setup page can set it) |
+| `SPOTIFY_DEVICE_NAME` | `TapTune` | Name shown in Spotify → Devices |
+| `SPOTIFY_INITIAL_VOLUME` | `10` | Volume (%) set at startup |
+| `READY_SOUND_ENABLED` | `true` | `false` turns off the startup chime |
+| `APP_PORT` | `5000` | Second address port; keep it different from 80 |
+| `TAPTUNE_HTTP_PORT_80` | on | `false` turns off the short `http://taptune.local/` address |
+| `TAPTUNE_WIFI_SETUP` | on | `false` turns off the `TapTune-Setup` Wi-Fi |
+| `SETUP_SKIP` | `false` | `true` hides the first-run setup page |
+| `DATABASE_PATH` | `./data/raspi_spotify_nfc.db` | Where tags are stored |
+
+## Under the hood
+
+- go-librespot is downloaded from GitHub at a pinned version (SHA-256 checked)
+  to `/usr/local/bin/go-librespot`. Its settings, `~/.config/go-librespot/config.yml`,
+  are rewritten on each install; change `.env` instead. Its sign-in is saved in
+  `~/.config/go-librespot/state.json`.
+- It runs as the user service `taptune-go-librespot.service`
+  (`journalctl --user -u taptune-go-librespot.service`); TapTune runs as the
+  system service `raspi-spotify-nfc.service`. Both start without a login.
+  Audio goes go-librespot → PipeWire → Bluetooth speaker.
+- TapTune talks to go-librespot on `127.0.0.1:3678` only. Spotify apps find the
+  Pi through mDNS (Avahi), so phone and Pi must be on the same network.
+- `curl http://127.0.0.1:5000/health` checks the web app answers;
+  `/ready` also checks settings and the reader.

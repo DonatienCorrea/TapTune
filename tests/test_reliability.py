@@ -5,90 +5,19 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
-
-from requests.exceptions import ConnectionError as RequestsConnectionError
-from spotipy.oauth2 import SpotifyOauthError
-
-from app import config, spotify_service
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLI = REPO_ROOT / "taptune"
 SYSTEMD = REPO_ROOT / "systemd"
 
 
-class SpotifyRetryTests(unittest.TestCase):
-    def setUp(self):
-        patcher = patch.multiple(
-            config.settings, SPOTIFY_CLIENT_ID="id", SPOTIFY_CLIENT_SECRET="secret",
-            SPOTIFY_RECEIVER="legacy",
-            SPOTIFY_REFRESH_TOKEN="token", BLUETOOTH_SPEAKER_MAC="",
-        )
-        patcher.start()
-        self.addCleanup(patcher.stop)
-
-    def test_token_refresh_retries_network_errors(self):
-        auth = Mock()
-        auth.refresh_access_token.side_effect = [RequestsConnectionError("dns"), None]
-        sleep = Mock()
-        with self.assertLogs(spotify_service.logger, level="WARNING"):
-            spotify_service._refresh_token_with_retries(auth, sleep=sleep)
-        self.assertEqual(auth.refresh_access_token.call_count, 2)
-        sleep.assert_called_once()
-
-    def test_token_refresh_does_not_retry_revoked_credentials(self):
-        auth = Mock()
-        auth.refresh_access_token.side_effect = SpotifyOauthError("bad", error="invalid_grant")
-        with self.assertRaises(SpotifyOauthError):
-            spotify_service._refresh_token_with_retries(auth, sleep=Mock())
-        auth.refresh_access_token.assert_called_once()
-
-    def test_network_failure_while_connecting_returns_an_error_instead_of_raising(self):
-        with patch.object(spotify_service, "build_spotify_client", side_effect=RequestsConnectionError("down")):
-            for value in ("spotify:track:abc", "action:play_pause", "action:next", "action:volume_up"):
-                with self.subTest(value=value):
-                    result = spotify_service.dispatch_tag_value(value)
-                    self.assertEqual(result["error"], "network_error")
-
-    def test_auth_failure_returns_an_error_instead_of_raising(self):
-        with patch.object(spotify_service, "build_spotify_client", side_effect=SpotifyOauthError("bad", error="invalid_grant")):
-            self.assertEqual(spotify_service.toggle_playback()["error"], "spotify_auth_error")
-
-    def test_receiver_missing_from_device_list_is_retried(self):
-        client = Mock()
-        client.current_playback.return_value = None
-        client.devices.side_effect = [{"devices": []}, {"devices": [{"id": "pi", "name": "TapTune"}]}]
-        with patch.object(config.settings, "SPOTIFY_DEVICE_NAME", "TapTune"), \
-                patch.object(spotify_service, "build_spotify_client", return_value=client), \
-                patch.object(spotify_service, "RETRY_DELAY_SECONDS", 0):
-            spotify_service.play_content("spotify:playlist:abc")
-        client.start_playback.assert_called_once_with(device_id="pi", context_uri="spotify:playlist:abc", position_ms=0)
-
-
 class ServiceUnitTests(unittest.TestCase):
     def test_every_unit_keeps_restarting_and_never_hits_the_start_limit(self):
-        for name in (
-            "raspi-spotify-nfc.service", "taptune-spotifyd.user.service", "raspotify-taptune.conf",
-        ):
+        for name in ("raspi-spotify-nfc.service", "taptune-go-librespot.user.service"):
             with self.subTest(unit=name):
                 text = (SYSTEMD / name).read_text()
                 self.assertIn("StartLimitIntervalSec=0", text)
                 self.assertRegex(text, r"\nRestart=(always|on-failure)\n")
-
-    def test_periodic_reconnect_and_chime_services_are_gone(self):
-        for name in (
-            "taptune-bluetooth.service", "taptune-bluetooth.user.service",
-            "taptune-ready-sound.service", "taptune-ready-sound.user.service",
-            "taptune-bluetooth.sh",
-        ):
-            with self.subTest(obsolete_file=name):
-                self.assertFalse((SYSTEMD / name).exists())
-
-    def test_spotifyd_waits_for_network_and_restarts_after_clean_exit(self):
-        text = (SYSTEMD / "taptune-spotifyd.user.service").read_text()
-        self.assertIn("ExecStartPre=", text)
-        self.assertIn("getent hosts", text)
-        self.assertIn("Restart=always", text)
 
     def test_logs_are_kept_across_reboots(self):
         self.assertIn("Storage=persistent", (SYSTEMD / "journald-taptune.conf").read_text())
@@ -102,46 +31,42 @@ class TaptuneCliTests(unittest.TestCase):
             ["bash", str(CLI), "--dry-run", *args], capture_output=True, text=True, check=check, env=env,
         )
 
-    def test_update_desktop_reinstalls_every_service_in_order(self):
-        out = self.cli("--desktop", "update", "--no-pull").stdout
-        self.assertNotIn("git -C", out)
-        self.assertIn("requirements.txt", out)
-        self.assertIn("unittest discover", out)
-        self.assertLess(out.index("install-desktop-speaker.sh"), out.index("install-service.sh --desktop"))
-        self.assertNotIn("taptune-ready-sound", out)
-        self.assertNotIn("install-speaker.sh ", out)
+    def test_update_backs_up_pulls_then_reinstalls_every_service_in_order(self):
+        out = self.cli("update").stdout
+        order = ["data/backups", "pull --ff-only", "requirements-pi.txt", "unittest discover",
+                 "install-go-librespot.sh --dry-run", "install-service.sh --dry-run", "/health"]
+        positions = [out.index(step) for step in order]
+        self.assertEqual(positions, sorted(positions))
 
-    def test_update_lite_backs_up_pulls_then_reinstalls(self):
-        out = self.cli("--lite", "update", "--skip-tests").stdout
-        self.assertLess(out.index("data/backups"), out.index("pull --ff-only"))
-        self.assertLess(out.index("pull --ff-only"), out.index("install-speaker.sh"))
-        self.assertIn("install-service.sh --lite", out)
+    def test_update_options_skip_the_download_and_tests(self):
+        out = self.cli("update", "--no-pull", "--skip-tests").stdout
+        self.assertNotIn("git -C", out)
         self.assertNotIn("unittest discover", out)
-        self.assertNotIn("install-desktop-speaker.sh", out)
+        self.assertIn("install-service.sh", out)
+
+    def test_update_accepts_the_mode_flags_older_versions_pass_after_pulling(self):
+        out = self.cli("--lite", "update", "--after-pull", "--skip-tests").stdout
+        self.assertNotIn("data/backups", out)
+        self.assertNotIn("pull --ff-only", out)
+        self.assertIn("install-go-librespot.sh", out)
 
     def test_logs_merge_system_and_user_services_in_one_journal_query(self):
         out = self.cli("logs", "-b", "-1", "-n", "50", "--", "-p", "warning").stdout
         for match in (
-            "_SYSTEMD_UNIT=raspi-spotify-nfc.service", "UNIT=raspotify.service",
-            "_SYSTEMD_USER_UNIT=taptune-spotifyd.service", "USER_UNIT=taptune-ready-sound.service",
+            "_SYSTEMD_UNIT=raspi-spotify-nfc.service", "UNIT=taptune-web-update.service",
+            "_SYSTEMD_USER_UNIT=taptune-go-librespot.service", "USER_UNIT=wireplumber.service",
         ):
             self.assertIn(match, out)
+        for removed in ("raspotify", "spotifyd", "bluealsa"):
+            self.assertNotIn(removed, out)
         self.assertIn("--boot -1", out)
         self.assertIn("--lines 50", out)
         self.assertTrue(out.rstrip().endswith("-p warning"))
 
-    def test_update_app_only_never_installs_a_receiver(self):
-        out = self.cli("--app-only", "update", "--no-pull", "--skip-tests").stdout
-        self.assertIn("install-service.sh --app-only", out)
-        self.assertNotIn("install-speaker.sh", out)
-        self.assertNotIn("install-desktop-speaker.sh", out)
-
-    def test_restart_and_status_do_not_use_removed_services(self):
-        for mode in ("--lite", "--desktop"):
-            with self.subTest(mode=mode):
-                out = self.cli(mode, "restart").stdout
-                self.assertNotIn("taptune-bluetooth", out)
-                self.assertNotIn("taptune-ready-sound", out)
+    def test_restart_uses_the_go_librespot_audio_stack(self):
+        out = self.cli("restart").stdout
+        self.assertIn("systemctl --user restart wireplumber.service taptune-go-librespot.service", out)
+        self.assertLess(out.index("taptune-go-librespot"), out.index("restart raspi-spotify-nfc.service"))
 
     def test_status_distinguishes_a2dp_from_other_or_missing_speaker_profiles(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -149,7 +74,7 @@ class TaptuneCliTests(unittest.TestCase):
             shutil.copy2(CLI, repo / "taptune")
             (repo / "systemd").mkdir()
             shutil.copy2(SYSTEMD / "install-common.sh", repo / "systemd")
-            (repo / ".env").write_text("SPOTIFY_RECEIVER=go-librespot\nBLUETOOTH_SPEAKER_MAC=aa:bb:cc:dd:ee:ff\n")
+            (repo / ".env").write_text("BLUETOOTH_SPEAKER_MAC=aa:bb:cc:dd:ee:ff\n")
             bin_dir = repo / "bin"
             bin_dir.mkdir()
             for tool, script in (
@@ -175,29 +100,10 @@ class TaptuneCliTests(unittest.TestCase):
                                   f"\tActive Profile: {profile}\n")
                     env = dict(os.environ, PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}", CARDS=cards)
                     result = subprocess.run(
-                        ["bash", str(repo / "taptune"), "--dry-run", "--lite", "status"],
+                        ["bash", str(repo / "taptune"), "--dry-run", "status"],
                         env=env, capture_output=True, text=True, check=True,
                     )
                     self.assertIn(f"Bluetooth audio profile: {expected}\n", result.stdout)
-
-    def test_go_librespot_restart_and_logs_use_its_user_unit(self):
-        with tempfile.TemporaryDirectory() as directory:
-            repo = Path(directory) / "TapTune"
-            shutil.copytree(SYSTEMD, repo / "systemd")
-            shutil.copy2(CLI, repo / "taptune")
-            (repo / ".env").write_text("SPOTIFY_RECEIVER=go-librespot\n")
-            env = dict(os.environ)
-            env.pop("XDG_CONFIG_HOME", None)
-            for mode in ("--lite", "--desktop"):
-                with self.subTest(mode=mode):
-                    out = subprocess.run(["bash", str(repo / "taptune"), "--dry-run", mode, "restart"],
-                                         capture_output=True, text=True, check=True, env=env).stdout
-                    self.assertIn("systemctl --user restart wireplumber.service taptune-go-librespot.service", out)
-                    self.assertNotIn("raspotify", out)
-                    self.assertNotIn("taptune-spotifyd", out)
-            out = subprocess.run(["bash", str(repo / "taptune"), "--dry-run", "logs"],
-                                 capture_output=True, text=True, check=True, env=env).stdout
-            self.assertIn("_SYSTEMD_USER_UNIT=taptune-go-librespot.service", out)
 
     def test_restart_and_update_fail_when_the_app_never_answers(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -205,7 +111,10 @@ class TaptuneCliTests(unittest.TestCase):
             repo = root / "TapTune"
             shutil.copytree(SYSTEMD, repo / "systemd")
             shutil.copy(CLI, repo / "taptune")
-            shutil.copy(REPO_ROOT / "requirements.txt", repo / "requirements.txt")
+            for name in ("install-go-librespot.sh", "install-service.sh"):
+                (repo / "systemd" / name).write_text("exit 0\n")
+            for name in ("requirements.txt", "requirements-pi.txt"):
+                shutil.copy(REPO_ROOT / name, repo / name)
             with socket.socket() as probe:
                 probe.bind(("127.0.0.1", 0))
                 port = probe.getsockname()[1]
@@ -228,7 +137,7 @@ class TaptuneCliTests(unittest.TestCase):
             ):
                 with self.subTest(args=args):
                     result = subprocess.run(
-                        ["bash", str(repo / "taptune"), "--app-only", *args],
+                        ["bash", str(repo / "taptune"), *args],
                         env=env, capture_output=True, text=True, timeout=60,
                     )
                     self.assertNotEqual(result.returncode, 0, result.stdout)
@@ -253,7 +162,7 @@ class TaptuneResetTests(unittest.TestCase):
         shutil.copy2(CLI, self.repo / "taptune")
         (self.repo / "systemd").mkdir()
         shutil.copy2(SYSTEMD / "install-common.sh", self.repo / "systemd")
-        (self.repo / ".env").write_text("SPOTIFY_RECEIVER=go-librespot\nBLUETOOTH_SPEAKER_MAC=AA:BB:CC:DD:EE:FF\n")
+        (self.repo / ".env").write_text("BLUETOOTH_SPEAKER_MAC=AA:BB:CC:DD:EE:FF\n")
         bin_dir = self.repo / "bin"
         bin_dir.mkdir()
         hotspot = "bed69db1-17dc-419b-bbac-3eff35e29389"
@@ -276,7 +185,7 @@ class TaptuneResetTests(unittest.TestCase):
         self.env.pop("XDG_CONFIG_HOME", None)
 
     def reset(self, *flags, dry_run=True):
-        args = ["bash", str(self.repo / "taptune"), *(["--dry-run"] if dry_run else []), "--desktop", "reset", *flags]
+        args = ["bash", str(self.repo / "taptune"), *(["--dry-run"] if dry_run else []), "reset", *flags]
         return subprocess.run(args, env=self.env, capture_output=True, text=True, stdin=subprocess.DEVNULL)
 
     def test_reset_signs_out_forgets_speaker_and_wifi_but_keeps_tags(self):
@@ -331,7 +240,7 @@ class TaptuneResetTests(unittest.TestCase):
         )
         self.assertIn("Password: 0123456789abcdef0123", result.stdout)
         self.assertNotIn("Scan this code", result.stdout)
-        self.assertIn("QR code unavailable; run 'taptune update'", result.stderr)
+        self.assertEqual(result.stderr, "")
 
     def test_setup_wifi_rejects_an_unexpected_or_missing_password(self):
         (self.repo / "bin/nmcli").write_text("#!/bin/sh\necho 'not-a-valid-key'\n")

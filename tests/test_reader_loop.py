@@ -16,14 +16,12 @@ class ReaderLoopTests(unittest.TestCase):
         database.start()
         self.addCleanup(database.stop)
 
-    def test_dispatch_nfc_event_records_and_dispatches_assigned_value(self):
+    def test_dispatch_nfc_event_dispatches_assigned_value(self):
         event = NFCEvent(uid="04A7B2F1", payload="action:next")
 
-        with patch.object(main, "record_event") as record:
-            with patch.object(main, "dispatch_tag_value", return_value={"status": "ok"}) as dispatch:
-                result = main.dispatch_nfc_event(event)
+        with patch.object(main, "dispatch_tag_value", return_value={"status": "ok"}) as dispatch:
+            result = main.dispatch_nfc_event(event)
 
-        record.assert_called_once_with("04A7B2F1", "action", "action:next", source="nfc")
         dispatch.assert_called_once_with("action:next")
         self.assertEqual(result, {"status": "ok"})
 
@@ -50,12 +48,10 @@ class ReaderLoopTests(unittest.TestCase):
     def test_unassigned_card_is_not_dispatched(self):
         event = NFCEvent(uid="04A7B2F1", payload="04A7B2F1")
 
-        with patch.object(main, "record_event") as record:
-            with patch.object(main, "dispatch_tag_value") as dispatch:
-                result = main.dispatch_nfc_event(event)
+        with patch.object(main, "dispatch_tag_value") as dispatch:
+            result = main.dispatch_nfc_event(event)
 
         self.assertIsNone(result)
-        record.assert_not_called()
         dispatch.assert_not_called()
 
     def test_reader_is_reopened_after_startup_failures(self):
@@ -69,7 +65,7 @@ class ReaderLoopTests(unittest.TestCase):
                 raise OSError("I2C not ready")
             return object()
 
-        def loop(reader, stop_event=None):
+        def loop(reader, stop_event=None, writer=None):
             self.assertTrue(ready.is_set())
             stop.set()
 
@@ -94,8 +90,7 @@ class ReaderLoopTests(unittest.TestCase):
 
     def test_dispatch_failure_does_not_stop_the_reader(self):
         event = NFCEvent(uid="04A7B2F1", payload="action:next")
-        with patch.object(main, "record_event"), \
-                patch.object(main, "dispatch_tag_value", side_effect=RuntimeError("boom")), \
+        with patch.object(main, "dispatch_tag_value", side_effect=RuntimeError("boom")), \
                 self.assertLogs(main.logger, level="ERROR"):
             self.assertIsNone(main.dispatch_nfc_event(event))
 
@@ -108,10 +103,7 @@ class ReaderLoopTests(unittest.TestCase):
         thread.reader_ready = threading.Event()
         app.config["NFC_READER_THREAD"] = thread
         self.addCleanup(app.config.pop, "NFC_READER_THREAD", None)
-        with patch.multiple(
-            config.settings, NFC_READER_ENABLED=True,
-            SPOTIFY_CLIENT_ID="id", SPOTIFY_CLIENT_SECRET="secret", SPOTIFY_REFRESH_TOKEN="token",
-        ):
+        with patch.object(config.settings, "NFC_READER_ENABLED", True):
             client = app.test_client()
             self.assertEqual(client.get("/ready").status_code, 503)
             thread.reader_ready.set()

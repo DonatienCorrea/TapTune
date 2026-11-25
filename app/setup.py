@@ -9,19 +9,14 @@ from typing import Callable, Dict, List, Optional
 from .bluetooth import BluetoothNotReady, speaker_mac
 from .config import BASE_DIR, settings
 from . import librespot
-from .spotify_service import is_live_spotify_configured, uses_librespot
 from .wifi_setup import HOTSPOT_SSID
 
-SERVICE_NAME = "raspi-spotify-nfc.service"
 ENV_PATH = BASE_DIR / ".env"
 MAC_PATTERN = re.compile(r"^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$")
 
 # Keys the setup UI may write; anything else in .env is preserved untouched.
 EDITABLE_KEYS = (
     "BLUETOOTH_SPEAKER_MAC",
-    "SPOTIFY_CLIENT_ID",
-    "SPOTIFY_CLIENT_SECRET",
-    "SPOTIFY_REFRESH_TOKEN",
     "SPOTIFY_DEVICE_NAME",
 )
 _ENV_LINE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=")
@@ -97,22 +92,6 @@ def write_env(updates: Dict[str, str], path: Path = ENV_PATH) -> None:
         os.close(directory)
 
 
-def restart_service(runner: Callable = subprocess.run) -> bool:
-    """Ask systemd to restart the service; True only if systemd accepted the job.
-
-    Uses --no-block so the call returns before this process is stopped. Callers
-    must not report a restart unless this returns True.
-    """
-    try:
-        result = runner(
-            ["sudo", "-n", "systemctl", "--no-block", "restart", SERVICE_NAME],
-            capture_output=True, text=True, timeout=10,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return result.returncode == 0
-
-
 def _run(args: List[str], runner: Callable) -> Optional[str]:
     try:
         result = runner(args, capture_output=True, text=True, timeout=5)
@@ -162,18 +141,14 @@ def bluetooth_status(runner: Callable = subprocess.run) -> dict:
 
 
 def spotify_status() -> dict:
-    if uses_librespot():
-        try:
-            current = librespot.status()
-        except Exception:  # noqa: BLE001 - any API failure means the receiver needs attention.
-            return {"id": "spotify", "state": "attention", "reason": "receiver_unavailable",
-                    "detail": settings.SPOTIFY_DEVICE_NAME}
-        if current is None:
-            return {"id": "spotify", "state": "todo", "reason": "not_logged_in", "detail": settings.SPOTIFY_DEVICE_NAME}
-        return {"id": "spotify", "state": "done", "reason": "logged_in", "detail": current.get("username") or ""}
-    if is_live_spotify_configured():
-        return {"id": "spotify", "state": "done", "reason": "configured"}
-    return {"id": "spotify", "state": "todo", "reason": "not_configured"}
+    try:
+        current = librespot.status()
+    except Exception:  # noqa: BLE001 - any API failure means the receiver needs attention.
+        return {"id": "spotify", "state": "attention", "reason": "receiver_unavailable",
+                "detail": settings.SPOTIFY_DEVICE_NAME}
+    if current is None:
+        return {"id": "spotify", "state": "todo", "reason": "not_logged_in", "detail": settings.SPOTIFY_DEVICE_NAME}
+    return {"id": "spotify", "state": "done", "reason": "logged_in", "detail": current.get("username") or ""}
 
 
 def setup_steps() -> List[dict]:
@@ -201,8 +176,7 @@ def librespot_credentials_saved() -> bool:
 
 def configured_manually() -> bool:
     """Existing installs (Spotify sign-in and speaker already set up) skip onboarding."""
-    signed_in = is_live_spotify_configured() or (uses_librespot() and librespot_credentials_saved())
-    return bool(signed_in and settings.BLUETOOTH_SPEAKER_MAC.strip())
+    return bool(librespot_credentials_saved() and settings.BLUETOOTH_SPEAKER_MAC.strip())
 
 
 def mark_complete() -> None:

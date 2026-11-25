@@ -1,125 +1,111 @@
-<!doctype html>
+{% extends "base.html" %}
 {% set fr = locale == 'fr' %}
+{% set portal = wifi %}
+{% set active = 'setup' %}
+{% set page_title = 'Configuration' if fr else 'Setup' %}
 {% set titles = {
   'wifi': 'Wi-Fi / réseau' if fr else 'Wi-Fi / network',
   'bluetooth': 'Enceinte Bluetooth' if fr else 'Bluetooth speaker',
-  'spotify': 'Spotify' if fr else 'Spotify'
+  'spotify': 'Spotify'
 } %}
 {% set states = {
   'done': 'Terminé' if fr else 'Done',
   'todo': 'À faire' if fr else 'To do',
-  'attention': 'Attention' if fr else 'Needs attention'
+  'attention': 'À vérifier' if fr else 'Needs attention'
 } %}
+{% set restart_hint = 'Redémarrez TapTune depuis la page Maintenance.' if fr else 'Restart TapTune from the Maintenance page.' %}
 {% set reasons = {
   'wifi': {
     'connected': 'Connecté à ' if fr else 'Connected to ',
     'wired': 'Connecté par câble Ethernet.' if fr else 'Connected by Ethernet cable.',
     'hotspot': 'TapTune diffuse son réseau de configuration. Le Pi n’est pas encore connecté au Wi-Fi.' if fr else 'TapTune is broadcasting its setup network. The Pi has not joined Wi-Fi yet.',
     'disconnected': 'Aucun réseau connecté. Connectez le Pi à un Wi-Fi ou à un câble Ethernet.' if fr else 'No network connected. Connect the Pi to Wi-Fi or an Ethernet cable.',
-    'unavailable': 'Impossible de vérifier le réseau (NetworkManager introuvable).' if fr else 'Cannot check the network (NetworkManager not found).'
+    'unavailable': 'Impossible de vérifier le réseau du Pi.' if fr else 'Cannot check the Pi’s network.'
   },
   'bluetooth': {
     'connected': 'Enceinte connectée : ' if fr else 'Speaker connected: ',
     'not_connected': 'Enceinte enregistrée mais non connectée : ' if fr else 'Speaker saved but not connected: ',
-    'not_paired': 'Enceinte inconnue de Bluetooth. Appairez-la ci-dessous : ' if fr else 'Speaker unknown to Bluetooth. Pair it below: ',
-    'not_configured': 'Aucune enceinte choisie. Appairez-la ci-dessous.' if fr else 'No speaker chosen. Pair it below.',
-    'invalid_mac': 'Adresse Bluetooth invalide dans la configuration.' if fr else 'Invalid Bluetooth address in the configuration.'
+    'not_paired': 'Le Pi ne connaît plus cette enceinte. Appairez-la à nouveau : ' if fr else 'The Pi no longer knows this speaker. Pair it again: ',
+    'not_configured': 'Aucune enceinte choisie.' if fr else 'No speaker chosen yet.',
+    'invalid_mac': 'L’enceinte enregistrée est invalide. Appairez-la à nouveau.' if fr else 'The saved speaker is invalid. Pair it again.'
   },
   'spotify': {
-    'configured': 'Compte Spotify configuré.' if fr else 'Spotify account configured.',
-    'not_configured': 'Identifiant, secret et jeton Spotify requis.' if fr else 'Spotify client ID, secret and refresh token required.',
     'logged_in': 'Connecté à Spotify. Compte : ' if fr else 'Signed in to Spotify. Account: ',
     'not_logged_in': 'Pas encore connecté. Sur un téléphone relié au même Wi-Fi, ouvrez Spotify → Appareils → ' if fr else 'Not signed in yet. On a phone on the same Wi-Fi, open Spotify → Devices → ',
-    'receiver_unavailable': 'Le récepteur Spotify ne répond pas. Lancez « taptune restart » puis « taptune status ». Récepteur : ' if fr else 'The Spotify receiver is not answering. Run “taptune restart”, then “taptune status”. Receiver: '
+    'receiver_unavailable': 'Le récepteur Spotify ne répond pas. ' ~ restart_hint ~ ' Récepteur : ' if fr else 'The Spotify receiver is not answering. ' ~ restart_hint ~ ' Receiver: '
   }
 } %}
-<html lang="{{ locale }}">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>{{ 'Configuration' if fr else 'Setup' }} · TapTune</title>
-  {% if steps | selectattr('reason', 'equalto', 'not_logged_in') | list %}<meta http-equiv="refresh" content="5">{% endif %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-</head>
-<body>
-  <div class="app-shell">
-    <header class="header">
-      {% if wifi %}
-      <span class="title"><span>Tap<span class="brand-tune">Tune</span></span></span>
-      {% else %}
-      <a class="title log-brand" href="{{ home_url }}" aria-label="TapTune"><span>Tap<span class="brand-tune">Tune</span></span></a>
-      {% endif %}
-      <nav class="header-actions">
-        <a class="badge switch-link" href="{{ switch_url }}">{{ 'English' if fr else 'Français' }}</a>
-      </nav>
-    </header>
-    <main class="log-page">
-      {% if wifi %}
-      {% include "wifi_setup.html" %}
-      {% else %}
-      <h1>{{ 'Configuration' if fr else 'Setup' }}</h1>
-      {% if complete %}
-      <p role="status"><strong>{{ 'Tout est prêt.' if fr else 'Everything is ready.' }}</strong> <a href="{{ home_url }}">{{ 'Créer un tag' if fr else 'Make a tag' }}</a></p>
-      {% endif %}
-      <ol class="setup-steps">
-        {% for step in steps %}
-        <li class="setup-step" data-step="{{ step.id }}" data-state="{{ step.state }}">
-          <h2>{{ loop.index }}. {{ titles[step.id] }} — <span class="setup-state">{{ states[step.state] }}</span></h2>
-          <p>{{ reasons[step.id][step.reason] }}{{ step.detail or '' }}</p>
-          {% if step.reason == 'not_logged_in' %}
-          <p class="music-caption">{{ 'Vous ne le faites qu’une fois : TapTune reste connecté après un redémarrage, sans téléphone. Cette page se met à jour toute seule. Si la connexion est perdue (mot de passe changé, accès retiré), choisissez à nouveau ' ~ step.detail ~ ' dans Spotify → Appareils.' if fr else 'You only do this once: TapTune stays signed in after a restart, with no phone. This page updates by itself. If the sign-in is lost (password changed, access removed), choose ' ~ step.detail ~ ' again in Spotify → Devices.' }}</p>
-          {% endif %}
-        </li>
-        {% endfor %}
-      </ol>
-      {% set bt = steps | selectattr('id', 'equalto', 'bluetooth') | first %}
-      {% set saved_speaker = bt.detail if bt and bt.reason != 'not_configured' else '' %}
-      <section class="speaker-setup" id="speaker-setup" aria-labelledby="speaker-setup-title">
-        <h2 id="speaker-setup-title">{{ 'Enceinte Bluetooth' if fr else 'Bluetooth speaker' }}</h2>
-        {% if saved_speaker %}
-        <p>{{ 'Enceinte enregistrée : ' if fr else 'Saved speaker: ' }}{{ saved_speaker }}</p>
-        <button type="button" class="helper-button" id="speaker-change">{{ 'Changer d’enceinte' if fr else 'Change speaker' }}</button>
+{% block head %}
+{% if not portal and steps | selectattr('reason', 'equalto', 'not_logged_in') | list %}<meta http-equiv="refresh" content="5">{% endif %}
+{% endblock %}
+{% block main %}
+{% if portal %}
+{% include "wifi_setup.html" %}
+{% else %}
+<h1 class="page-title">{{ page_title }}</h1>
+{% if complete %}
+<p class="notice" data-tone="success" role="status">{{ 'Tout est prêt.' if fr else 'Everything is ready.' }} <a href="/{{ 'fr/' if fr else '' }}">{{ 'Créer un tag' if fr else 'Make a tag' }}</a></p>
+{% endif %}
+<ol class="setup-steps">
+  {% for step in steps %}
+  <li class="setup-step" data-step="{{ step.id }}" data-state="{{ step.state }}">
+    <div class="setup-step-heading">
+      <h2 class="section-title">{{ loop.index }}. {{ titles[step.id] }}</h2>
+      <span class="state-label">{{ states[step.state] }}</span>
+    </div>
+    <p>{{ reasons[step.id][step.reason] }}{{ step.detail or '' }}</p>
+    {% if step.reason == 'not_logged_in' %}
+    <p class="music-caption">{{ 'Vous ne le faites qu’une fois : TapTune reste connecté après un redémarrage, sans téléphone. Cette page se met à jour toute seule. Si la connexion est perdue (mot de passe changé, accès retiré), choisissez à nouveau ' ~ step.detail ~ ' dans Spotify → Appareils.' if fr else 'You only do this once: TapTune stays signed in after a restart, with no phone. This page updates by itself. If the sign-in is lost (password changed, access removed), choose ' ~ step.detail ~ ' again in Spotify → Devices.' }}</p>
+    {% endif %}
+    {% if step.id == 'bluetooth' %}
+    {% set saved_speaker = step.detail if step.reason != 'not_configured' else '' %}
+    <div id="speaker-setup" class="speaker-setup">
+      {% if saved_speaker %}
+      <div class="button-row">
         <button type="button" class="helper-button" data-speaker-test>{{ 'Jouer un son de test' if fr else 'Play a test sound' }}</button>
-        {% endif %}
-        <div id="speaker-pairing" {% if saved_speaker %}hidden{% endif %}>
-          <p>{{ 'Allumez l’enceinte et mettez-la en mode appairage (souvent : maintenir le bouton Bluetooth jusqu’à ce que le voyant clignote).' if fr else 'Turn the speaker on and put it in pairing mode (usually: hold its Bluetooth button until the light blinks).' }}</p>
-          <button type="button" class="save-button" id="speaker-scan">{{ 'Rechercher les enceintes' if fr else 'Search for speakers' }}</button>
-          <ul class="speaker-list" id="speaker-list"></ul>
-        </div>
-        <p id="speaker-status" role="status" aria-live="polite"></p>
-        <button type="button" class="helper-button" data-speaker-test id="speaker-test-after" hidden>{{ 'Jouer un son de test' if fr else 'Play a test sound' }}</button>
-      </section>
-      <script type="application/json" id="speaker-text">{{ {
-        'scanning': 'Recherche pendant environ 10 secondes…' if fr else 'Searching for about 10 seconds…',
-        'none': 'Aucune enceinte trouvée. Vérifiez qu’elle est en mode appairage, proche du Pi, puis réessayez.' if fr else 'No speaker found. Check it is in pairing mode and close to the Pi, then try again.',
-        'pick': 'Choisissez votre enceinte :' if fr else 'Choose your speaker:',
-        'paired': 'déjà appairée' if fr else 'already paired',
-        'connecting': 'Appairage et connexion à {name}… (jusqu’à 40 secondes)' if fr else 'Pairing and connecting to {name}… (up to 40 seconds)',
-        'saved': 'Connectée et enregistrée : {name}. Jouez un son de test pour vérifier.' if fr else 'Connected and saved: {name}. Play a test sound to check.',
-        'receiver_failed': 'L’enceinte est enregistrée, mais le récepteur Spotify n’a pas pu être basculé. Lancez ./install.sh --lite --configure sur le Pi.' if fr else 'The speaker is saved, but the Spotify receiver could not be switched. Run ./install.sh --lite --configure on the Pi.',
-        'testing': 'Lecture du son de test…' if fr else 'Playing the test sound…',
-        'played': 'Son joué. Vous avez entendu deux notes ? Sinon, montez le volume de l’enceinte.' if fr else 'Sound played. Did you hear two notes? If not, turn the speaker volume up.',
-        'not_played': 'Le son n’a pas pu être joué. Vérifiez que l’enceinte est allumée et connectée, puis réessayez.' if fr else 'The sound could not be played. Check the speaker is on and connected, then try again.',
-        'errors': {
-          'bluetooth_busy': 'Une autre opération Bluetooth est en cours. Patientez puis réessayez.' if fr else 'Another Bluetooth operation is running. Wait, then try again.',
-          'adapter_unavailable': 'Le Bluetooth du Pi est indisponible (bluetooth.service arrêté ou bloqué par rfkill).' if fr else 'The Pi’s Bluetooth is unavailable (bluetooth.service stopped or blocked by rfkill).',
-          'bluetooth_unavailable': 'Impossible d’utiliser bluetoothctl sur le Pi.' if fr else 'Cannot use bluetoothctl on the Pi.',
-          'not_found': 'Enceinte introuvable. Remettez-la en mode appairage et relancez la recherche.' if fr else 'Speaker not found. Put it back in pairing mode and search again.',
-          'pair_failed': 'Échec de l’appairage. Remettez l’enceinte en mode appairage et réessayez.' if fr else 'Pairing failed. Put the speaker back in pairing mode and try again.',
-          'trust_failed': 'L’enceinte est appairée mais n’a pas pu être approuvée. Réessayez.' if fr else 'The speaker is paired but could not be trusted. Try again.',
-          'connect_failed': 'L’enceinte est appairée mais ne se connecte pas. Éteignez-la et rallumez-la, puis réessayez.' if fr else 'The speaker is paired but does not connect. Switch it off and on, then try again.',
-          'save_failed': 'L’enceinte est connectée mais son adresse n’a pas pu être enregistrée dans .env.' if fr else 'The speaker is connected but its address could not be saved in .env.',
-          'no_speaker': 'Aucune enceinte enregistrée.' if fr else 'No speaker saved yet.',
-          'invalid_origin': 'Rechargez la page et réessayez.' if fr else 'Reload the page and try again.',
-          'unknown': 'Erreur inattendue. Rechargez la page et réessayez.' if fr else 'Unexpected error. Reload the page and try again.'
-        }
-      } | tojson }}</script>
-      <script src="{{ url_for('static', filename='setup-speaker.js') }}" defer></script>
-      {% if not complete and not (steps | selectattr('reason', 'in', ['logged_in', 'not_logged_in', 'receiver_unavailable']) | list) %}
-      <p class="music-caption">{{ 'Pour configurer Spotify, renseignez les identifiants SPOTIFY_* dans le fichier .env, puis redémarrez TapTune.' if fr else 'To set up Spotify, set the SPOTIFY_* credentials in .env, then restart TapTune.' }}</p>
+        <button type="button" class="helper-button" id="speaker-change">{{ 'Changer d’enceinte' if fr else 'Change speaker' }}</button>
+      </div>
       {% endif %}
-      {% endif %}
-    </main>
-  </div>
-</body>
-</html>
+      <div id="speaker-pairing" {% if saved_speaker %}hidden{% endif %}>
+        <p>{{ 'Allumez l’enceinte et mettez-la en mode appairage (souvent : maintenir le bouton Bluetooth jusqu’à ce que le voyant clignote).' if fr else 'Turn the speaker on and put it in pairing mode (usually: hold its Bluetooth button until the light blinks).' }}</p>
+        <button type="button" class="save-button" id="speaker-scan">{{ 'Rechercher les enceintes' if fr else 'Search for speakers' }}</button>
+        <ul class="speaker-list" id="speaker-list"></ul>
+      </div>
+      <p id="speaker-status" role="status" aria-live="polite"></p>
+      <button type="button" class="helper-button" data-speaker-test id="speaker-test-after" hidden>{{ 'Jouer un son de test' if fr else 'Play a test sound' }}</button>
+    </div>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ol>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+{% if not portal %}
+<script type="application/json" id="speaker-text">{{ {
+  'scanning': 'Recherche pendant environ 10 secondes…' if fr else 'Searching for about 10 seconds…',
+  'none': 'Aucune enceinte trouvée. Vérifiez qu’elle est en mode appairage, proche du Pi, puis réessayez.' if fr else 'No speaker found. Check it is in pairing mode and close to the Pi, then try again.',
+  'pick': 'Choisissez votre enceinte :' if fr else 'Choose your speaker:',
+  'paired': 'déjà appairée' if fr else 'already paired',
+  'connecting': 'Appairage et connexion à {name}… (jusqu’à 40 secondes)' if fr else 'Pairing and connecting to {name}… (up to 40 seconds)',
+  'saved': 'Connectée et enregistrée : {name}. Jouez un son de test pour vérifier.' if fr else 'Connected and saved: {name}. Play a test sound to check.',
+  'testing': 'Lecture du son de test…' if fr else 'Playing the test sound…',
+  'played': 'Son joué. Vous avez entendu deux notes ? Sinon, montez le volume de l’enceinte.' if fr else 'Sound played. Did you hear two notes? If not, turn the speaker volume up.',
+  'not_played': 'Le son n’a pas pu être joué. Vérifiez que l’enceinte est allumée et connectée, puis réessayez.' if fr else 'The sound could not be played. Check the speaker is on and connected, then try again.',
+  'errors': {
+    'bluetooth_busy': 'Une autre opération Bluetooth est en cours. Patientez puis réessayez.' if fr else 'Another Bluetooth operation is running. Wait, then try again.',
+    'adapter_unavailable': 'Le Bluetooth du Pi est indisponible. Redémarrez le Pi depuis la page Maintenance.' if fr else 'The Pi’s Bluetooth is unavailable. Restart the Pi from the Maintenance page.',
+    'bluetooth_unavailable': 'Le Bluetooth du Pi ne répond pas. Redémarrez le Pi depuis la page Maintenance.' if fr else 'The Pi’s Bluetooth is not answering. Restart the Pi from the Maintenance page.',
+    'not_found': 'Enceinte introuvable. Remettez-la en mode appairage et relancez la recherche.' if fr else 'Speaker not found. Put it back in pairing mode and search again.',
+    'pair_failed': 'Échec de l’appairage. Remettez l’enceinte en mode appairage et réessayez.' if fr else 'Pairing failed. Put the speaker back in pairing mode and try again.',
+    'trust_failed': 'L’enceinte est appairée mais n’a pas pu être approuvée. Réessayez.' if fr else 'The speaker is paired but could not be trusted. Try again.',
+    'connect_failed': 'L’enceinte est appairée mais ne se connecte pas. Éteignez-la et rallumez-la, puis réessayez.' if fr else 'The speaker is paired but does not connect. Switch it off and on, then try again.',
+    'save_failed': 'L’enceinte est connectée mais n’a pas pu être enregistrée. Réessayez.' if fr else 'The speaker is connected but could not be saved. Try again.',
+    'no_speaker': 'Aucune enceinte enregistrée.' if fr else 'No speaker saved yet.',
+    'invalid_origin': 'Rechargez la page et réessayez.' if fr else 'Reload the page and try again.',
+    'unknown': 'Erreur inattendue. Rechargez la page et réessayez.' if fr else 'Unexpected error. Reload the page and try again.'
+  }
+} | tojson }}</script>
+<script src="{{ url_for('static', filename='setup-speaker.js') }}" defer></script>
+{% endif %}
+{% endblock %}

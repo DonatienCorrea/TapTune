@@ -28,7 +28,7 @@ CONNECT_ATTEMPTS = 2
 CONNECT_TIMEOUT_SECONDS = 10
 # BlueZ reports the link a moment after `connect` returns.
 LINK_CHECKS = 6
-# After connecting, BlueALSA/PipeWire need a moment to publish the audio output.
+# After connecting, PipeWire needs a moment to publish the audio output.
 OUTPUT_CHECKS = 5
 # Spotify (softvol) sets the music level, so the Pi's own output stays at 100%.
 OUTPUT_VOLUME = "100%"
@@ -52,10 +52,10 @@ def speaker_mac() -> Optional[str]:
 
 
 def desktop_command(args: list, user: Optional[str] = None) -> list:
-    """Run an audio command in the Desktop audio user's PipeWire session.
+    """Run an audio command in the audio user's PipeWire session.
 
     The TapTune app is a system service; PipeWire belongs to the user that runs
-    Spotifyd, so the command is run as that user with its runtime directory.
+    go-librespot, so the command is run as that user with its runtime directory.
     """
     user = settings.DESKTOP_AUDIO_USER if user is None else user
     if not user:
@@ -75,7 +75,7 @@ def desktop_command(args: list, user: Optional[str] = None) -> list:
         # Without lingering the user's PipeWire only exists after a login.
         raise BluetoothNotReady(
             f"{user}'s audio session is not running ({runtime_dir} missing); "
-            f"run 'sudo loginctl enable-linger {user}' (install-desktop-speaker.sh does this)."
+            f"run 'sudo loginctl enable-linger {user}' (install.sh does this)."
         )
     return ["runuser", "-u", user, "--", "env", f"XDG_RUNTIME_DIR={runtime_dir}", *args]
 
@@ -121,45 +121,6 @@ def ensure_speaker_connected(runner=subprocess.run, sleep=time.sleep, attempts: 
         )
     except (OSError, subprocess.SubprocessError) as error:
         raise BluetoothNotReady(f"Could not check/connect Bluetooth speaker {mac}: {error}") from error
-
-
-def bluealsa_device(mac: str) -> str:
-    device = settings.AUDIO_OUTPUT_DEVICE
-    return f"bluealsa:DEV={mac},PROFILE=a2dp" if device == "bluealsa" else device
-
-
-def _prepare_bluealsa(mac: str, runner, sleep, set_volume: bool) -> tuple:
-    device = bluealsa_device(mac)
-    if not set_volume or not device.startswith("bluealsa"):
-        return device, True
-    controls = None
-    for check in range(OUTPUT_CHECKS):
-        result = runner(["amixer", "-D", device, "scontrols"], capture_output=True, text=True, timeout=5)
-        if result.returncode == 0:
-            controls = result.stdout or ""
-            break
-        detail = (result.stderr or result.stdout or "").strip()
-        if check < OUTPUT_CHECKS - 1:
-            sleep(1)
-    if controls is None:
-        raise BluetoothNotReady(f"Speaker {mac} is connected but BlueALSA has no output for it yet: {detail}")
-    names = re.findall(r"^Simple mixer control '(.*)',\d+$", controls, flags=re.MULTILINE)
-    if not names:
-        logger.info("BlueALSA has no volume control for speaker %s; it keeps its own level.", mac)
-        return device, True
-    for name in names:
-        result = runner(
-            ["amixer", "-q", "-D", device, "sset", name, OUTPUT_VOLUME, "unmute"],
-            capture_output=True, text=True, timeout=5,
-        )
-        if result.returncode != 0:
-            logger.warning(
-                "Could not set BlueALSA control '%s' to %s: %s", name, OUTPUT_VOLUME,
-                (result.stderr or "").strip(),
-            )
-            return device, False
-    logger.info("Pi output for speaker %s set to %s.", mac, OUTPUT_VOLUME)
-    return device, True
 
 
 def _route_pipewire(mac: str, runner, sleep, set_volume: bool, user: Optional[str]) -> tuple:
@@ -224,26 +185,21 @@ def prepare_speaker(
     runner=subprocess.run,
     sleep=time.sleep,
     connect_attempts: int = CONNECT_ATTEMPTS,
-    desktop: Optional[bool] = None,
     user: Optional[str] = None,
 ) -> Optional[str]:
-    """Connect the speaker if needed and make it the audio output.
+    """Connect the speaker if needed and make it the PipeWire output.
 
-    Returns the ALSA device (Lite) or PipeWire sink (Desktop), or None when no
-    speaker is configured. Raises BluetoothNotReady when it cannot play.
+    Returns the PipeWire sink, or None when no speaker is configured.
+    Raises BluetoothNotReady when it cannot play.
     """
     mac = speaker_mac()
     if not mac:
         return None
-    desktop = bool(settings.DESKTOP_AUDIO_USER) if desktop is None else desktop
     with _lock:
         connected_now = ensure_speaker_connected(runner=runner, sleep=sleep, attempts=connect_attempts)
         set_volume = connected_now or not _output_volume_set[0]
         try:
-            if desktop:
-                output, volume_ok = _route_pipewire(mac, runner, sleep, set_volume, user)
-            else:
-                output, volume_ok = _prepare_bluealsa(mac, runner, sleep, set_volume)
+            output, volume_ok = _route_pipewire(mac, runner, sleep, set_volume, user)
         except (OSError, subprocess.SubprocessError) as error:
             raise BluetoothNotReady(f"Could not prepare audio output for speaker {mac}: {error}") from error
         if set_volume and volume_ok:
