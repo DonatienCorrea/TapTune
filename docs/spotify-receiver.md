@@ -24,7 +24,7 @@ Lite, PipeWire runs in the background without a desktop.
    *done* by itself once the Pi is signed in.
 
 TapTune never asks for your Spotify password. go-librespot saves its sign-in
-(`persist_credentials: true`) in `~/.config/go-librespot/credentials.json`, so
+(`persist_credentials: true`) in `~/.config/go-librespot/state.json`, so
 after a restart the Pi signs in by itself and tags play with no phone nearby.
 If the sign-in is lost (for example after a password change), choose TapTune in
 Spotify → Devices again.

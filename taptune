@@ -500,8 +500,8 @@ cmd_logs() {
   "${JOURNAL[@]}" || return 0
 }
 
-librespot_credentials() {
-  printf '%s/go-librespot/credentials.json' "${XDG_CONFIG_HOME:-$HOME/.config}"
+librespot_config_dir() {
+  printf '%s/go-librespot' "${XDG_CONFIG_HOME:-$HOME/.config}"
 }
 
 cmd_setup_wifi() {
@@ -571,7 +571,8 @@ EOF
   if [ "$MODE" != app ] && uses_go_librespot; then
     info "Signing the Pi out of Spotify"
     run systemctl --user stop taptune-go-librespot.service
-    run rm -f "$(librespot_credentials)"
+    # go-librespot 0.10+ keeps the sign-in in state.json; credentials.json is the older layout.
+    run rm -f "$(librespot_config_dir)/state.json" "$(librespot_config_dir)/credentials.json"
     run systemctl --user start taptune-go-librespot.service
   fi
 

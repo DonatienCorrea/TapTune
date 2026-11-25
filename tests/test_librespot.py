@@ -285,9 +285,15 @@ class SetupStepTests(unittest.TestCase):
                 patch.object(config.settings, "DESKTOP_AUDIO_USER", ""), \
                 patch("app.setup.Path.home", return_value=Path(home)):
             self.assertFalse(setup.configured_manually())
-            credentials = Path(home) / ".config/go-librespot/credentials.json"
-            credentials.parent.mkdir(parents=True)
-            credentials.write_text("{}")
+            directory = Path(home) / ".config/go-librespot"
+            directory.mkdir(parents=True)
+            state = directory / "state.json"
+            state.write_text('{"device_id": "abc", "credentials": {"username": "", "data": null}}')
+            self.assertFalse(setup.configured_manually())
+            state.write_text('{"device_id": "abc", "credentials": {"username": "doons76", "data": "eA=="}}')
+            self.assertTrue(setup.configured_manually())
+            state.unlink()
+            (directory / "credentials.json").write_text("{}")
             self.assertTrue(setup.configured_manually())
 
     def test_wizard_tells_how_to_sign_in_in_both_languages(self):
