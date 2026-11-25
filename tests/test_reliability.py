@@ -256,7 +256,14 @@ class TaptuneResetTests(unittest.TestCase):
         (self.repo / ".env").write_text("SPOTIFY_RECEIVER=go-librespot\nBLUETOOTH_SPEAKER_MAC=AA:BB:CC:DD:EE:FF\n")
         bin_dir = self.repo / "bin"
         bin_dir.mkdir()
-        for tool in ("nmcli", "systemctl", "bluetoothctl"):
+        hotspot = "bed69db1-17dc-419b-bbac-3eff35e29389"
+        (bin_dir / "nmcli").write_text(
+            "#!/bin/sh\nprintf '%s\\n' "
+            f"'{hotspot}:802-11-wireless' 'aaaa-1111:802-11-wireless' 'eeee-0000:802-3-ethernet' "
+            "'bbbb-2222:802-11-wireless'\n"
+        )
+        (bin_dir / "nmcli").chmod(0o755)
+        for tool in ("systemctl", "bluetoothctl"):
             (bin_dir / tool).write_text("#!/bin/sh\nexit 0\n")
             (bin_dir / tool).chmod(0o755)
         self.env = dict(os.environ, PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}", HOME=str(self.repo))
@@ -276,8 +283,12 @@ class TaptuneResetTests(unittest.TestCase):
         ]
         positions = [out.index(step) for step in steps]
         self.assertEqual(positions, sorted(positions))
-        self.assertIn("bed69db1-17dc-419b-bbac-3eff35e29389", out)
-        self.assertIn("systemctl\\ start\\ raspi-spotify-nfc.service", out[positions[-1]:])
+        wifi = out[positions[-1]:]
+        for uuid in ("aaaa-1111", "bbbb-2222"):
+            self.assertIn(f"nmcli\\ connection\\ delete\\ uuid\\ {uuid}", wifi)
+        for kept in ("bed69db1-17dc-419b-bbac-3eff35e29389", "eeee-0000"):
+            self.assertNotIn(kept, wifi)
+        self.assertIn("systemctl\\ start\\ raspi-spotify-nfc.service", wifi)
         self.assertNotIn("raspi_spotify_nfc.db", out)
 
     def test_hotspot_uuid_matches_the_app(self):

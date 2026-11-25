@@ -570,14 +570,11 @@ EOF
     return
   fi
 
-  if [ "$DRY_RUN" -eq 1 ]; then
-    echo "# forget every saved Wi-Fi profile except TapTune-Setup ($HOTSPOT_UUID), then start TapTune"
-    run sudo systemd-run --collect --quiet --unit=taptune-reset-wifi /bin/sh -c \
-      "nmcli connection delete uuid <saved-wifi>; systemctl start $APP_UNIT"
-    return
-  fi
   while IFS= read -r uuid; do
-    [ -z "$uuid" ] || wifi+=(uuid "$uuid")
+    case "$uuid" in
+      ''|*[!0-9A-Fa-f-]*) ;;
+      *) wifi+=("$uuid") ;;
+    esac
   done < <(saved_wifi_profiles)
   info "Forgetting saved Wi-Fi networks and starting TapTune"
   cat <<EOF
@@ -586,7 +583,9 @@ Join it from your phone to set TapTune up again. Over Ethernet, open http://$(ho
 EOF
   # Detached: deleting the Wi-Fi this SSH session uses must not stop the reset halfway.
   local delete=":"
-  [ "${#wifi[@]}" -eq 0 ] || delete="nmcli connection delete ${wifi[*]}"
+  for uuid in "${wifi[@]}"; do
+    delete="$delete; nmcli connection delete uuid $uuid"
+  done
   run sudo systemd-run --collect --quiet --unit=taptune-reset-wifi /bin/sh -c \
     "$delete; systemctl start $APP_UNIT"
 }
