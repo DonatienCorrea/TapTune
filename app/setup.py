@@ -70,7 +70,10 @@ def write_env(updates: Dict[str, str], path: Path = ENV_PATH) -> None:
             output.append(line)
     output.extend(_format_line(key, value) for key, value in pending.items())
 
-    mode = path.stat().st_mode & 0o777 if path.exists() else 0o600
+    # TapTune runs as root but .env belongs to the user who installed it: keep its
+    # owner, or `taptune update` can no longer read it.
+    original = path.stat() if path.exists() else path.parent.stat()
+    mode = original.st_mode & 0o777 if path.exists() else 0o600
     descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
@@ -78,6 +81,8 @@ def write_env(updates: Dict[str, str], path: Path = ENV_PATH) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.chmod(temporary, mode)
+        if os.geteuid() == 0:
+            os.chown(temporary, original.st_uid, original.st_gid)
         os.replace(temporary, path)
     except BaseException:
         try:

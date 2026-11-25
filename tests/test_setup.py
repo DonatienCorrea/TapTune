@@ -36,6 +36,15 @@ class EnvWriterTests(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o640)
         self.assertEqual([p.name for p in Path(self.dir.name).iterdir()], [".env"])
 
+    def test_root_keeps_the_installing_users_ownership(self):
+        self.path.write_text("A=1\n")
+        owner = self.path.stat()
+        chowned = []
+        with patch("app.setup.os.geteuid", return_value=0), \
+                patch("app.setup.os.chown", side_effect=lambda p, u, g: chowned.append((u, g))):
+            setup.write_env({"SPOTIFY_CLIENT_ID": "x"}, self.path)
+        self.assertEqual(chowned, [(owner.st_uid, owner.st_gid)])
+
     def test_rejects_unknown_keys_and_injection_without_touching_file(self):
         self.path.write_text("A=1\n")
         for bad in ({"APP_PORT": "1"}, {"SPOTIFY_CLIENT_ID": "x\nEVIL=1"}, {"BLUETOOTH_SPEAKER_MAC": "nope"}):
