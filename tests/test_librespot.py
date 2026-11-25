@@ -157,6 +157,31 @@ class PlaybackTests(unittest.TestCase):
             fake.access_token = "tok"
             self.assertEqual(spotify_service.play_content("spotify:show:s")["error"], "show_no_episodes")
 
+    def test_show_lookup_falls_back_between_developer_credentials_and_receiver_token(self):
+        episode = {"uri": "spotify:episode:new", "name": "Latest"}
+        creds = patch.multiple(config.settings, SPOTIFY_CLIENT_ID="id", SPOTIFY_CLIENT_SECRET="s",
+                               SPOTIFY_REFRESH_TOKEN="r")
+        creds.start()
+        self.addCleanup(creds.stop)
+        dev_client, receiver_client = object(), object()
+        lookups = {id(dev_client): episode, id(receiver_client): episode}
+
+        def lookup(client, _show_id):
+            return lookups[id(client)]
+
+        # Receiver token missing: the developer-app credentials still find the newest episode.
+        fake = self.use(FakeLibrespot(status={}, token=None))
+        with patch("app.spotify_service.build_spotify_client", return_value=dev_client), \
+                patch("app.spotify_service._latest_episode", side_effect=lookup):
+            self.assertEqual(spotify_service.play_content("spotify:show:s")["uri"], "spotify:episode:new")
+        # Developer credentials failing: the receiver's token is used instead.
+        fake.access_token = "tok"
+        with patch("app.spotify_service.build_spotify_client", side_effect=RuntimeError("revoked")), \
+                patch("app.spotify_service.Spotify", return_value=receiver_client), \
+                patch("app.spotify_service._latest_episode", side_effect=lookup):
+            self.assertEqual(spotify_service.play_content("spotify:show:s")["uri"], "spotify:episode:new")
+        self.assertEqual([body["skip_to_uri"] for _, body in fake.posts], ["spotify:episode:new"] * 2)
+
     def test_active_phone_receives_the_commands_instead_of_the_pi(self):
         cluster = {"active_device_id": "phone", "devices": [SELF, PHONE], "now_playing": {"playing": True}}
         fake = self.use(FakeLibrespot(status={}, cluster=cluster))

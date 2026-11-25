@@ -37,9 +37,11 @@ Spotify → Devices again.
   which listens only on `127.0.0.1:3678`. No Spotify Developer app is needed.
 - If a phone is already playing, these commands are sent to that phone, as
   before.
-- **Show tags** still start the newest episode. TapTune looks it up with the
-  sign-in that go-librespot already has. If the lookup fails, the show plays
-  from its start.
+- **Show tags** still start the newest episode. Finding it needs the Spotify
+  Web API. TapTune first uses the Spotify Developer app credentials if you
+  filled them in, then the sign-in that go-librespot already has. If neither
+  works, the show plays from its start. If that happens, fill in the
+  credentials below.
 - **The music browser** (saved albums, playlists, search) still uses the Spotify
   Web API. It is optional: to use it, fill in `SPOTIFY_CLIENT_ID`,
   `SPOTIFY_CLIENT_SECRET` and `SPOTIFY_REFRESH_TOKEN` as described in
