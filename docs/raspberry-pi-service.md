@@ -178,8 +178,10 @@ taptune setup-wifi
 
 Run the command before moving the Pi to display the QR and password again.
 `taptune reset` also displays them before it removes saved Wi-Fi networks.
-If the hotspot profile was created before this feature, the same command works
-after updating TapTune, as long as the `qrencode` package is installed.
+Lite and Desktop service installs and updates automatically install the QR
+encoder without changing the existing hotspot password. If the encoder is
+missing, `taptune setup-wifi` still shows the password; run `taptune update`
+to restore QR display.
 
 1. Boot the Pi at the new location. On your phone, scan the QR code in Wi-Fi
    settings or join `TapTune-Setup` and enter the printed password. Stay

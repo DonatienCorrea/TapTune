@@ -507,18 +507,19 @@ librespot_credentials() {
 cmd_setup_wifi() {
   [ "$#" -eq 0 ] || die "setup-wifi takes no options"
   command -v nmcli >/dev/null 2>&1 || die "NetworkManager is required to read the TapTune-Setup password"
-  command -v qrencode >/dev/null 2>&1 || die "install qrencode to display the TapTune-Setup QR code"
   local password
   if ! password="$(sudo nmcli --show-secrets -g 802-11-wireless-security.psk connection show uuid "$HOTSPOT_UUID")"; then
     die "could not read the TapTune-Setup password; check that its NetworkManager profile is installed"
   fi
   [[ "$password" =~ ^[0-9a-f]{20}$ ]] || die "TapTune-Setup does not have the expected per-Pi WPA2 password"
-  cat <<'EOF'
-Scan this code in your phone's Wi-Fi settings to join the protected TapTune-Setup network:
-EOF
-  printf 'WIFI:T:WPA;S:TapTune-Setup;P:%s;;' "$password" | qrencode -t ANSIUTF8
+  if command -v qrencode >/dev/null 2>&1; then
+    printf "Scan this code in your phone's Wi-Fi settings to join the protected TapTune-Setup network:\n"
+    printf 'WIFI:T:WPA;S:TapTune-Setup;P:%s;;' "$password" | qrencode -t ANSIUTF8
+  else
+    printf "warning: QR code unavailable; run 'taptune update' to install qrencode.\n" >&2
+  fi
   printf '\nNetwork: TapTune-Setup\nPassword: %s\n' "$password"
-  printf 'Keep this code and password private; anyone who joins can configure this Pi.\n'
+  printf 'Keep these credentials private; anyone who joins can configure this Pi.\n'
 }
 
 # NetworkManager UUIDs of every saved Wi-Fi profile except the TapTune-Setup hotspot.
@@ -560,7 +561,7 @@ EOF
   fi
 
   if [ "$DRY_RUN" -eq 0 ] && [ "$MODE" != app ] && command -v nmcli >/dev/null 2>&1; then
-    info "Save this protected setup-network QR code before reset disconnects Wi-Fi"
+    info "Save the setup network credentials before reset disconnects Wi-Fi"
     cmd_setup_wifi
   fi
   backup

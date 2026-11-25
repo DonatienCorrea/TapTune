@@ -94,10 +94,12 @@ if [ "$DRY_RUN" -eq 1 ]; then
   echo "# $MODE setup: $UNIT_DST"
   printf '%s\n' "$RENDERED"
   echo "# mDNS: install and enable avahi-daemon (existing hostname is kept)"
+  if [ "$MODE" != app-only ]; then
+    echo "# Install qrencode if needed to display the protected setup-network QR code"
+  fi
   if [ "$WIFI_SETUP" -eq 1 ]; then
     echo "# Wi-Fi fallback (when NetworkManager is installed): install dnsmasq-base and nftables if needed"
-    echo "# Install qrencode; show the protected setup-network QR code if creating its profile"
-    echo "# Provision a private TapTune-Setup profile without replacing an existing key"
+    echo "# Provision a private TapTune-Setup profile without replacing an existing key; show its QR code when new"
   fi
   remove_legacy_system_units
   exit 0
@@ -111,6 +113,10 @@ if ! command -v avahi-daemon >/dev/null 2>&1; then
 fi
 sudo systemctl enable --now avahi-daemon.service
 
+if [ "$MODE" != app-only ] && ! command -v qrencode >/dev/null 2>&1; then
+  sudo apt-get install -y qrencode
+fi
+
 if [ "$WIFI_SETUP" -eq 1 ]; then
   SETUP_WIFI_PROFILE="/etc/NetworkManager/system-connections/taptune-setup.nmconnection"
   if [ ! -f "$SETUP_WIFI_PROFILE" ]; then
@@ -118,9 +124,6 @@ if [ "$WIFI_SETUP" -eq 1 ]; then
   fi
   if [ ! -x /usr/sbin/dnsmasq ] || [ ! -x /usr/sbin/nft ]; then
     sudo apt-get install -y dnsmasq-base nftables
-  fi
-  if ! command -v qrencode >/dev/null 2>&1; then
-    sudo apt-get install -y qrencode
   fi
   (cd "$REPO_DIR" && sudo "$REPO_DIR/.venv/bin/python" -m app.wifi_setup provision)
 fi
