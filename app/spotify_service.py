@@ -179,6 +179,28 @@ def is_playback_configured() -> bool:
     return uses_librespot() or is_live_spotify_configured()
 
 
+def is_web_api_configured() -> bool:
+    """Whether the Web API (music browser) has an account: developer credentials or go-librespot's sign-in."""
+    return is_live_spotify_configured() or uses_librespot()
+
+
+def build_receiver_spotify_client() -> Any:
+    """A Web API client using go-librespot's session token (no developer app needed)."""
+    access_token = librespot.token()
+    if not access_token:
+        raise librespot.NotLoggedIn("no Spotify access token from go-librespot")
+    if Spotify is None:
+        raise RuntimeError("Spotify support requires the 'spotipy' dependency.")
+    return Spotify(auth=access_token, requests_timeout=SPOTIFY_REQUEST_TIMEOUT_SECONDS)
+
+
+def build_web_api_client() -> Any:
+    """Developer credentials when set, otherwise go-librespot's sign-in."""
+    if is_live_spotify_configured() or not uses_librespot():
+        return build_spotify_client()
+    return build_receiver_spotify_client()
+
+
 def get_tag_type(value: str) -> Optional[str]:
     if SPOTIFY_URI_PATTERN.fullmatch(value):
         return "content"
@@ -600,13 +622,7 @@ def _librespot_command(device: dict, endpoint: str, **fields) -> dict:
 
 def _librespot_latest_episode(show_id: str) -> Optional[dict]:
     """Latest episode via the Web API: developer credentials if set, then go-librespot's session token."""
-    def receiver_client():
-        access_token = librespot.token()
-        if not access_token or Spotify is None:
-            raise RuntimeError("no Spotify access token from go-librespot")
-        return Spotify(auth=access_token, requests_timeout=SPOTIFY_REQUEST_TIMEOUT_SECONDS)
-
-    sources = [("go-librespot token", receiver_client)]
+    sources = [("go-librespot token", build_receiver_spotify_client)]
     if is_live_spotify_configured():
         sources.insert(0, ("developer credentials", build_spotify_client))
     errors = []

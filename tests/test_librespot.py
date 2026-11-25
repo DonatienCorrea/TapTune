@@ -126,6 +126,25 @@ class PlaybackTests(unittest.TestCase):
     def test_no_developer_app_is_needed(self):
         self.assertFalse(spotify_service.is_live_spotify_configured())
         self.assertTrue(spotify_service.is_playback_configured())
+        self.assertTrue(spotify_service.is_web_api_configured())
+
+    def test_music_browser_uses_the_pi_sign_in_token(self):
+        self.use(FakeLibrespot(status={"username": "ana"}, token="session-token"))
+        with patch("app.spotify_service.Spotify") as spotify:
+            self.assertIs(spotify_service.build_web_api_client(), spotify.return_value)
+        self.assertEqual(spotify.call_args.kwargs["auth"], "session-token")
+
+    def test_music_browser_without_sign_in_raises_not_logged_in(self):
+        self.use(FakeLibrespot(status={"username": "ana"}, token=None))
+        with self.assertRaises(librespot.NotLoggedIn):
+            spotify_service.build_web_api_client()
+
+    def test_developer_credentials_take_precedence_for_the_music_browser(self):
+        with patch.multiple(config.settings, SPOTIFY_CLIENT_ID="id", SPOTIFY_CLIENT_SECRET="secret",
+                            SPOTIFY_REFRESH_TOKEN="token"), \
+                patch("app.spotify_service.build_spotify_client", return_value="developer") as developer:
+            self.assertEqual(spotify_service.build_web_api_client(), "developer")
+        developer.assert_called_once_with()
 
     def test_track_album_and_playlist_tags_play_on_the_pi(self):
         fake = self.use(FakeLibrespot(status={"username": "ana"}))

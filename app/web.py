@@ -5,7 +5,7 @@ from flask import Flask, jsonify, redirect, render_template, request, url_for
 
 from .config import settings
 from .db import get_tag_by_uid, list_tags, record_event, upsert_tag
-from .spotify_service import dispatch_tag_value, get_tag_type, is_live_spotify_configured, is_playback_configured
+from .spotify_service import dispatch_tag_value, get_tag_type, is_playback_configured, is_web_api_configured
 from . import spotify_service
 from .spotify_browser import browse_music
 from .tag_writer import TagWriter, WriterBusy
@@ -130,6 +130,7 @@ TRANSLATIONS = {
         "spotify_permissions": "Spotify access is missing or expired. Re-authorize with library, private playlist and recently played permissions, then update the Pi's refresh token and restart TapTune.",
         "spotify_rate_limit": "Spotify is limiting requests. Wait a little before retrying.",
         "spotify_unavailable": "Spotify is unavailable. Check the Pi's internet connection and Spotify configuration, then retry.",
+        "spotify_not_signed_in": "The Pi is not signed in to Spotify yet. Open Spotify on a phone on the same Wi-Fi, tap Devices and choose TapTune once, then retry.",
         "invalid_music_request": "Enter a search between 1 and 200 characters.",
         "reader_unavailable": "The Pi's reader is unavailable. Check its connection and restart TapTune if needed.",
         "writer_busy": "Another tag write is pending. Wait for it to finish or expire.",
@@ -257,6 +258,7 @@ TRANSLATIONS = {
         "spotify_permissions": "L’accès Spotify est absent ou expiré. Autorisez à nouveau l’accès à la bibliothèque, aux playlists privées et à l’historique, puis mettez à jour le jeton du Pi et redémarrez TapTune.",
         "spotify_rate_limit": "Spotify limite les requêtes. Patientez avant de réessayer.",
         "spotify_unavailable": "Spotify est indisponible. Vérifiez la connexion Internet et la configuration Spotify du Pi, puis réessayez.",
+        "spotify_not_signed_in": "Le Pi n’est pas encore connecté à Spotify. Ouvrez Spotify sur un téléphone connecté au même Wi-Fi, touchez Appareils et choisissez TapTune une fois, puis réessayez.",
         "invalid_music_request": "Saisissez une recherche de 1 à 200 caractères.",
         "reader_unavailable": "Le lecteur du Pi est indisponible. Vérifiez sa connexion et redémarrez TapTune si nécessaire.",
         "writer_busy": "Une autre écriture est en attente. Attendez sa fin ou son expiration.",
@@ -309,6 +311,12 @@ def create_app() -> Flask:
             )
         except ValueError:
             return api_error("invalid_music_request", 400)
+        except spotify_service.NotLoggedIn:
+            app.logger.warning("Spotify browsing needs the Pi to be signed in to Spotify (go-librespot).")
+            return api_error("spotify_not_signed_in", 409)
+        except (spotify_service.LibrespotUnavailable, spotify_service.LibrespotError) as error:
+            app.logger.warning("Spotify browsing could not get a token from go-librespot (%s).", type(error).__name__)
+            return api_error("spotify_unavailable", 502)
         except SPOTIFY_BROWSER_ERRORS as error:
             if spotify_service.SpotifyException and isinstance(error, spotify_service.SpotifyException):
                 status = error.http_status
@@ -380,7 +388,7 @@ def create_app() -> Flask:
             translations=translations,
             switch_url=translations["switch_url"],
             form_action=url_for("assign_tag_fr" if locale == "fr" else "assign_tag_en"),
-            spotify_configured=is_live_spotify_configured(),
+            spotify_configured=is_web_api_configured(),
         )
 
     def setup_redirect(locale):

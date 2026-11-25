@@ -1,6 +1,6 @@
 """Small, credential-free response shapes for the local music picker."""
 
-from .spotify_service import build_spotify_client, get_tag_type, is_live_spotify_configured
+from .spotify_service import build_web_api_client, get_tag_type, is_web_api_configured
 
 
 COLLECTIONS = frozenset({"albums", "playlists", "recent", "search"})
@@ -52,7 +52,7 @@ def browse_music(collection, *, query="", kind="all", offset=0, before=None):
     if collection == "search" and not 1 <= len(query) <= 200:
         raise ValueError("Enter a search between 1 and 200 characters")
 
-    live = is_live_spotify_configured()
+    live = is_web_api_configured()
     if not live:
         target_kind = {"albums": "album", "playlists": "playlist", "recent": "album", "search": kind}[collection]
         items = [music_item(item) for item in _demo_items()
@@ -61,7 +61,7 @@ def browse_music(collection, *, query="", kind="all", offset=0, before=None):
             items = [item for item in items if query.casefold() in (item["name"] + " " + item["detail"]).casefold()]
         return {"items": items if not offset and not before else [], "next": None, "mode": "fake"}
 
-    spotify = build_spotify_client()
+    spotify = build_web_api_client()
     if collection == "albums":
         page = spotify.current_user_saved_albums(limit=PAGE_SIZE, offset=offset)
         raw_items = [(item or {}).get("album") for item in page.get("items", [])]
