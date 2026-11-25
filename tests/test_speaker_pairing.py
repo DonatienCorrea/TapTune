@@ -29,6 +29,7 @@ class FakeBluez:
         self.pair_works = pair_works
         self.connect_works = connect_works
         self.powered = powered
+        self.pairable = False
         self.commands = []
 
     def __call__(self, command, **kwargs):
@@ -41,6 +42,9 @@ class FakeBluez:
         mac = args[1] if len(args) > 1 else None
         if args == ["power", "on"]:
             return done() if self.powered else done(code=1, stderr="org.bluez.Error.Failed")
+        if args == ["pairable", "on"]:
+            self.pairable = True
+            return done()
         if args == ["scan", "on"]:
             for address, device in self.nearby.items():
                 self.known.setdefault(address, dict(device))
@@ -62,7 +66,8 @@ class FakeBluez:
         if device is None:
             return done(code=1, stderr="Device not available")
         if args[0] == "pair":
-            device["Paired"] = self.pair_works
+            # A non-bondable adapter pairs, then forgets the key when the link drops.
+            device["Paired"] = self.pair_works and self.pairable
             return done() if self.pair_works else done(code=1, stderr="Failed to pair: org.bluez.Error.AuthenticationFailed")
         if args[0] == "trust":
             device["Trusted"] = True
@@ -104,7 +109,7 @@ class PairTests(unittest.TestCase):
         device = bluez.known[MAC]
         self.assertTrue(device["Paired"] and device["Trusted"] and device["Connected"])
         verbs = [c[3] if c[1] == "--timeout" else c[1] for c in bluez.commands if c[0] == "bluetoothctl"]
-        self.assertEqual([v for v in verbs if v != "info"], ["power", "scan", "pair", "trust", "connect"])
+        self.assertEqual([v for v in verbs if v != "info"], ["power", "scan", "trust", "pairable", "pair", "connect"])
 
     def test_already_paired_speaker_is_not_paired_again(self):
         bluez = FakeBluez(known={MAC: {"Name": "JBL", "Icon": "audio-card", "Paired": True, "Trusted": True}})
