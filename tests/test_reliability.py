@@ -284,7 +284,7 @@ class TaptuneResetTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         out = result.stdout
         steps = [
-            "env.", "systemctl stop raspi-spotify-nfc.service", "go-librespot/credentials.json",
+            "env.", "systemctl stop raspi-spotify-nfc.service", "go-librespot/state.json", "go-librespot/credentials.json",
             "bluetoothctl remove AA:BB:CC:DD:EE:FF", "write_env", "data/setup_complete", "nmcli\\ connection\\ delete",
         ]
         positions = [out.index(step) for step in steps]

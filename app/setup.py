@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import subprocess
@@ -181,7 +182,16 @@ def _marker_path() -> Path:
 def librespot_credentials_saved() -> bool:
     """go-librespot keeps the zeroconf sign-in in the audio user's config (TapTune itself runs as root)."""
     home = Path(os.path.expanduser("~" + settings.DESKTOP_AUDIO_USER)) if settings.DESKTOP_AUDIO_USER else Path.home()
-    return (home / ".config" / "go-librespot" / "credentials.json").is_file()
+    directory = home / ".config" / "go-librespot"
+    if (directory / "credentials.json").is_file():
+        return True
+    # go-librespot 0.10+ keeps the sign-in inside state.json.
+    try:
+        state = json.loads((directory / "state.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    credentials = state.get("credentials") if isinstance(state, dict) else None
+    return isinstance(credentials, dict) and bool(credentials.get("username"))
 
 
 def configured_manually() -> bool:
