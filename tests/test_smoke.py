@@ -11,6 +11,9 @@ from app.web import create_app
 
 class SmokeTests(unittest.TestCase):
     def setUp(self):
+        skip_setup = patch.object(config.settings, "SETUP_SKIP", True)
+        skip_setup.start()
+        self.addCleanup(skip_setup.stop)
         spotify_service.reset_state_memory()
         self.addCleanup(spotify_service.reset_state_memory)
         self.temporary_directory = tempfile.TemporaryDirectory()

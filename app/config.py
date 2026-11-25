@@ -58,6 +58,8 @@ class Settings:
     # user whose PipeWire session plays Spotifyd. Empty on Lite (BlueALSA).
     DESKTOP_AUDIO_USER = os.getenv("DESKTOP_AUDIO_USER", "").strip()
     AUDIO_OUTPUT_DEVICE = os.getenv("AUDIO_OUTPUT_DEVICE", "bluealsa").strip()
+    # Set to true to disable the first-run redirect from / to /setup.
+    SETUP_SKIP = parse_bool(os.getenv("SETUP_SKIP", "false"), "SETUP_SKIP")
     READY_SOUND_ENABLED = parse_bool(os.getenv("READY_SOUND_ENABLED", "true"), "READY_SOUND_ENABLED")
 
 

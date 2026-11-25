@@ -1,0 +1,90 @@
+<!doctype html>
+{% set fr = locale == 'fr' %}
+{% set titles = {
+  'wifi': 'Wi-Fi / réseau' if fr else 'Wi-Fi / network',
+  'bluetooth': 'Enceinte Bluetooth' if fr else 'Bluetooth speaker',
+  'spotify': 'Spotify' if fr else 'Spotify'
+} %}
+{% set states = {
+  'done': 'Terminé' if fr else 'Done',
+  'todo': 'À faire' if fr else 'To do',
+  'attention': 'Attention' if fr else 'Needs attention'
+} %}
+{% set reasons = {
+  'wifi': {
+    'connected': 'Connecté à ' if fr else 'Connected to ',
+    'wired': 'Connecté par câble Ethernet.' if fr else 'Connected by Ethernet cable.',
+    'disconnected': 'Aucun réseau connecté. Connectez le Pi à un Wi-Fi ou à un câble Ethernet.' if fr else 'No network connected. Connect the Pi to Wi-Fi or an Ethernet cable.',
+    'unavailable': 'Impossible de vérifier le réseau (NetworkManager introuvable).' if fr else 'Cannot check the network (NetworkManager not found).'
+  },
+  'bluetooth': {
+    'connected': 'Enceinte connectée : ' if fr else 'Speaker connected: ',
+    'not_connected': 'Enceinte enregistrée mais non connectée : ' if fr else 'Speaker saved but not connected: ',
+    'not_paired': 'Enceinte inconnue de Bluetooth. Appairez-la d’abord : ' if fr else 'Speaker unknown to Bluetooth. Pair it first: ',
+    'not_configured': 'Aucune enceinte choisie. Saisissez son adresse Bluetooth.' if fr else 'No speaker chosen. Enter its Bluetooth address.',
+    'invalid_mac': 'Adresse Bluetooth invalide dans la configuration.' if fr else 'Invalid Bluetooth address in the configuration.'
+  },
+  'spotify': {
+    'configured': 'Compte Spotify configuré.' if fr else 'Spotify account configured.',
+    'not_configured': 'Identifiant, secret et jeton Spotify requis.' if fr else 'Spotify client ID, secret and refresh token required.'
+  }
+} %}
+{% set messages = {
+  'saved': 'Réglages enregistrés. TapTune redémarre, rechargez dans un instant.' if fr else 'Settings saved. TapTune is restarting; reload in a moment.',
+  'invalid': 'Valeur invalide. Vérifiez les champs.' if fr else 'Invalid value. Check the fields.',
+  'invalid_origin': 'Requête refusée. Rechargez la page.' if fr else 'Request refused. Reload the page.',
+  'write_failed': 'Impossible d’enregistrer les réglages.' if fr else 'Could not save the settings.'
+} %}
+<html lang="{{ locale }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{{ 'Configuration' if fr else 'Setup' }} · TapTune</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="header">
+      <a class="title log-brand" href="{{ home_url }}" aria-label="TapTune"><span>Tap<span class="brand-tune">Tune</span></span></a>
+      <nav class="header-actions">
+        <a class="badge switch-link" href="{{ switch_url }}">{{ 'English' if fr else 'Français' }}</a>
+      </nav>
+    </header>
+    <main class="log-page">
+      <h1>{{ 'Configuration' if fr else 'Setup' }}</h1>
+      {% if message %}<p role="status" class="music-caption">{{ messages[message] }}</p>{% endif %}
+      {% if complete %}
+      <p role="status"><strong>{{ 'Tout est prêt.' if fr else 'Everything is ready.' }}</strong> <a href="{{ home_url }}">{{ 'Créer un tag' if fr else 'Make a tag' }}</a></p>
+      {% endif %}
+      <ol class="setup-steps">
+        {% for step in steps %}
+        <li class="setup-step" data-step="{{ step.id }}" data-state="{{ step.state }}">
+          <h2>{{ loop.index }}. {{ titles[step.id] }} — <span class="setup-state">{{ states[step.state] }}</span></h2>
+          <p>{{ reasons[step.id][step.reason] }}{{ step.detail or '' }}</p>
+        </li>
+        {% endfor %}
+      </ol>
+      <form method="post" action="{{ action }}" class="setup-form">
+        <div class="field">
+          <label for="mac">{{ 'Adresse Bluetooth de l’enceinte' if fr else 'Speaker Bluetooth address' }}</label>
+          <input id="mac" name="BLUETOOTH_SPEAKER_MAC" inputmode="text" autocomplete="off" placeholder="AA:BB:CC:DD:EE:FF" maxlength="17">
+        </div>
+        <div class="field">
+          <label for="cid">Spotify client ID</label>
+          <input id="cid" name="SPOTIFY_CLIENT_ID" autocomplete="off" autocapitalize="off" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="secret">Spotify client secret</label>
+          <input id="secret" name="SPOTIFY_CLIENT_SECRET" type="password" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="token">Spotify refresh token</label>
+          <input id="token" name="SPOTIFY_REFRESH_TOKEN" type="password" autocomplete="off">
+        </div>
+        <p class="music-caption">{{ 'Les champs vides conservent la valeur actuelle (sauf l’adresse Bluetooth).' if fr else 'Empty fields keep the current value (except the Bluetooth address).' }}</p>
+        <button type="submit" class="badge">{{ 'Enregistrer' if fr else 'Save' }}</button>
+      </form>
+    </main>
+  </div>
+</body>
+</html>

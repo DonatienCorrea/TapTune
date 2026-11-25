@@ -736,3 +736,9 @@
         animation-iteration-count: 1 !important;
       }
     }
+
+.setup-steps { list-style: none; padding: 0; margin: 1rem 0; display: grid; gap: .75rem; }
+.setup-step { border: 1px solid currentColor; padding: .75rem 1rem; }
+.setup-step h2 { font-size: 1.05rem; margin: 0 0 .25rem; }
+.setup-step[data-state="done"] .setup-state { font-weight: 700; }
+.setup-form { display: grid; gap: .75rem; max-width: 32rem; }

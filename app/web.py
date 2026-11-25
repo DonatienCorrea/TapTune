@@ -9,6 +9,7 @@ from .spotify_service import dispatch_tag_value, get_tag_type, is_live_spotify_c
 from . import spotify_service
 from .spotify_browser import browse_music
 from .tag_writer import TagWriter, WriterBusy
+from . import setup as setup_state
 from .activity import ACTIVITY_LIMIT, list_activity, record_activity, record_playback
 
 SPOTIFY_BROWSER_ERRORS = spotify_service.NETWORK_ERRORS + (RuntimeError,) + tuple(
@@ -381,13 +382,67 @@ def create_app() -> Flask:
             spotify_configured=is_live_spotify_configured(),
         )
 
+    def setup_redirect(locale):
+        if setup_state.setup_complete():
+            return None
+        return redirect("/fr/setup" if locale == "fr" else "/setup")
+
+    def render_setup(locale, message=None, status=200):
+        steps = setup_state.setup_steps()
+        response = app.make_response((render_template(
+            "setup.html", locale=locale, steps=steps, message=message,
+            complete=setup_state.setup_complete(steps),
+            home_url="/fr/" if locale == "fr" else "/",
+            switch_url="/setup" if locale == "fr" else "/fr/setup",
+            action="/fr/setup" if locale == "fr" else "/setup",
+        ), status))
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.get("/setup")
+    @app.get("/fr/setup")
+    def setup_page():
+        return render_setup("fr" if request.path.startswith("/fr/") else "en",
+                            request.args.get("saved") and "saved")
+
+    @app.get("/api/setup")
+    def setup_api():
+        steps = setup_state.setup_steps()
+        return api_response({"steps": steps, "complete": setup_state.setup_complete(steps)})
+
+    @app.post("/setup")
+    @app.post("/fr/setup")
+    def setup_save():
+        locale = "fr" if request.path.startswith("/fr/") else "en"
+        origin = request.headers.get("Origin")
+        if request.headers.get("Sec-Fetch-Site") == "cross-site" or (
+            origin and urlsplit(origin)[:2] != urlsplit(request.host_url)[:2]
+        ):
+            return render_setup(locale, "invalid_origin", 403)
+        # Blank fields keep the stored value instead of erasing it.
+        updates = {
+            key: request.form[key].strip() for key in setup_state.EDITABLE_KEYS
+            if request.form.get(key, "").strip()
+        }
+        try:
+            if updates:
+                setup_state.write_env(updates)
+        except setup_state.InvalidSetting:
+            return render_setup(locale, "invalid", 400)
+        except OSError:
+            app.logger.exception("Could not save setup settings.")
+            return render_setup(locale, "write_failed", 500)
+        if updates:
+            setup_state.restart_service()
+        return redirect(("/fr/setup" if locale == "fr" else "/setup") + "?saved=1", 303)
+
     @app.get("/")
     def index_en():
-        return render_index("en", saved=request.args.get("saved") == "1")
+        return setup_redirect("en") or render_index("en", saved=request.args.get("saved") == "1")
 
     @app.get("/fr/")
     def index_fr():
-        return render_index("fr", saved=request.args.get("saved") == "1")
+        return setup_redirect("fr") or render_index("fr", saved=request.args.get("saved") == "1")
 
     @app.get("/logs")
     @app.get("/fr/logs")
