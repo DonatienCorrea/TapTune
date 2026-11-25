@@ -170,7 +170,8 @@ taptune help
 
 Rerunning preparation does not start services or reset credentials. Rerunning
 `--configure` reapplies the selected service/audio configuration and restarts
-the app, so use it after changing the speaker MAC, receiver name or startup
+the app, so use it after editing the speaker MAC by hand (the `/setup` page's
+**Change speaker** applies it itself), receiver name or startup
 volume, or when deliberately changing stack. Back up first. Do not move the
 checkout after installation without reconfiguring its unit paths.
 

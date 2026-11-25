@@ -18,6 +18,12 @@ Pair/trust the speaker in the desktop Bluetooth settings, select it as the
 sound output and play a test sound. Get the address with `bluetoothctl devices`
 and set `BLUETOOTH_SPEAKER_MAC` in TapTune's `.env`.
 
+Once the TapTune service runs, the `/setup` page (French: `/fr/setup`) can do
+this instead: **Search for speakers**, pick yours, then **Play a test sound**.
+It pairs, trusts and connects the speaker with the system Bluetooth service,
+saves only `BLUETOOTH_SPEAKER_MAC` and routes TapTune's audio to it right away;
+**Change speaker** switches to a new one without reconfiguration.
+
 Install the runtime audio tools:
 
 ```bash
@@ -127,7 +133,7 @@ manually. Connection failure is reported rather than silently sending audio
 to HDMI. Spotify's current device is kept even while paused; select TapTune in
 Spotify's device picker to test the local receiver.
 
-Changing the speaker MAC, receiver name, volume or audio user requires
+Changing the receiver name, volume or audio user (or a speaker MAC edited by hand) requires
 reconfiguration as the correct audio user. Use `taptune update` for code changes,
 not a parallel manual Spotifyd service install.
 
