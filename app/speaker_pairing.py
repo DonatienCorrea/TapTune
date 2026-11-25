@@ -97,6 +97,14 @@ def _power_on(runner: Callable) -> None:
         raise PairingError("adapter_unavailable", _output(result))
 
 
+def _make_bondable(runner: Callable) -> None:
+    # Without "pairable on" BlueZ pairs without bonding: the link key is not
+    # stored and the speaker reads "Paired: no" as soon as the link drops.
+    result = _bt(["pairable", "on"], runner)
+    if result.returncode != 0:
+        logger.warning("Could not make the Bluetooth adapter pairable: %s", _output(result))
+
+
 def _scan(runner: Callable, seconds: int) -> None:
     _bt(["--timeout", str(seconds), "scan", "on"], runner, timeout=seconds + 5)
 
@@ -152,16 +160,18 @@ def pair_speaker(mac: str, runner: Callable = subprocess.run, sleep: Callable = 
         info = device_info(mac, runner)
         if info is None:
             raise PairingError("not_found")
-    if not _flag(info, "Paired"):
-        result = _bt(["--timeout", str(PAIR_TIMEOUT_SECONDS), "pair", mac], runner, timeout=PAIR_TIMEOUT_SECONDS + 5)
-        info = device_info(mac, runner)
-        if not _flag(info, "Paired"):
-            raise PairingError("pair_failed", _output(result))
+    # Trust first so BlueZ accepts the speaker's own reconnection right after pairing.
     if not _flag(info, "Trusted"):
         result = _bt(["trust", mac], runner)
         info = device_info(mac, runner)
         if not _flag(info, "Trusted"):
             raise PairingError("trust_failed", _output(result))
+    if not _flag(info, "Paired"):
+        _make_bondable(runner)
+        result = _bt(["--timeout", str(PAIR_TIMEOUT_SECONDS), "pair", mac], runner, timeout=PAIR_TIMEOUT_SECONDS + 5)
+        info = device_info(mac, runner)
+        if not _flag(info, "Paired"):
+            raise PairingError("pair_failed", _output(result))
     if not _flag(info, "Connected"):
         result = _bt(
             ["--timeout", str(bluetooth.CONNECT_TIMEOUT_SECONDS), "connect", mac], runner,
