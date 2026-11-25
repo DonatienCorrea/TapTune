@@ -35,6 +35,12 @@ class InstallServiceScriptTests(unittest.TestCase):
         output = self.run_dry_run(REPO_ROOT)
         self.assertIn("[Service]", output)
 
+    def test_installer_enables_avahi_without_touching_hostname_or_hosts(self):
+        script = SCRIPT_PATH.read_text()
+        self.assertIn("avahi-daemon", script)
+        self.assertNotIn("hostnamectl", script)
+        self.assertNotIn("/etc/hosts", script)
+
     def test_rejects_unknown_argument(self):
         result = subprocess.run(
             ["bash", str(SCRIPT_PATH), "--bogus"],
@@ -76,6 +82,22 @@ class InstallServiceScriptTests(unittest.TestCase):
         self.assertIn("Wants=network-online.target raspotify.service\n", result.stdout)
         self.assertIn("After=network-online.target bluetooth.service bluealsa.service raspotify.service\n", result.stdout)
         self.assertNotIn("DESKTOP_AUDIO_USER", result.stdout)
+
+    def test_only_pi_install_modes_provision_wifi_fallback(self):
+        path = str(REPO_ROOT).replace(" ", "\\x20")
+        for mode in ("lite", "desktop", "app-only"):
+            with self.subTest(mode=mode):
+                output = subprocess.run(
+                    ["bash", str(SCRIPT_PATH), f"--{mode}", "--dry-run"],
+                    capture_output=True, text=True, check=True,
+                ).stdout
+                if mode == "app-only":
+                    self.assertNotIn("TAPTUNE_WIFI_SETUP", output)
+                    self.assertNotIn("TapTune-Setup", output)
+                else:
+                    self.assertIn("Environment=TAPTUNE_WIFI_SETUP=true", output)
+                    self.assertIn(f'ExecStopPost=-"{path}/.venv/bin/python" -m app.wifi_setup cleanup', output)
+                    self.assertIn("Provision a private TapTune-Setup profile", output)
 
     def test_dry_run_shows_removal_of_the_periodic_reconnect_service(self):
         output = self.run_dry_run(REPO_ROOT)
@@ -127,3 +149,19 @@ class InstallServiceScriptTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GoLibrespotServiceTests(unittest.TestCase):
+    def test_lite_with_go_librespot_plays_through_the_users_pipewire(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory) / "TapTune"
+            shutil.copytree(REPO_ROOT / "systemd", repo / "systemd")
+            (repo / ".env").write_text("SPOTIFY_RECEIVER=go-librespot\n")
+            result = subprocess.run(
+                ["bash", str(repo / "systemd" / "install-service.sh"), "--lite", "--dry-run"],
+                capture_output=True, text=True, check=True,
+            )
+        self.assertIn("# desktop setup:", result.stdout)
+        self.assertRegex(result.stdout, r"\nEnvironment=DESKTOP_AUDIO_USER=[a-z_][a-z0-9_-]*\n")
+        self.assertNotIn("raspotify", result.stdout)
+        self.assertNotIn("bluealsa", result.stdout)

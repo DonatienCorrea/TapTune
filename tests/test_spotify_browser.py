@@ -151,6 +151,9 @@ class SpotifyBrowserTests(unittest.TestCase):
 
 class MusicWebTests(unittest.TestCase):
     def setUp(self):
+        skip_setup = patch.object(config.settings, "SETUP_SKIP", True)
+        skip_setup.start()
+        self.addCleanup(skip_setup.stop)
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         patcher = patch.multiple(

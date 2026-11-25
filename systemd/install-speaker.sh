@@ -31,6 +31,9 @@ ENV_FILE="$REPO_DIR/.env"
 RASPOTIFY_CONF="/etc/raspotify/conf"
 RASPOTIFY_INSTALLER="https://dtcooper.github.io/raspotify/install.sh"
 source "$SCRIPT_DIR/install-common.sh"
+if [ "$(env_value SPOTIFY_RECEIVER)" = "go-librespot" ]; then
+  exec "$SCRIPT_DIR/install-go-librespot.sh" "$@"
+fi
 
 if [ "$DRY_RUN" -eq 0 ] && [ ! -f "$ENV_FILE" ]; then
   echo "error: $ENV_FILE not found. Copy .env.example to .env and fill it in first." >&2
@@ -111,6 +114,8 @@ CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}"
 disable_user_unit taptune-spotifyd.service "Lite uses Raspotify, not Spotifyd" \
   "$CONFIG_DIR/systemd/user/taptune-spotifyd.service"
 disable_user_unit spotifyd.service "Lite uses Raspotify, not Spotifyd"
+disable_user_unit taptune-go-librespot.service "SPOTIFY_RECEIVER is legacy: Raspotify plays" \
+  "$CONFIG_DIR/systemd/user/taptune-go-librespot.service"
 remove_legacy_user_units
 if [ "$DRY_RUN" -eq 1 ] || user_manager_available; then
   run systemctl --user daemon-reload

@@ -5,10 +5,12 @@ from flask import Flask, jsonify, redirect, render_template, request, url_for
 
 from .config import settings
 from .db import get_tag_by_uid, list_tags, record_event, upsert_tag
-from .spotify_service import dispatch_tag_value, get_tag_type, is_live_spotify_configured
+from .spotify_service import dispatch_tag_value, get_tag_type, is_live_spotify_configured, is_playback_configured
 from . import spotify_service
 from .spotify_browser import browse_music
 from .tag_writer import TagWriter, WriterBusy
+from . import setup as setup_state
+from . import speaker_pairing
 from .activity import ACTIVITY_LIMIT, list_activity, record_activity, record_playback
 
 SPOTIFY_BROWSER_ERRORS = spotify_service.NETWORK_ERRORS + (RuntimeError,) + tuple(
@@ -381,13 +383,79 @@ def create_app() -> Flask:
             spotify_configured=is_live_spotify_configured(),
         )
 
+    def setup_redirect(locale):
+        if setup_state.onboarding_complete():
+            return None
+        return redirect("/fr/setup" if locale == "fr" else "/setup")
+
+    def render_setup(locale, message=None, status=200):
+        steps = setup_state.setup_steps()
+        response = app.make_response((render_template(
+            "setup.html", locale=locale, steps=steps, message=message,
+            complete=setup_state.setup_complete(steps),
+            home_url="/fr/" if locale == "fr" else "/",
+            switch_url="/setup" if locale == "fr" else "/fr/setup",
+            action="/fr/setup" if locale == "fr" else "/setup",
+        ), status))
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.get("/setup")
+    @app.get("/fr/setup")
+    def setup_page():
+        return render_setup("fr" if request.path.startswith("/fr/") else "en",
+                            None)
+
+    @app.get("/api/setup")
+    def setup_api():
+        steps = setup_state.setup_steps()
+        return api_response({"steps": steps, "complete": setup_state.setup_complete(steps)})
+
+    def speaker_call(action):
+        if not valid_write_request():
+            return api_error("invalid_origin", 403)
+        try:
+            return action()
+        except speaker_pairing.PairingBusy:
+            return api_error("bluetooth_busy", 409)
+        except speaker_pairing.PairingError as error:
+            if error.detail:
+                app.logger.warning("Speaker setup failed (%s): %s", error.code, error.detail)
+            return api_error(error.code, 400 if error.code == "invalid_mac" else 502)
+
+    @app.post("/api/setup/speaker/scan")
+    def speaker_scan():
+        return speaker_call(lambda: api_response({"speakers": speaker_pairing.scan_speakers()}))
+
+    @app.post("/api/setup/speaker/pair")
+    def speaker_pair():
+        def pair():
+            data = request.get_json()
+            speaker = speaker_pairing.pair_speaker(data.get("mac") if isinstance(data, dict) else None)
+            try:
+                receiver = speaker_pairing.save_speaker(speaker["mac"])
+            except (OSError, setup_state.InvalidSetting):
+                app.logger.exception("Could not save the Bluetooth speaker.")
+                return api_error("save_failed", 500)
+            return api_response({"speaker": speaker, "receiver": receiver})
+        return speaker_call(pair)
+
+    @app.post("/api/setup/speaker/test")
+    def speaker_test():
+        def play():
+            from .readiness import build_chime_wav, play_ready_sound
+            if not settings.BLUETOOTH_SPEAKER_MAC.strip():
+                return api_error("no_speaker", 409)
+            return api_response({"played": bool(play_ready_sound(build_chime_wav()))})
+        return speaker_call(play)
+
     @app.get("/")
     def index_en():
-        return render_index("en", saved=request.args.get("saved") == "1")
+        return setup_redirect("en") or render_index("en", saved=request.args.get("saved") == "1")
 
     @app.get("/fr/")
     def index_fr():
-        return render_index("fr", saved=request.args.get("saved") == "1")
+        return setup_redirect("fr") or render_index("fr", saved=request.args.get("saved") == "1")
 
     @app.get("/logs")
     @app.get("/fr/logs")
@@ -422,7 +490,7 @@ def create_app() -> Flask:
             reader is not None and reader.is_alive()
             and (not isinstance(reader_event, threading.Event) or reader_event.is_set())
         )
-        live = is_live_spotify_configured()
+        live = is_playback_configured()
         ready = bool(reader_ready and live)
         return jsonify({
             "status": "ready" if ready else "not_ready",

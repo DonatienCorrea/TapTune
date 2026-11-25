@@ -3,15 +3,27 @@
 [Documentation index](README.md)
 
 **This is the start-to-finish installation checklist.** Use Raspberry Pi OS
-**Lite** for the shortest standalone-player setup. Use **Desktop** only if you
-need PipeWire and can install/authenticate Spotifyd. Pick one route and keep it
-throughout; do not run both audio stacks.
+**Lite** for the shortest standalone-player setup. New installs on Lite and
+Desktop use the [go-librespot receiver](spotify-receiver.md) with PipeWire: you
+pair the speaker, then choose TapTune once in the Spotify app. Steps below
+marked *legacy* apply only to existing Raspotify/Spotifyd installs
+(`SPOTIFY_RECEIVER` empty or `legacy`). Do not run two audio stacks.
 
 You need a networked Raspberry Pi, SSH or terminal access, Python 3.10+, a PN532
 in I2C mode, a compatible tag, a Bluetooth speaker, Spotify Premium and a Spotify
 Developer app. A phone/computer with Spotify is needed for initial authorization,
 not for everyday tag use. For a software-only trial, use the separate
 [fake-mode guide](getting-started.md).
+
+## Set Wi-Fi in Raspberry Pi Imager
+
+When writing Raspberry Pi OS Lite or Desktop, use Imager's OS customization to
+set the hostname (for example, `taptune`), Wi-Fi network name, password and
+wireless country before writing the card. Set your user and enable SSH if
+you plan to install remotely. On first boot, join the same network on your
+computer and connect to `taptune.local` (or your chosen hostname). The fallback
+hotspot is available **after** installing the TapTune service, not on a freshly
+written card.
 
 ## Install the project
 
@@ -54,23 +66,25 @@ return here after each linked reference.
    enable I2C and reboot as described in [Hardware setup](hardware-setup.md).
    Run `.venv/bin/python -m app.pn532_diag --seconds 30` and obtain a reliable
    complete UID. Then set `NFC_READER_ENABLED=true` in `.env`.
-2. **Authorize TapTune's Spotify Web API client.** Follow
+2. **Spotify Web API client (optional with go-librespot).** Needed for the music
+   browser on the web page, and required for *legacy* receivers. Follow
    [Spotify authorization](spotify-authorization.md), including the SSH callback
    tunnel if needed. Fill in the client ID, secret and refresh token in `.env`.
    The dashboard redirect URI and `.env` must match **exactly**.
-3. **Prepare the selected speaker path.** On **Lite**, complete
+3. **Pair the speaker.** Complete
    [speaker pairing](speaker-setup.md#1-pair-the-bluetooth-speaker) and save its
-   MAC in `.env`; the next checklist step installs the receiver. On **Desktop**,
-   complete [Desktop prerequisites](speaker-setup-desktop.md) through Spotifyd
-   authentication and audio packages, but do not install services separately.
+   MAC in `.env`; the next checklist step installs the receiver. For a *legacy*
+   **Desktop** install, also complete [Desktop prerequisites](speaker-setup-desktop.md)
+   through Spotifyd authentication, but do not install services separately.
 4. **Review `.env`.** Keep `SPOTIFY_DEVICE_NAME=TapTune` consistent with the
    receiver name, `SPOTIFY_INITIAL_VOLUME=10` for a safe starting level, and
    `DATABASE_PATH=./data/raspi_spotify_nfc.db` unless intentionally relocating
    the database. Set your real `BLUETOOTH_SPEAKER_MAC`.
 
-The two Spotify authorizations are different: the Web API token controls
-playback; Raspotify/Spotifyd must also log into **the same account** to receive
-audio. On Lite the receiver login happens just after its installation below.
+With go-librespot, the receiver login is simply choosing TapTune once in the
+Spotify app, just after installation below. With *legacy* receivers, the two
+Spotify authorizations are different: the Web API token controls playback;
+Raspotify/Spotifyd must also log into **the same account** to receive audio.
 
 ## Configure and start services
 
@@ -88,6 +102,14 @@ prove wiring or detect whether Spotifyd's cached account is correct.
 The command runs the matching speaker installer, then installs and restarts the
 TapTune unit with the correct mode. It invokes `sudo` only for system changes.
 **Do not run another service installer afterwards.**
+
+With go-librespot (new installs), both editions install go-librespot, PipeWire
+and WirePlumber for the audio user, and stop Raspotify, Spotifyd and BlueALSA.
+Then open Spotify on a phone on the same Wi-Fi, tap **Devices** and choose
+**TapTune** once. The `/setup` page shows when the Pi is signed in. See
+[Spotify receiver](spotify-receiver.md).
+
+The rest of this section describes the *legacy* receivers.
 
 Lite installs BlueALSA plus the managed Raspotify package. Its installer may
 download and execute the upstream Raspotify installer from
@@ -135,6 +157,40 @@ the single ready chime and tap a music tag. Confirm sound comes from the
 Bluetooth speaker rather than HDMI. This cold-boot check is necessary on real
 hardware; software tests alone cannot prove it.
 
+## Move TapTune to a different Wi-Fi network
+
+On supported Raspberry Pi OS Lite and Desktop installs, TapTune uses
+NetworkManager to start a temporary `TapTune-Setup` hotspot if there is no
+working Wi-Fi or wired connection about 60 seconds after boot.
+
+**Before moving the Pi**, save its unique hotspot password somewhere private:
+
+```bash
+sudo nmcli --show-secrets -g 802-11-wireless-security.psk connection show id TapTune-Setup
+```
+
+1. Boot the Pi at the new location. On your phone, join `TapTune-Setup` with the
+   saved hotspot password. Stay connected if the phone warns that this network
+   has no internet.
+2. The sign-in page should open. If not, open `http://10.42.66.1/setup` in your
+   browser (use `http://`, not `https://`). Pick a network from the pre-hotspot
+   scan, or type its name, and enter its **Wi-Fi** password. Leave the password
+   blank only for an open network. Use a personal Wi-Fi network; enterprise and
+   networks that require a browser sign-in are not supported.
+3. The hotspot disconnects while the Pi tries to join. Rejoin the selected Wi-Fi
+   on your phone and open `http://taptune.local:5000/` (substitute your hostname
+   and configured port). If joining failed, look for `TapTune-Setup` again after
+   the connection attempt times out, reconnect and retry.
+
+The password form only runs on the hotspot. The hotspot does not share internet
+access or expose the normal TapTune app. Successful Wi-Fi credentials are stored
+by NetworkManager, not in TapTune's `.env`. Reinstalling the service preserves the
+hotspot key. The hotspot needs an AP-capable Wi-Fi adapter and uses port 80 on
+its own address; leave that port free while using the fallback. To opt out, set
+`TAPTUNE_WIFI_SETUP=false` in `.env` and restart TapTune.
+
+[Instructions en français](fr/wi-fi.md).
+
 ## Startup and Bluetooth behavior
 
 TapTune owns one bounded boot connection/readiness phase and at most one chime
@@ -170,7 +226,8 @@ taptune help
 
 Rerunning preparation does not start services or reset credentials. Rerunning
 `--configure` reapplies the selected service/audio configuration and restarts
-the app, so use it after changing the speaker MAC, receiver name or startup
+the app, so use it after editing the speaker MAC by hand (the `/setup` page's
+**Change speaker** applies it itself), receiver name or startup
 volume, or when deliberately changing stack. Back up first. Do not move the
 checkout after installation without reconfiguring its unit paths.
 
@@ -229,6 +286,10 @@ current checkout, `--skip-tests` to intentionally bypass tests, and
 `taptune --dry-run update` to preview. If upgrading an old installation without
 the linked command, run `git pull --ff-only` and `./taptune update` from its
 checkout. Do not use a new clone or recopy `.env.example` over your live `.env`.
+
+`taptune update` keeps the receiver you already have. To move an existing
+Raspotify/Spotifyd install to go-librespot, or back, follow
+[Move an existing install](spotify-receiver.md#move-an-existing-install).
 
 Keep a separate secure backup before changing audio stacks or restoring data.
 If update fails, it reports the failed step and stops; there is no automatic

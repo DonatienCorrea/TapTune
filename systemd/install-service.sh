@@ -5,6 +5,8 @@
 # file. Run it from anywhere inside the repository, as the normal user.
 #   --lite      also start after Raspotify and BlueALSA (install-speaker.sh)
 #   --desktop   play through this user's PipeWire (install-desktop-speaker.sh)
+#               With SPOTIFY_RECEIVER=go-librespot in .env, --lite behaves like
+#               --desktop: both editions play through this user's PipeWire.
 #   --app-only  (default) no local speaker services are pulled in
 set -euo pipefail
 
@@ -30,6 +32,9 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 UNIT_SRC="$SCRIPT_DIR/raspi-spotify-nfc.service"
 UNIT_DST="/etc/systemd/system/raspi-spotify-nfc.service"
 source "$SCRIPT_DIR/install-common.sh"
+if [ "$MODE" = lite ] && [ "$(env_value SPOTIFY_RECEIVER)" = "go-librespot" ]; then
+  MODE=desktop
+fi
 
 if [ ! -f "$UNIT_SRC" ]; then
   echo "error: $UNIT_SRC not found" >&2
@@ -61,7 +66,7 @@ case "$MODE" in
     # running at boot without login thanks to install-desktop-speaker.sh (linger).
     AUDIO_USER="$(id -un)"
     if [ "$DRY_RUN" -eq 0 ] && [ "$(id -u)" -eq 0 ]; then
-      echo "error: run 'install-service.sh --desktop' as the Spotifyd audio user, without sudo" >&2
+      echo "error: run 'install-service.sh --desktop' as the speaker's audio user, without sudo" >&2
       exit 1
     fi
     if ! printf '%s' "$AUDIO_USER" | grep -Eq '^[a-z_][a-z0-9_-]{0,31}$'; then
@@ -72,14 +77,43 @@ case "$MODE" in
     ;;
 esac
 
+WIFI_SETUP=0
+if [ "$MODE" != app-only ]; then
+  if [ "$DRY_RUN" -eq 1 ] || { command -v nmcli >/dev/null 2>&1 && systemctl is-active --quiet NetworkManager.service; }; then
+    WIFI_SETUP=1
+    CLEANUP="ExecStopPost=-$(unit_path "$REPO_DIR/.venv/bin/python" exec) -m app.wifi_setup cleanup"
+    RENDERED="${RENDERED/Environment=PYTHONUNBUFFERED=1/Environment=PYTHONUNBUFFERED=1$'\n'Environment=TAPTUNE_WIFI_SETUP=true$'\n'$CLEANUP}"
+  else
+    echo "warning: NetworkManager is not running; the Wi-Fi setup hotspot will not be enabled." >&2
+  fi
+fi
+
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "# $MODE setup: $UNIT_DST"
   printf '%s\n' "$RENDERED"
+  echo "# mDNS: install and enable avahi-daemon (existing hostname is kept)"
+  if [ "$WIFI_SETUP" -eq 1 ]; then
+    echo "# Wi-Fi fallback (when NetworkManager is installed): install dnsmasq-base and nftables if needed"
+    echo "# Provision a private TapTune-Setup profile without replacing an existing key"
+  fi
   remove_legacy_system_units
   exit 0
 fi
 
 remove_legacy_system_units
+
+# Advertise <hostname>.local over mDNS; the chosen hostname is left untouched.
+if ! command -v avahi-daemon >/dev/null 2>&1; then
+  sudo apt-get install -y avahi-daemon
+fi
+sudo systemctl enable --now avahi-daemon.service
+
+if [ "$WIFI_SETUP" -eq 1 ]; then
+  if [ ! -x /usr/sbin/dnsmasq ] || [ ! -x /usr/sbin/nft ]; then
+    sudo apt-get install -y dnsmasq-base nftables
+  fi
+  (cd "$REPO_DIR" && sudo "$REPO_DIR/.venv/bin/python" -m app.wifi_setup provision)
+fi
 
 printf '%s\n' "$RENDERED" | sudo tee "$UNIT_DST" > /dev/null
 sudo chmod 644 "$UNIT_DST"

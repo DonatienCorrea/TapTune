@@ -2,6 +2,10 @@
 
 [Installation checklist](raspberry-pi-service.md) · [Documentation index](README.md)
 
+> New installs use [go-librespot](spotify-receiver.md) instead of Spotifyd, with
+> the same PipeWire audio user. This guide is for installs with
+> `SPOTIFY_RECEIVER` empty or `legacy`. Pairing (section 1) is the same for both.
+
 This is the advanced route for Raspberry Pi OS Desktop with PipeWire
 (Bookworm/Debian 12 or Trixie/Debian 13). **Lite + Raspotify is the shorter
 route** if you do not need a desktop. Do not install BlueALSA/Raspotify alongside
@@ -17,6 +21,12 @@ Another desktop/login-manager session can compete for Bluetooth audio.
 Pair/trust the speaker in the desktop Bluetooth settings, select it as the
 sound output and play a test sound. Get the address with `bluetoothctl devices`
 and set `BLUETOOTH_SPEAKER_MAC` in TapTune's `.env`.
+
+Once the TapTune service runs, the `/setup` page (French: `/fr/setup`) can do
+this instead: **Search for speakers**, pick yours, then **Play a test sound**.
+It pairs, trusts and connects the speaker with the system Bluetooth service,
+saves only `BLUETOOTH_SPEAKER_MAC` and routes TapTune's audio to it right away;
+**Change speaker** switches to a new one without reconfiguration.
 
 Install the runtime audio tools:
 
@@ -127,7 +137,7 @@ manually. Connection failure is reported rather than silently sending audio
 to HDMI. Spotify's current device is kept even while paused; select TapTune in
 Spotify's device picker to test the local receiver.
 
-Changing the speaker MAC, receiver name, volume or audio user requires
+Changing the receiver name, volume or audio user (or a speaker MAC edited by hand) requires
 reconfiguration as the correct audio user. Use `taptune update` for code changes,
 not a parallel manual Spotifyd service install.
 

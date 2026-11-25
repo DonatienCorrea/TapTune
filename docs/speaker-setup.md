@@ -2,12 +2,29 @@
 
 [Installation checklist](raspberry-pi-service.md) · [Documentation index](README.md)
 
+> New installs use [go-librespot with PipeWire](spotify-receiver.md) instead.
+> This guide is for installs with `SPOTIFY_RECEIVER` empty or `legacy`. Pairing
+> (section 1) is the same for both.
+
 This is the speaker reference for **Raspberry Pi OS Lite without PipeWire**.
 For Desktop, use [PipeWire + Spotifyd](speaker-setup-desktop.md), not these
 commands. For a fresh install, the checklist prepares Python first and calls
 this guide only for pairing and the one-time receiver login.
 
 ## 1. Pair the Bluetooth speaker
+
+**From the web page (no terminal):** once the TapTune service runs, open
+`http://<pi-name>.local:5000/setup` (French: `/fr/setup`), put the speaker in
+pairing mode, choose **Search for speakers**, pick yours, then **Play a test
+sound**. TapTune pairs, trusts and connects it, saves only
+`BLUETOOTH_SPEAKER_MAC` in `.env` and uses it immediately. **Change speaker**
+on the same page repeats this for a new speaker; on Lite it also points the
+TapTune block of `/etc/raspotify/conf` at the new address and restarts
+Raspotify. The speaker is trusted, so TapTune's boot connection reconnects it
+after a reboot. Like the rest of the UI this page has no login: keep the Pi on
+a trusted network.
+
+**From a terminal:**
 
 ```bash
 sudo apt update
@@ -95,7 +112,7 @@ If the speaker powers off, turn it on and tap a content/start tag. A manual
 | `AUDIO_OUTPUT_DEVICE` | `bluealsa` | Expanded to the configured MAC's A2DP device; never silently falls back to HDMI. |
 | `READY_SOUND_ENABLED` | `true` | Set `false` to disable the chime. |
 
-After changing receiver name, MAC, output or startup volume, reapply with
+After changing receiver name, output or startup volume (or a MAC edited by hand in `.env`), reapply with
 `./install.sh --lite --configure`. Use `taptune update` for code updates.
 The low-level `systemd/install-speaker.sh` is an implementation detail and
 repair tool, not an additional fresh-install step.

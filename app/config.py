@@ -30,6 +30,16 @@ def parse_bool(value: str, name: str = "NFC_READER_ENABLED") -> bool:
     )
 
 
+SPOTIFY_RECEIVERS = ("go-librespot", "legacy")
+
+
+def parse_receiver(value: str) -> str:
+    receiver = value.strip().lower() or "legacy"
+    if receiver not in SPOTIFY_RECEIVERS:
+        raise ValueError(f"SPOTIFY_RECEIVER must be go-librespot or legacy; got {value!r}")
+    return receiver
+
+
 def parse_volume(value: str) -> int:
     try:
         volume = int(value)
@@ -52,12 +62,20 @@ class Settings:
     # Name of the Spotify Connect receiver running on the Pi (raspotify/librespot).
     # Leave empty to only ever play on an already active device.
     SPOTIFY_DEVICE_NAME = os.getenv("SPOTIFY_DEVICE_NAME", "TapTune").strip()
+    # go-librespot: TapTune drives the Pi's receiver through its local API (no Spotify
+    # developer app needed). legacy (default when absent, so existing installs keep
+    # working): Raspotify on Lite or Spotifyd on Desktop, driven by the Web API.
+    SPOTIFY_RECEIVER = parse_receiver(os.getenv("SPOTIFY_RECEIVER", "legacy"))
+    LIBRESPOT_API_URL = os.getenv("LIBRESPOT_API_URL", "http://127.0.0.1:3678").strip().rstrip("/")
     SPOTIFY_INITIAL_VOLUME = parse_volume(os.getenv("SPOTIFY_INITIAL_VOLUME", "10"))
     BLUETOOTH_SPEAKER_MAC = os.getenv("BLUETOOTH_SPEAKER_MAC", "").strip()
     # Set by `install-service.sh --desktop` in the systemd unit (not in .env): the
     # user whose PipeWire session plays Spotifyd. Empty on Lite (BlueALSA).
     DESKTOP_AUDIO_USER = os.getenv("DESKTOP_AUDIO_USER", "").strip()
     AUDIO_OUTPUT_DEVICE = os.getenv("AUDIO_OUTPUT_DEVICE", "bluealsa").strip()
+    # Set to true to disable the first-run redirect from / to /setup.
+    SETUP_SKIP = parse_bool(os.getenv("SETUP_SKIP", "false"), "SETUP_SKIP")
+    TAPTUNE_WIFI_SETUP = parse_bool(os.getenv("TAPTUNE_WIFI_SETUP", "false"), "TAPTUNE_WIFI_SETUP")
     READY_SOUND_ENABLED = parse_bool(os.getenv("READY_SOUND_ENABLED", "true"), "READY_SOUND_ENABLED")
 
 

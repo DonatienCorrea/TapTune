@@ -14,6 +14,9 @@ from app.web import create_app
 
 class ActivityTests(unittest.TestCase):
     def setUp(self):
+        skip_setup = patch.object(config.settings, "SETUP_SKIP", True)
+        skip_setup.start()
+        self.addCleanup(skip_setup.stop)
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         settings = patch.multiple(

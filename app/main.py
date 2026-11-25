@@ -8,8 +8,9 @@ from .db import record_event
 from .activity import install_activity_logging, record_activity, record_playback
 from .nfc_reader import NFCEvent, PN532Reader
 from .readiness import start_speaker_thread
-from .spotify_service import dispatch_tag_value, get_tag_type, is_live_spotify_configured
+from .spotify_service import dispatch_tag_value, get_tag_type, is_playback_configured, uses_librespot
 from .web import app
+from .wifi_portal import start_wifi_setup
 
 logger = logging.getLogger(__name__)
 
@@ -165,12 +166,12 @@ def code_version() -> str:
 
 
 def log_startup_summary() -> None:
-    live = is_live_spotify_configured()
+    live = is_playback_configured()
     logger.info(
         "TapTune %s starting: http://%s:%s, Spotify %s, receiver %r, reader %s, "
         "speaker %s, ready sound %s, database %s.",
         code_version(), settings.APP_HOST, settings.APP_PORT,
-        "live" if live else "FAKE", settings.SPOTIFY_DEVICE_NAME or "(none)",
+        ("live via go-librespot" if uses_librespot() else "live") if live else "FAKE", settings.SPOTIFY_DEVICE_NAME or "(none)",
         "enabled" if settings.NFC_READER_ENABLED else "disabled",
         settings.BLUETOOTH_SPEAKER_MAC or "(none)",
         "on" if settings.READY_SOUND_ENABLED else "off", settings.DATABASE_PATH,
@@ -202,6 +203,7 @@ def main() -> None:
     if settings.NFC_READER_ENABLED:
         app.config["NFC_READER_THREAD"] = start_reader_thread(writer=app.config["TAG_WRITER"])
     start_speaker_thread()
+    start_wifi_setup()
     try:
         app.run(host=settings.APP_HOST, port=settings.APP_PORT, debug=False)
     except OSError:
