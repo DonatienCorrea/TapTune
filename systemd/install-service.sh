@@ -82,8 +82,7 @@ fi
 
 remove_legacy_system_units
 
-# Advertise <hostname>.local over mDNS. The Pi's chosen hostname and
-# /etc/hosts are left untouched.
+# Advertise <hostname>.local over mDNS; the chosen hostname is left untouched.
 if ! command -v avahi-daemon >/dev/null 2>&1; then
   sudo apt-get install -y avahi-daemon
 fi
