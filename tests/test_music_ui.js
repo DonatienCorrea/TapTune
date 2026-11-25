@@ -50,12 +50,13 @@ class Element {
   }
 }
 
-async function picker(job = null, items = []) {
+async function picker(job = null, items = [], linkMode = false) {
   const elements = new Map();
   const el = (id) => {
     if (!elements.has(id)) elements.set(id, new Element());
     return elements.get(id);
   };
+  el("music-picker").dataset.linkMode = String(linkMode);
   ["write-status", "write-selection", "cancel-write", "retry-write", "check-write",
     "write-another", "write-feedback-actions"].forEach((id) => { el(id).hidden = true; });
   el("music-translations").textContent = JSON.stringify({
@@ -80,6 +81,7 @@ async function picker(job = null, items = []) {
     pending_selection: "Restored music",
   });
   const scenario = { available: true, job, items, failPoll: false, failState: false, failStart: false };
+  const opened = [];
   const timers = new Map();
   let timerId = 0;
   let jobId = 0;
@@ -90,6 +92,7 @@ async function picker(job = null, items = []) {
       createElement: (tag) => new Element(tag),
       createElementNS: (_, tag) => new Element(tag),
     },
+    window: { open: (...args) => opened.push(args) },
     URLSearchParams,
     setTimeout: (callback) => { timers.set(++timerId, callback); return timerId; },
     clearTimeout: (id) => timers.delete(id),
@@ -124,7 +127,7 @@ async function picker(job = null, items = []) {
   const settle = () => new Promise((resolve) => setImmediate(resolve));
   await settle();
   return {
-    el, scenario,
+    el, scenario, opened,
     async poll() {
       const [id, callback] = timers.entries().next().value;
       timers.delete(id);
@@ -134,6 +137,15 @@ async function picker(job = null, items = []) {
 }
 
 const waiting = { id: "restored", status: "waiting", value: "spotify:album:abc", uid: null };
+
+test("credential-free search opens Spotify to find a podcast to share", async () => {
+  const ui = await picker(null, [], true);
+  ui.el("spotify-search-query").value = "science & stories";
+  ui.el("spotify-external-search").listeners.submit({ preventDefault() {} });
+  assert.deepEqual(ui.opened[0], [
+    "https://open.spotify.com/search/science%20%26%20stories", "_blank", "noopener,noreferrer",
+  ]);
+});
 
 test("waiting and verified success use distinct structured feedback", async () => {
   const ui = await picker(waiting);

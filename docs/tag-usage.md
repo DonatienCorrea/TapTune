@@ -8,18 +8,18 @@ over a UID mapping.
 
 ## Browse Spotify and write a tag
 
-1. Complete [Spotify authorization](spotify-authorization.md), including the
-   library, playlist and recently played permissions. Existing playback-only
-   tokens must be re-authorized.
+1. Sign in to Spotify by choosing TapTune under **Devices** on a phone on the
+   same Wi-Fi. go-librespot installs do not need a Spotify Developer app.
 2. Connect the PN532, set `NFC_READER_ENABLED=true`, and start TapTune with
    `python -m app.main` or the installed systemd service. Do not run a second
    NFC diagnostic or writer process at the same time.
 3. Open `http://<hostname>.local/` on your iPhone or another device on the same network
    for an installed Pi, or `http://<pi-ip>:5000/` when running the app directly.
-4. Browse **My albums**, **My playlists**, or **Recent albums**, or select **Search Spotify** to search
-   albums, playlists, tracks and podcast shows together. Search results are grouped lists; saved collections use artwork grids. **Load more** fetches another page.
-   Recent albums are derived from recently played tracks, deduplicated within
-   each page in listening order; they are not Spotify's album-history feed.
+4. Browse **My albums**, **My playlists**, **What's playing**, or **TapTune
+   history**. Choose **Spotify link** to paste a public album, playlist, track,
+   or podcast-show link. To find a podcast without developer credentials,
+   search in Spotify, then use **Share → Copy link**. **Load more** fetches
+   another page of saved music.
 5. Choose music. Under **Write tag**, check the selection and choose **Write tag**.
    **This replaces the tag's existing content.**
 6. Place one unlocked **NTAG213/215/216**, **supported Feiju 144-byte Type 2 tag**, or **writable NFC Type 4 NDEF tag** on the **Pi's reader** within

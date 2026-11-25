@@ -79,5 +79,15 @@ def token(opener=urllib.request.urlopen) -> Optional[str]:
     return (result or {}).get("token") or None
 
 
+def library_albums(offset: int = 0, limit: int = 20, opener=urllib.request.urlopen) -> Optional[dict]:
+    """Saved albums from go-librespot's internal collection service."""
+    return request("GET", f"/library/albums?offset={offset}&limit={limit}", opener=opener)
+
+
+def library_playlists(offset: int = 0, limit: int = 20, opener=urllib.request.urlopen) -> Optional[dict]:
+    """Playlists from go-librespot's internal playlist service."""
+    return request("GET", f"/library/playlists?offset={offset}&limit={limit}", opener=opener)
+
+
 def post(path: str, body: Optional[dict] = None, opener=urllib.request.urlopen) -> Any:
     return request("POST", path, body, opener=opener)

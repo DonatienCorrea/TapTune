@@ -23,7 +23,7 @@ The checklist links to these focused references at the point they are needed:
 
 1. [Hardware setup](hardware-setup.md) — configure I2C, wire the PN532 safely, and read the first physical card.
 2. [Spotify receiver (go-librespot)](spotify-receiver.md) — the default for new installs on Lite and Desktop: choose TapTune once in the Spotify app; moving an existing install and going back.
-3. [Spotify authorization](spotify-authorization.md) — create TapTune's Web API refresh token. Optional with go-librespot (music browser only); required for the legacy receivers.
+3. [Spotify authorization](spotify-authorization.md) — create TapTune's Web API refresh token. Optional with go-librespot (for keyword search); required for the legacy receivers.
 4. **Legacy speaker setup** (existing Raspotify/Spotifyd installs; choose by audio stack, not Pi model):
    - [BlueALSA + Raspotify speaker setup](speaker-setup.md) — pairing and the receiver's one-time Spotify login.
    - [PipeWire desktop setup](speaker-setup-desktop.md) — for Bookworm/Trixie Desktop environments.

@@ -22,7 +22,7 @@
       </div>
     </header>
 
-    <main id="music-picker" class="music-panel">
+    <main id="music-picker" class="music-panel" data-link-mode="{{ 'true' if link_mode else 'false' }}">
       <div class="picker-heading">
         <h2 class="section-title">{{ translations['browse_title'] }}</h2>
       </div>
@@ -35,9 +35,9 @@
       <section class="spotify-browser" aria-labelledby="music-view-heading">
       <h4 id="music-view-heading" class="sr-only">{{ translations['albums'] }}</h4>
       <div class="music-browser-header">
-      <nav class="collection-nav" aria-label="{{ translations['search'] }}">
-        {% for collection in ['albums', 'playlists', 'recent', 'search'] %}
-          <button type="button" class="helper-button" data-collection="{{ collection }}" aria-pressed="{{ 'true' if collection == 'albums' else 'false' }}">{{ translations[collection] }}</button>
+      <nav class="collection-nav" aria-label="{{ translations['browse_title'] }}">
+        {% for collection in ['albums', 'playlists', 'playing', 'recent', 'search'] %}
+          <button type="button" class="helper-button" data-collection="{{ collection }}" aria-pressed="{{ 'true' if collection == 'albums' else 'false' }}">{{ translations['spotify_link'] if collection == 'search' and link_mode else translations[collection] }}</button>
         {% endfor %}
       </nav>
         <a class="music-source" href="https://open.spotify.com/" target="_blank" rel="noopener noreferrer">Spotify <span aria-hidden="true">↗</span></a>
@@ -52,6 +52,25 @@
         </div>
         <button type="submit" class="save-button">{{ translations['search_button'] }}</button>
       </form>
+      <form id="music-link-import" class="music-search" role="search" hidden>
+        <div class="field">
+          <label for="music-link" class="sr-only">{{ translations['spotify_link_label'] }}</label>
+          <div class="music-search-input">
+            <input id="music-link" type="url" maxlength="500" required autocomplete="url" placeholder="{{ translations['spotify_link_placeholder'] }}">
+          </div>
+        </div>
+        <button type="submit" class="save-button">{{ translations['spotify_link_button'] }}</button>
+      </form>
+      <form id="spotify-external-search" class="music-search" role="search" hidden>
+        <div class="field">
+          <label for="spotify-search-query" class="sr-only">{{ translations['spotify_search_label'] }}</label>
+          <div class="music-search-input">
+            <input id="spotify-search-query" type="search" maxlength="200" required autocomplete="off" placeholder="{{ translations['spotify_search_placeholder'] }}">
+          </div>
+        </div>
+        <button type="submit" class="helper-button">{{ translations['spotify_search_button'] }}</button>
+      </form>
+      <p id="spotify-search-help" class="music-caption" hidden>{{ translations['spotify_search_help'] }}</p>
       <p id="recent-note" class="music-caption" hidden>{{ translations['recent_note'] }}</p>
       <p id="music-status" role="status" aria-live="polite"></p>
       <a id="authorization-guide" href="https://github.com/DonatienCorrea/TapTune/blob/master/docs/spotify-authorization.md" target="_blank" rel="noopener noreferrer" hidden>{{ translations['authorization_guide'] }}</a>

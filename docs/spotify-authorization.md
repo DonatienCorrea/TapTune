@@ -4,8 +4,9 @@
 
 > With the [go-librespot receiver](spotify-receiver.md) (the default for new
 > installs), tags and controls work without this guide. You only need it for the
-> music browser on the web page. The legacy Raspotify/Spotifyd receivers still
-> need it.
+> legacy Raspotify/Spotifyd receiver, or to enable keyword search on the web
+> page. go-librespot users can browse saved albums and playlists and import
+> public Spotify links without developer credentials.
 
 TapTune needs a Spotify client ID, client secret, and refresh token to control playback. This guide creates the refresh token with a one-time local Python script. A Spotify Premium account is required for playback control.
 

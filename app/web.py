@@ -5,9 +5,12 @@ from flask import Flask, jsonify, redirect, render_template, request, url_for
 
 from .config import settings
 from .db import get_tag_by_uid, list_tags, record_event, upsert_tag
-from .spotify_service import dispatch_tag_value, get_tag_type, is_playback_configured, is_web_api_configured
+from .spotify_service import (
+    dispatch_tag_value, get_tag_type, is_live_spotify_configured, is_playback_configured,
+    is_web_api_configured, uses_librespot,
+)
 from . import spotify_service
-from .spotify_browser import browse_music
+from .spotify_browser import LinkPreviewUnavailable, browse_music, import_spotify_link
 from .tag_writer import TagWriter, WriterBusy
 from . import setup as setup_state
 from . import speaker_pairing
@@ -59,8 +62,22 @@ TRANSLATIONS = {
         "write_title": "Write tag",
         "albums": "My albums",
         "playlists": "My playlists",
-        "recent": "Recent albums",
+        "recent": "TapTune history",
+        "playing": "What's playing",
         "search": "Search Spotify",
+        "spotify_link": "Spotify link",
+        "spotify_link_label": "Paste a Spotify link",
+        "spotify_link_placeholder": "https://open.spotify.com/album/…",
+        "spotify_link_button": "Load link",
+        "spotify_search_label": "Search Spotify by name",
+        "spotify_search_placeholder": "Artist, album, song, or podcast…",
+        "spotify_search_button": "Search in Spotify",
+        "spotify_search_help": "Opens Spotify in a new tab. Use Share → Copy link, then paste it below.",
+        "spotify_link_prompt": "Paste a Spotify album, playlist, song, or podcast-show link below.",
+        "spotify_link_preview": "Spotify link loaded",
+        "spotify_link_preview_note": "Preview loaded without a Spotify Developer app.",
+        "spotify_link_invalid": "Paste a valid Spotify album, playlist, track, or podcast-show link.",
+        "spotify_link_unavailable": "Spotify could not load this link preview. Check the internet connection and try again.",
         "search_label": "Search Spotify",
         "search_placeholder": "Search Spotify…",
         "group_album": "Albums",
@@ -77,7 +94,8 @@ TRANSLATIONS = {
         "empty_music": "No results for this search. Try another name.",
         "empty_albums": "No saved albums. Try Search.",
         "empty_playlists": "No playlists. Try Search.",
-        "empty_recent": "No recent albums. Try Search.",
+        "empty_recent": "No music played from TapTune tags yet.",
+        "empty_playing": "Nothing is playing on TapTune right now. Start Spotify on a phone and select TapTune under Devices.",
         "demo_title": "Demo — sample music only",
         "demo_music": "No Spotify account is configured here. Open TapTune on your Pi for your library.",
         "demo_help": "Your token on the Pi is not available in this computer's preview. Open TapTune on your Pi to use its saved Spotify connection. You do not need to paste the token into this page.",
@@ -93,7 +111,8 @@ TRANSLATIONS = {
         "spotify_auth_error": "The saved Spotify token is invalid or expired. Follow the setup guide to authorize TapTune again, then restart it.",
         "retry_music": "Try again",
         "search_prompt": "",
-        "recent_note": "Albums from your last 50 tracks.",
+        "recent_note": "History of music started with TapTune tags, stored on this Pi.",
+        "recent_note_api": "Albums from your last 50 tracks.",
         "select_music": "Choose",
         "selected_music": "Selected",
         "open_spotify": "Open in Spotify",
@@ -187,8 +206,22 @@ TRANSLATIONS = {
         "write_title": "Écrire le tag",
         "albums": "Mes albums",
         "playlists": "Mes playlists",
-        "recent": "Albums récents",
+        "recent": "Historique TapTune",
+        "playing": "En cours",
         "search": "Rechercher sur Spotify",
+        "spotify_link": "Lien Spotify",
+        "spotify_link_label": "Coller un lien Spotify",
+        "spotify_link_placeholder": "https://open.spotify.com/album/…",
+        "spotify_link_button": "Charger le lien",
+        "spotify_search_label": "Rechercher un nom sur Spotify",
+        "spotify_search_placeholder": "Artiste, album, morceau ou podcast…",
+        "spotify_search_button": "Rechercher sur Spotify",
+        "spotify_search_help": "Spotify s’ouvre dans un nouvel onglet. Utilisez Partager → Copier le lien, puis collez-le ci-dessous.",
+        "spotify_link_prompt": "Collez ci-dessous un lien Spotify vers un album, une playlist, un morceau ou un podcast.",
+        "spotify_link_preview": "Lien Spotify chargé",
+        "spotify_link_preview_note": "Aperçu chargé sans application Spotify Developer.",
+        "spotify_link_invalid": "Collez un lien Spotify valide vers un album, une playlist, un morceau ou un podcast.",
+        "spotify_link_unavailable": "Spotify n’a pas pu charger l’aperçu. Vérifiez la connexion Internet et réessayez.",
         "search_label": "Rechercher sur Spotify",
         "search_placeholder": "Rechercher sur Spotify…",
         "group_album": "Albums",
@@ -205,7 +238,8 @@ TRANSLATIONS = {
         "empty_music": "Aucun résultat. Essayez un autre nom.",
         "empty_albums": "Aucun album enregistré. Essayez la recherche.",
         "empty_playlists": "Aucune playlist. Essayez la recherche.",
-        "empty_recent": "Aucun album récent. Essayez la recherche.",
+        "empty_recent": "Aucune musique lancée avec un tag TapTune pour le moment.",
+        "empty_playing": "Aucune musique ne joue sur TapTune. Lancez Spotify sur un téléphone, puis choisissez TapTune dans Appareils.",
         "demo_title": "Démo — musique fictive",
         "demo_music": "Aucun compte Spotify configuré ici. Ouvrez TapTune sur votre Pi pour retrouver votre bibliothèque.",
         "demo_help": "Le jeton de votre Pi n’est pas disponible dans l’aperçu de cet ordinateur. Ouvrez TapTune sur votre Pi pour utiliser sa connexion Spotify enregistrée. Aucun jeton à coller dans cette page.",
@@ -221,7 +255,8 @@ TRANSLATIONS = {
         "spotify_auth_error": "Le jeton Spotify enregistré est invalide ou expiré. Suivez le guide pour autoriser TapTune à nouveau, puis redémarrez-le.",
         "retry_music": "Réessayer",
         "search_prompt": "",
-        "recent_note": "Albums des 50 derniers morceaux écoutés.",
+        "recent_note": "Historique local des musiques lancées avec les tags TapTune.",
+        "recent_note_api": "Albums des 50 derniers morceaux écoutés.",
         "select_music": "Choisir",
         "selected_music": "Sélection",
         "open_spotify": "Ouvrir dans Spotify",
@@ -353,6 +388,21 @@ def create_app() -> Flask:
             and (not origin or urlsplit(origin)[:2] == urlsplit(request.host_url)[:2])
         )
 
+    @app.post("/api/music/link")
+    def music_link():
+        if not valid_write_request():
+            return api_error("invalid_origin", 403)
+        data = request.get_json()
+        value = data.get("url") if isinstance(data, dict) else None
+        try:
+            item = import_spotify_link(value)
+        except ValueError:
+            return api_error("spotify_link_invalid", 400)
+        except LinkPreviewUnavailable:
+            app.logger.warning("Spotify link preview is unavailable.")
+            return api_error("spotify_link_unavailable", 502)
+        return api_response({"item": item, "mode": "preview"})
+
     @app.post("/api/tag-writes")
     def start_write():
         if not valid_write_request():
@@ -392,6 +442,8 @@ def create_app() -> Flask:
             switch_url=translations["switch_url"],
             form_action=url_for("assign_tag_fr" if locale == "fr" else "assign_tag_en"),
             spotify_configured=is_web_api_configured(),
+            librespot_receiver=uses_librespot(),
+            link_mode=uses_librespot() and not is_live_spotify_configured(),
         )
 
     def setup_redirect(locale):

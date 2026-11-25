@@ -52,16 +52,16 @@ before checking. A Bluetooth connection alone does not confirm A2DP.
   filled them in, then the sign-in that go-librespot already has. If neither
   works, the show plays from its start. If that happens, fill in the
   credentials below.
-- **The music browser** (saved albums, playlists, recently played, search)
-  uses the Spotify Web API with the sign-in that go-librespot already has, so
-  it works without a Spotify Developer app. If the Pi is not signed in yet, the
-  page asks you to choose TapTune once in Spotify → Devices. If you filled in
-  `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` and `SPOTIFY_REFRESH_TOKEN`
-  ([Spotify authorization](spotify-authorization.md)), TapTune uses those
-  instead. If Spotify rate-limits browsing, TapTune shows a message and waits
-  for Spotify's cooldown before making another browse request. If Spotify
-  consistently refuses the go-librespot sign-in, adding developer credentials
-  is the fallback.
+- **The music browser** uses go-librespot's local library API for saved albums
+  and playlists, not the rate-limited Spotify Web API. **What's playing** lets
+  you turn the current album or playlist into a tag. **TapTune history** lists
+  music launched from tags on this Pi. These features need no Spotify Developer
+  app. The Spotify link tab accepts public album, playlist, track and podcast
+  show links; to find a podcast, search in Spotify and use **Share → Copy link**.
+  Spotify's public preview service supplies its title and cover without login.
+  Keyword search is available only when developer credentials are configured;
+  go-librespot does not expose a credential-free search endpoint. Legacy
+  Raspotify/Spotifyd installs continue to use the Web API browser.
 
 ## Move an existing install
 

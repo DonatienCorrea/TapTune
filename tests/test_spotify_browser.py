@@ -1,6 +1,8 @@
 import tempfile
 import threading
 import time
+import io
+import json
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -32,6 +34,7 @@ class SpotifyBrowserTests(unittest.TestCase):
         self.patches = [
             patch.object(spotify_browser, "is_web_api_configured", return_value=True),
             patch.object(spotify_browser, "build_web_api_client", return_value=self.spotify),
+            patch.object(spotify_browser, "uses_librespot", return_value=False),
         ]
         for patcher in self.patches:
             patcher.start()
@@ -68,6 +71,77 @@ class SpotifyBrowserTests(unittest.TestCase):
         self.assertEqual(result["items"][0]["detail"], "Me")
         self.assertIsNone(result["items"][0]["image"])
         self.assertIsNone(result["next"])
+
+    def test_go_librespot_library_uses_internal_api_not_web_api(self):
+        albums = {
+            "total": 21, "items": [{
+                "uri": "spotify:album:abc", "name": "Album", "artist_names": ["Artist"],
+                "image_url": "https://i.scdn.co/album",
+            }],
+        }
+        with patch.object(spotify_browser, "uses_librespot", return_value=True), \
+                patch.object(spotify_browser, "is_live_spotify_configured", return_value=False), \
+                patch.object(spotify_browser.librespot, "require_session"), \
+                patch.object(spotify_browser.librespot, "library_albums", return_value=albums) as library:
+            result = spotify_browser.browse_music("albums")
+        library.assert_called_once_with(offset=0, limit=20)
+        spotify_browser.build_web_api_client.assert_not_called()
+        self.assertEqual(result["items"][0]["uri"], "spotify:album:abc")
+        self.assertEqual(result["items"][0]["image"], "https://i.scdn.co/album")
+        self.assertEqual(result["next"], {"offset": 20})
+
+    def test_currently_playing_becomes_a_tag_selectable_context(self):
+        status = {
+            "context_uri": "spotify:playlist:mix", "context_name": "Evening Mix",
+            "track": {"name": "Song", "artist_names": ["Artist"], "album_cover_url": "https://i.scdn.co/song"},
+        }
+        with patch.object(spotify_browser, "uses_librespot", return_value=True), \
+                patch.object(spotify_browser.librespot, "require_session"), \
+                patch.object(spotify_browser.librespot, "status", return_value=status):
+            result = spotify_browser.browse_music("playing")
+        spotify_browser.build_web_api_client.assert_not_called()
+        self.assertEqual(result["items"][0]["uri"], "spotify:playlist:mix")
+        self.assertEqual(result["items"][0]["name"], "Evening Mix")
+
+    def test_taptune_history_uses_successful_tag_playbacks(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(config.settings, "DATABASE_PATH", str(Path(directory) / "tags.db")):
+            from app.activity import record_activity
+            from app.db import upsert_tag
+            upsert_tag("CARD", "spotify:album:abc", "content", "Morning music")
+            record_activity("playback", "INFO", "nfc", "Playback command sent.", uid="CARD",
+                            value="spotify:album:abc")
+            record_activity("playback", "ERROR", "nfc", "Failed.", uid="CARD",
+                            value="spotify:album:bad")
+            with patch.object(spotify_browser, "uses_librespot", return_value=True):
+                result = spotify_browser.browse_music("recent")
+        self.assertEqual([item["name"] for item in result["items"]], ["Morning music"])
+        self.assertEqual(result["items"][0]["uri"], "spotify:album:abc")
+
+    def test_spotify_link_import_supports_podcast_shows_without_a_token(self):
+        payload = json.dumps({
+            "title": "Podcast show", "thumbnail_url": "https://image-cdn-fa.spotifycdn.com/cover",
+        }).encode()
+        calls = []
+
+        def opener(url, timeout):
+            calls.append((url, timeout))
+            return io.BytesIO(payload)
+
+        item = spotify_browser.import_spotify_link(
+            "https://open.spotify.com/intl-en/show/abc?si=private", opener=opener,
+        )
+        self.assertEqual(item["uri"], "spotify:show:abc")
+        self.assertEqual(item["name"], "Podcast show")
+        self.assertEqual(item["image"], "https://image-cdn-fa.spotifycdn.com/cover")
+        self.assertIn("oembed", calls[0][0])
+        self.assertEqual(calls[0][1], 8)
+
+    def test_spotify_link_import_rejects_non_spotify_urls(self):
+        for value in ("https://evil.example/album/abc", "http://open.spotify.com/album/abc",
+                      "https://open.spotify.com/episode/abc", "https://open.spotify.com/album/a/b"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                spotify_browser.import_spotify_link(value, opener=Mock())
 
     def test_recent_albums_are_deduplicated_in_listening_order_and_use_cursor(self):
         self.spotify.current_user_recently_played.return_value = {
@@ -189,7 +263,9 @@ class MusicWebTests(unittest.TestCase):
         for path in ("/", "/fr/"):
             page = self.client.get(path)
             self.assertEqual(page.status_code, 200)
-            for marker in (b'id="music-search"', b'id="write-tag"', b'id="assignment"', b'/static/music.js'):
+            for marker in (b'id="music-search"', b'id="music-link-import"', b'id="spotify-external-search"',
+                           b'data-collection="playing"', b'id="write-tag"', b'id="assignment"',
+                           b'/static/music.js'):
                 self.assertIn(marker, page.data)
             self.assertIn(b'<details id="advanced-options" class="advanced-options">', page.data)
             self.assertIn(b'id="music-search" class="music-search" role="search" hidden', page.data)
@@ -251,6 +327,17 @@ class MusicWebTests(unittest.TestCase):
         for params in ("offset=no", "offset=-1", "collection=search&q=", "before=0", "kind=artist"):
             self.assertEqual(self.client.get("/api/music?" + params).status_code, 400)
 
+    def test_spotify_link_endpoint_returns_preview_and_rejects_cross_origin(self):
+        item = {"uri": "spotify:show:abc", "name": "Podcast", "kind": "show"}
+        with patch("app.web.import_spotify_link", return_value=item) as import_link:
+            response = self.client.post("/api/music/link", json={"url": "https://open.spotify.com/show/abc"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json, {"item": item, "mode": "preview"})
+        import_link.assert_called_once_with("https://open.spotify.com/show/abc")
+        response = self.client.post("/api/music/link", json={"url": "https://open.spotify.com/show/abc"},
+                                    headers={"Origin": "https://evil.example"})
+        self.assertEqual(response.status_code, 403)
+
     def test_spotify_errors_are_actionable_and_do_not_return_secrets(self):
         for error, code, status in (
             (SpotifyException(403, -1, "secret"), "spotify_permissions", 403),
@@ -300,37 +387,34 @@ class MusicWebTests(unittest.TestCase):
             with patch("app.spotify_service.time.monotonic", return_value=time.monotonic() + 3601):
                 self.assertEqual(self.client.get("/api/music?collection=playlists").status_code, 200)
 
-    def test_browse_rate_limit_is_returned_without_waiting_or_retrying(self):
-        for developer in (False, True):
-            with self.subTest(developer=developer), patch.multiple(
-                config.settings, SPOTIFY_RECEIVER="go-librespot",
-                SPOTIFY_CLIENT_ID="id" if developer else "",
-                SPOTIFY_CLIENT_SECRET="secret" if developer else "",
-                SPOTIFY_REFRESH_TOKEN="refresh" if developer else "",
-            ), patch.object(spotify_service.librespot, "token", return_value="token"), \
-                    patch.object(spotify_service, "SpotifyOAuth") as oauth:
-                spotify_service.clear_web_api_state()
-                oauth.return_value.get_access_token.return_value = "token"
-                spotify = spotify_service.build_web_api_client()
-                response = Response()
-                response.status_code = 429
-                response.url = "https://api.spotify.com/v1/me/albums"
-                response.headers["Retry-After"] = "3600"
-                response._content = b'{"error":{"message":"Rate limited"}}'
+    def test_search_rate_limit_is_returned_without_waiting_or_retrying(self):
+        with patch.multiple(
+            config.settings, SPOTIFY_RECEIVER="go-librespot", SPOTIFY_CLIENT_ID="id",
+            SPOTIFY_CLIENT_SECRET="secret", SPOTIFY_REFRESH_TOKEN="refresh",
+        ), patch.object(spotify_service.librespot, "token", return_value="token"), \
+                patch.object(spotify_service, "SpotifyOAuth") as oauth:
+            spotify_service.clear_web_api_state()
+            oauth.return_value.get_access_token.return_value = "token"
+            spotify = spotify_service.build_web_api_client()
+            response = Response()
+            response.status_code = 429
+            response.url = "https://api.spotify.com/v1/search"
+            response.headers["Retry-After"] = "3600"
+            response._content = b'{"error":{"message":"Rate limited"}}'
 
-                def send(request, **_kwargs):
-                    retry = spotify._session.get_adapter(request.url).max_retries
-                    self.assertFalse(retry.is_retry(request.method, 429, has_retry_after=True))
-                    return response
+            def send(http_request, **_kwargs):
+                retry = spotify._session.get_adapter(http_request.url).max_retries
+                self.assertFalse(retry.is_retry(http_request.method, 429, has_retry_after=True))
+                return response
 
-                with patch.object(spotify_browser, "build_web_api_client", return_value=spotify), \
-                        patch.object(spotify._session.get_adapter(response.url), "send", side_effect=send) as upstream:
-                    first = self.client.get("/api/music")
-                    second = self.client.get("/api/music?collection=playlists")
-                self.assertEqual(first.status_code, 429)
-                self.assertEqual(first.headers["Retry-After"], "3600")
-                self.assertEqual(second.json, {"error": "spotify_rate_limit"})
-                upstream.assert_called_once()
+            with patch.object(spotify_browser, "build_web_api_client", return_value=spotify), \
+                    patch.object(spotify._session.get_adapter(response.url), "send", side_effect=send) as upstream:
+                first = self.client.get("/api/music?collection=search&q=podcast")
+                second = self.client.get("/api/music?collection=search&q=another")
+            self.assertEqual(first.status_code, 429)
+            self.assertEqual(first.headers["Retry-After"], "3600")
+            self.assertEqual(second.json, {"error": "spotify_rate_limit"})
+            upstream.assert_called_once()
 
     def test_writer_requires_running_initialized_reader(self):
         response = self.client.post("/api/tag-writes", json={"value": "spotify:album:abc"})

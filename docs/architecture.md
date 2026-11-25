@@ -71,12 +71,15 @@ All paths reach `dispatch_tag_value`, which validates and translates the stored 
 
 ## Web music and writing
 
-`GET /api/music` returns saved albums, playlists, recent albums or typed search
-results, including podcast shows. Pagination uses offsets for library/search
-and a Spotify `before` cursor for history. Spotify credentials stay server-side.
-Missing credentials produce labelled demo music; upstream authentication,
-permissions, rate limits and network errors produce explicit errors instead of
-a demo fallback.
+`GET /api/music` returns saved albums, playlists, current playback, TapTune's
+local playback history, or typed search results, including podcast shows.
+go-librespot installs read saved collections from its local API, avoiding the
+Spotify Web API rate limit. `POST /api/music/link` resolves public Spotify
+album, playlist, track and show links through Spotify oEmbed; it requires no
+account token. Keyword search and Spotify's recently-played feed remain
+available to legacy installs with Web API credentials. Credentials stay
+server-side. Missing credentials produce labelled demo music; upstream
+authentication, permissions, rate limits and network errors remain explicit.
 
 `POST /api/tag-writes` accepts a Spotify URI as JSON and queues one 60-second
 write. Show URIs are stored on tags just like albums, playlists and tracks.

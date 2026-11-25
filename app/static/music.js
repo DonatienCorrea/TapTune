@@ -3,6 +3,7 @@
   const t = JSON.parse(document.getElementById("music-translations").textContent);
   const el = (id) => document.getElementById(id);
   const results = el("music-results");
+  const linkMode = el("music-picker").dataset.linkMode === "true";
   let collection = "albums";
   let query = "";
   let nextPage = null;
@@ -216,9 +217,13 @@
     el("load-more").hidden = true;
     el("authorization-guide").hidden = true;
     el("retry-music").hidden = true;
-    el("music-search").hidden = collection !== "search";
-    el("music-view-heading").textContent = t[collection];
+    el("music-search").hidden = collection !== "search" || linkMode;
+    el("music-link-import").hidden = collection !== "search" || !linkMode;
+    el("spotify-external-search").hidden = collection !== "search" || !linkMode;
+    el("spotify-search-help").hidden = collection !== "search" || !linkMode;
+    el("music-view-heading").textContent = collection === "search" && linkMode ? t.spotify_link : t[collection];
     el("recent-note").hidden = collection !== "recent";
+    el("recent-note").textContent = linkMode ? t.recent_note : t.recent_note_api;
     results.setAttribute("aria-busy", "true");
     message("music-status", t.loading);
     document.querySelectorAll("[data-collection]").forEach((button) => {
@@ -230,6 +235,8 @@
       if (number !== requestNumber) return;
       if (data.mode === "fake") {
         connection(t.demo_title, t.demo_music);
+      } else if (collection === "search" && linkMode) {
+        connection(t.spotify_link_preview, t.spotify_link_preview_note);
       } else {
         connection(t.connection_live, t.connection_live_note);
       }
@@ -366,13 +373,16 @@
         document.querySelectorAll("[data-collection]").forEach((tab) => {
           tab.setAttribute("aria-pressed", String(tab === button));
         });
-        el("music-search").hidden = false;
-        el("music-view-heading").textContent = t.search;
-        message("music-status", t.search_prompt);
+        el("music-search").hidden = linkMode;
+        el("music-link-import").hidden = !linkMode;
+        el("spotify-external-search").hidden = !linkMode;
+        el("spotify-search-help").hidden = !linkMode;
+        el("music-view-heading").textContent = linkMode ? t.spotify_link : t.search;
+        message("music-status", linkMode ? t.spotify_link_prompt : t.search_prompt);
       } else {
         loadMusic();
       }
-      if (collection === "search") el("music-query").focus();
+      if (collection === "search") el(linkMode ? "spotify-search-query" : "music-query").focus();
     });
   });
   el("music-search").addEventListener("submit", (event) => {
@@ -384,6 +394,39 @@
     }
     collection = "search";
     loadMusic();
+  });
+  el("music-link-import").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const number = ++requestNumber;
+    resetResults();
+    nextPage = null;
+    el("load-more").hidden = true;
+    results.setAttribute("aria-busy", "true");
+    message("music-status", t.loading);
+    try {
+      const data = await api("/api/music/link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: el("music-link").value.trim() }),
+      });
+      if (number !== requestNumber) return;
+      connection(t.spotify_link_preview, t.spotify_link_preview_note);
+      addItem(data.item);
+      updateSelection();
+      message("music-status", "");
+      updateControls();
+    } catch (error) {
+      if (number !== requestNumber) return;
+      message("music-status", errorText(error), true);
+    } finally {
+      if (number === requestNumber) results.setAttribute("aria-busy", "false");
+    }
+  });
+  el("spotify-external-search").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const query = el("spotify-search-query").value.trim();
+    if (!query) return;
+    window.open(`https://open.spotify.com/search/${encodeURIComponent(query)}`, "_blank", "noopener,noreferrer");
   });
   el("load-more").addEventListener("click", () => loadMusic(true));
   el("retry-music").addEventListener("click", () => loadMusic());
