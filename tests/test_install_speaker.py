@@ -388,6 +388,18 @@ class GoLibrespotInstallerTests(unittest.TestCase):
                 self.assertNotIn("raspotify/install.sh", out)
                 self.assertNotIn("bluez-alsa-utils", out)
 
+    def test_go_librespot_installs_before_a_speaker_is_paired(self):
+        result = self.dry_run("install-desktop-speaker.sh", "SPOTIFY_RECEIVER=go-librespot\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("/setup", result.stderr)
+        self.assertNotIn("bluetoothctl trust", result.stdout)
+        self.assertIn("restart taptune-go-librespot.service", result.stdout)
+
+    def test_go_librespot_rejects_an_invalid_speaker_address(self):
+        result = self.dry_run("install-go-librespot.sh", "BLUETOOTH_SPEAKER_MAC=not-a-mac\n")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("BLUETOOTH_SPEAKER_MAC", result.stderr)
+
     def test_legacy_installers_stop_go_librespot(self):
         for installer in ("install-speaker.sh", "install-desktop-speaker.sh"):
             with self.subTest(installer=installer):

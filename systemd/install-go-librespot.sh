@@ -53,13 +53,16 @@ case "$DEVICE_NAME" in
     exit 1
     ;;
 esac
+# go-librespot plays through PipeWire's default output, so the speaker address
+# is only needed to trust it. After a reset (or before pairing), the setup page
+# pairs and trusts the speaker later.
 MAC="$(env_value BLUETOOTH_SPEAKER_MAC)"
-if [ "$DRY_RUN" -eq 1 ] && [ -z "$MAC" ]; then
-  MAC="AA:BB:CC:DD:EE:FF"
-fi
-if ! printf '%s' "$MAC" | grep -Eq '^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$'; then
-  echo "error: set BLUETOOTH_SPEAKER_MAC in .env to the paired speaker's address" >&2
+if [ -n "$MAC" ] && ! printf '%s' "$MAC" | grep -Eq '^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$'; then
+  echo "error: BLUETOOTH_SPEAKER_MAC in .env is not a Bluetooth address (expected AA:BB:CC:DD:EE:FF)" >&2
   exit 1
+fi
+if [ -z "$MAC" ]; then
+  echo "warning: no Bluetooth speaker yet; pair one from the TapTune setup page (/setup)." >&2
 fi
 VOLUME="$(initial_volume)"
 
@@ -101,7 +104,7 @@ server:
 
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "# Spotify Connect name: $DEVICE_NAME"
-  echo "# go-librespot $GLR_VERSION ($ASSET) -> PipeWire -> $MAC"
+  echo "# go-librespot $GLR_VERSION ($ASSET) -> PipeWire -> ${MAC:-no speaker yet}"
 fi
 
 run sudo apt-get update
@@ -185,7 +188,9 @@ exclude_desktop_greeter_audio
 # Keep this user's PipeWire and go-librespot running at boot without a login.
 run sudo loginctl enable-linger "$(id -un)"
 run sudo systemctl enable --now bluetooth.service avahi-daemon.service
-run bluetoothctl trust "$MAC"
+if [ -n "$MAC" ]; then
+  run bluetoothctl trust "$MAC"
+fi
 run systemctl --user daemon-reload
 run systemctl --user enable --now pipewire.socket pipewire-pulse.socket wireplumber.service
 run systemctl --user restart wireplumber.service
