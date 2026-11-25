@@ -146,7 +146,7 @@ class PlaybackTests(unittest.TestCase):
                             SPOTIFY_REFRESH_TOKEN="token"), \
                 patch("app.spotify_service.build_spotify_client", return_value="developer") as developer:
             self.assertEqual(spotify_service.build_web_api_client(), "developer")
-        developer.assert_called_once_with()
+        developer.assert_called_once_with(for_browsing=True)
 
     def test_track_album_and_playlist_tags_play_on_the_pi(self):
         fake = self.use(FakeLibrespot(status={"username": "ana"}))

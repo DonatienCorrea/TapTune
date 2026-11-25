@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from requests import Response
 from requests.exceptions import ConnectionError
 from spotipy import SpotifyException
 from spotipy.oauth2 import SpotifyOauthError
@@ -299,10 +300,37 @@ class MusicWebTests(unittest.TestCase):
             with patch("app.spotify_service.time.monotonic", return_value=time.monotonic() + 3601):
                 self.assertEqual(self.client.get("/api/music?collection=playlists").status_code, 200)
 
-    def test_receiver_client_does_not_sleep_through_rate_limits(self):
-        with patch.object(spotify_service.librespot, "token", return_value="token"):
-            client = spotify_service.build_receiver_spotify_client()
-        self.assertNotIn(429, client.status_forcelist)
+    def test_browse_rate_limit_is_returned_without_waiting_or_retrying(self):
+        for developer in (False, True):
+            with self.subTest(developer=developer), patch.multiple(
+                config.settings, SPOTIFY_RECEIVER="go-librespot",
+                SPOTIFY_CLIENT_ID="id" if developer else "",
+                SPOTIFY_CLIENT_SECRET="secret" if developer else "",
+                SPOTIFY_REFRESH_TOKEN="refresh" if developer else "",
+            ), patch.object(spotify_service.librespot, "token", return_value="token"), \
+                    patch.object(spotify_service, "SpotifyOAuth") as oauth:
+                spotify_service.clear_web_api_state()
+                oauth.return_value.get_access_token.return_value = "token"
+                spotify = spotify_service.build_web_api_client()
+                response = Response()
+                response.status_code = 429
+                response.url = "https://api.spotify.com/v1/me/albums"
+                response.headers["Retry-After"] = "3600"
+                response._content = b'{"error":{"message":"Rate limited"}}'
+
+                def send(request, **_kwargs):
+                    retry = spotify._session.get_adapter(request.url).max_retries
+                    self.assertFalse(retry.is_retry(request.method, 429, has_retry_after=True))
+                    return response
+
+                with patch.object(spotify_browser, "build_web_api_client", return_value=spotify), \
+                        patch.object(spotify._session.get_adapter(response.url), "send", side_effect=send) as upstream:
+                    first = self.client.get("/api/music")
+                    second = self.client.get("/api/music?collection=playlists")
+                self.assertEqual(first.status_code, 429)
+                self.assertEqual(first.headers["Retry-After"], "3600")
+                self.assertEqual(second.json, {"error": "spotify_rate_limit"})
+                upstream.assert_called_once()
 
     def test_writer_requires_running_initialized_reader(self):
         response = self.client.post("/api/tag-writes", json={"value": "spotify:album:abc"})
