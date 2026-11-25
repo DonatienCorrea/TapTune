@@ -105,6 +105,7 @@ class InstallServiceScriptTests(unittest.TestCase):
                     self.assertIn("Environment=TAPTUNE_WIFI_SETUP=true", output)
                     self.assertIn(f'ExecStopPost=-"{path}/.venv/bin/python" -m app.wifi_setup cleanup', output)
                     self.assertIn("Provision a private TapTune-Setup profile", output)
+                    self.assertIn("Install qrencode", output)
 
     def test_dry_run_shows_removal_of_the_periodic_reconnect_service(self):
         output = self.run_dry_run(REPO_ROOT)

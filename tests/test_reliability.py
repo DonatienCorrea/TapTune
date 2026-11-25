@@ -258,11 +258,17 @@ class TaptuneResetTests(unittest.TestCase):
         bin_dir.mkdir()
         hotspot = "bed69db1-17dc-419b-bbac-3eff35e29389"
         (bin_dir / "nmcli").write_text(
-            "#!/bin/sh\nprintf '%s\\n' "
+            "#!/bin/sh\n"
+            "if [ \"$1\" = --show-secrets ]; then echo 0123456789abcdef0123; "
+            "else printf '%s\\n' "
             f"'{hotspot}:802-11-wireless' 'aaaa-1111:802-11-wireless' 'eeee-0000:802-3-ethernet' "
-            "'bbbb-2222:802-11-wireless'\n"
+            "'bbbb-2222:802-11-wireless'; fi\n"
         )
         (bin_dir / "nmcli").chmod(0o755)
+        (bin_dir / "sudo").write_text("#!/bin/sh\nexec \"$@\"\n")
+        (bin_dir / "sudo").chmod(0o755)
+        (bin_dir / "qrencode").write_text("#!/bin/sh\nprintf 'QR[%s]\\n' \"$(cat)\"\n")
+        (bin_dir / "qrencode").chmod(0o755)
         for tool in ("systemctl", "bluetoothctl"):
             (bin_dir / tool).write_text("#!/bin/sh\nexit 0\n")
             (bin_dir / tool).chmod(0o755)
@@ -304,6 +310,25 @@ class TaptuneResetTests(unittest.TestCase):
 
     def test_reset_takes_no_options(self):
         self.assertIn("takes no options", self.reset("--wipe-tags").stderr)
+
+    def test_setup_wifi_displays_a_wpa_qr_and_password(self):
+        result = subprocess.run(
+            ["bash", str(self.repo / "taptune"), "setup-wifi"],
+            env=self.env, capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("QR[WIFI:T:WPA;S:TapTune-Setup;P:0123456789abcdef0123;;]", result.stdout)
+        self.assertIn("Password: 0123456789abcdef0123", result.stdout)
+        self.assertIn("Keep this code and password private", result.stdout)
+
+    def test_setup_wifi_rejects_an_unexpected_or_missing_password(self):
+        (self.repo / "bin/nmcli").write_text("#!/bin/sh\necho 'not-a-valid-key'\n")
+        result = subprocess.run(
+            ["bash", str(self.repo / "taptune"), "setup-wifi"],
+            env=self.env, capture_output=True, text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("expected per-Pi WPA2 password", result.stderr)
 
 
 if __name__ == "__main__":

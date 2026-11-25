@@ -165,15 +165,25 @@ On supported Raspberry Pi OS Lite and Desktop installs, TapTune uses
 NetworkManager to start a temporary `TapTune-Setup` hotspot if there is no
 working Wi-Fi or wired connection about 60 seconds after boot.
 
-**Before moving the Pi**, save its unique hotspot password somewhere private:
+The hotspot stays WPA2-protected with a unique per-Pi password. On first
+configuration, TapTune prints a scannable Wi-Fi QR code and the password when
+it creates the hotspot profile. Scan it from your phone's Wi-Fi settings to
+join; this shares the password with the phone, it does not remove the password
+or open the hotspot. Keep the QR and printed password private because anyone
+who joins can configure the Pi.
 
 ```bash
-sudo nmcli --show-secrets -g 802-11-wireless-security.psk connection show id TapTune-Setup
+taptune setup-wifi
 ```
 
-1. Boot the Pi at the new location. On your phone, join `TapTune-Setup` with the
-   saved hotspot password. Stay connected if the phone warns that this network
-   has no internet.
+Run the command before moving the Pi to display the QR and password again.
+`taptune reset` also displays them before it removes saved Wi-Fi networks.
+If the hotspot profile was created before this feature, the same command works
+after updating TapTune, as long as the `qrencode` package is installed.
+
+1. Boot the Pi at the new location. On your phone, scan the QR code in Wi-Fi
+   settings or join `TapTune-Setup` and enter the printed password. Stay
+   connected if the phone warns that this network has no internet.
 2. The sign-in page should open. If not, open `http://10.42.66.1/setup` in your
    browser (use `http://`, not `https://`). Pick a network from the pre-hotspot
    scan, or type its name, and enter its **Wi-Fi** password. Leave the password
