@@ -20,6 +20,9 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$SCRIPT_DIR/install-common.sh"
+if [ "$(env_value SPOTIFY_RECEIVER)" = "go-librespot" ]; then
+  exec "$SCRIPT_DIR/install-go-librespot.sh" "$@"
+fi
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}"
 if [ "$CONFIG_DIR" != "$HOME/.config" ]; then
   echo "error: this installer requires the standard ~/.config location for its user unit" >&2
@@ -108,6 +111,8 @@ run sudo loginctl enable-linger "$(id -un)"
 # BlueALSA and PipeWire both claim the speaker's A2DP link, and a Raspotify
 # receiver with the same name makes a second "TapTune" in Spotify.
 disable_user_unit spotifyd.service "Desktop uses only taptune-spotifyd.service"
+disable_user_unit taptune-go-librespot.service "SPOTIFY_RECEIVER is legacy: Spotifyd plays" \
+  "$CONFIG_DIR/systemd/user/taptune-go-librespot.service"
 disable_system_unit spotifyd.service "Desktop uses the audio user's taptune-spotifyd.service"
 disable_system_unit raspotify.service "Desktop uses Spotifyd, not Raspotify"
 disable_system_unit bluealsa-aplay.service "PipeWire handles playback on Desktop"

@@ -27,7 +27,10 @@
   },
   'spotify': {
     'configured': 'Compte Spotify configuré.' if fr else 'Spotify account configured.',
-    'not_configured': 'Identifiant, secret et jeton Spotify requis.' if fr else 'Spotify client ID, secret and refresh token required.'
+    'not_configured': 'Identifiant, secret et jeton Spotify requis.' if fr else 'Spotify client ID, secret and refresh token required.',
+    'logged_in': 'Connecté à Spotify. Compte : ' if fr else 'Signed in to Spotify. Account: ',
+    'not_logged_in': 'Pas encore connecté. Sur un téléphone relié au même Wi-Fi, ouvrez Spotify → Appareils → ' if fr else 'Not signed in yet. On a phone on the same Wi-Fi, open Spotify → Devices → ',
+    'receiver_unavailable': 'Le récepteur Spotify ne répond pas. Lancez « taptune restart » puis « taptune status ». Récepteur : ' if fr else 'The Spotify receiver is not answering. Run “taptune restart”, then “taptune status”. Receiver: '
   }
 } %}
 <html lang="{{ locale }}">
@@ -35,6 +38,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{{ 'Configuration' if fr else 'Setup' }} · TapTune</title>
+  {% if steps | selectattr('reason', 'equalto', 'not_logged_in') | list %}<meta http-equiv="refresh" content="5">{% endif %}
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -62,6 +66,9 @@
         <li class="setup-step" data-step="{{ step.id }}" data-state="{{ step.state }}">
           <h2>{{ loop.index }}. {{ titles[step.id] }} — <span class="setup-state">{{ states[step.state] }}</span></h2>
           <p>{{ reasons[step.id][step.reason] }}{{ step.detail or '' }}</p>
+          {% if step.reason == 'not_logged_in' %}
+          <p class="music-caption">{{ 'Vous ne le faites qu’une fois : TapTune reste connecté après un redémarrage, sans téléphone. Cette page se met à jour toute seule. Si la connexion est perdue (mot de passe changé, accès retiré), choisissez à nouveau ' ~ step.detail ~ ' dans Spotify → Appareils.' if fr else 'You only do this once: TapTune stays signed in after a restart, with no phone. This page updates by itself. If the sign-in is lost (password changed, access removed), choose ' ~ step.detail ~ ' again in Spotify → Devices.' }}</p>
+          {% endif %}
         </li>
         {% endfor %}
       </ol>
@@ -108,7 +115,7 @@
         }
       } | tojson }}</script>
       <script src="{{ url_for('static', filename='setup-speaker.js') }}" defer></script>
-      {% if not complete %}
+      {% if not complete and not (steps | selectattr('reason', 'in', ['logged_in', 'not_logged_in', 'receiver_unavailable']) | list) %}
       <p class="music-caption">{{ 'Pour configurer Spotify, renseignez les identifiants SPOTIFY_* dans le fichier .env, puis redémarrez TapTune.' if fr else 'To set up Spotify, set the SPOTIFY_* credentials in .env, then restart TapTune.' }}</p>
       {% endif %}
       {% endif %}

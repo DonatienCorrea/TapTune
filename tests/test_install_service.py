@@ -149,3 +149,19 @@ class InstallServiceScriptTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GoLibrespotServiceTests(unittest.TestCase):
+    def test_lite_with_go_librespot_plays_through_the_users_pipewire(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory) / "TapTune"
+            shutil.copytree(REPO_ROOT / "systemd", repo / "systemd")
+            (repo / ".env").write_text("SPOTIFY_RECEIVER=go-librespot\n")
+            result = subprocess.run(
+                ["bash", str(repo / "systemd" / "install-service.sh"), "--lite", "--dry-run"],
+                capture_output=True, text=True, check=True,
+            )
+        self.assertIn("# desktop setup:", result.stdout)
+        self.assertRegex(result.stdout, r"\nEnvironment=DESKTOP_AUDIO_USER=[a-z_][a-z0-9_-]*\n")
+        self.assertNotIn("raspotify", result.stdout)
+        self.assertNotIn("bluealsa", result.stdout)

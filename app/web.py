@@ -5,7 +5,7 @@ from flask import Flask, jsonify, redirect, render_template, request, url_for
 
 from .config import settings
 from .db import get_tag_by_uid, list_tags, record_event, upsert_tag
-from .spotify_service import dispatch_tag_value, get_tag_type, is_live_spotify_configured
+from .spotify_service import dispatch_tag_value, get_tag_type, is_live_spotify_configured, is_playback_configured
 from . import spotify_service
 from .spotify_browser import browse_music
 from .tag_writer import TagWriter, WriterBusy
@@ -490,7 +490,7 @@ def create_app() -> Flask:
             reader is not None and reader.is_alive()
             and (not isinstance(reader_event, threading.Event) or reader_event.is_set())
         )
-        live = is_live_spotify_configured()
+        live = is_playback_configured()
         ready = bool(reader_ready and live)
         return jsonify({
             "status": "ready" if ready else "not_ready",

@@ -7,7 +7,8 @@ from typing import Callable, Dict, List, Optional
 
 from .bluetooth import BluetoothNotReady, speaker_mac
 from .config import BASE_DIR, settings
-from .spotify_service import is_live_spotify_configured
+from . import librespot
+from .spotify_service import is_live_spotify_configured, uses_librespot
 from .wifi_setup import HOTSPOT_SSID
 
 SERVICE_NAME = "raspi-spotify-nfc.service"
@@ -155,6 +156,15 @@ def bluetooth_status(runner: Callable = subprocess.run) -> dict:
 
 
 def spotify_status() -> dict:
+    if uses_librespot():
+        try:
+            current = librespot.status()
+        except Exception:  # noqa: BLE001 - any API failure means the receiver needs attention.
+            return {"id": "spotify", "state": "attention", "reason": "receiver_unavailable",
+                    "detail": settings.SPOTIFY_DEVICE_NAME}
+        if current is None:
+            return {"id": "spotify", "state": "todo", "reason": "not_logged_in", "detail": settings.SPOTIFY_DEVICE_NAME}
+        return {"id": "spotify", "state": "done", "reason": "logged_in", "detail": current.get("username") or ""}
     if is_live_spotify_configured():
         return {"id": "spotify", "state": "done", "reason": "configured"}
     return {"id": "spotify", "state": "todo", "reason": "not_configured"}
@@ -168,9 +178,16 @@ def _marker_path() -> Path:
     return Path(settings.DATABASE_PATH).parent / "setup_complete"
 
 
+def librespot_credentials_saved() -> bool:
+    """go-librespot keeps the zeroconf sign-in in the audio user's config (TapTune itself runs as root)."""
+    home = Path(os.path.expanduser("~" + settings.DESKTOP_AUDIO_USER)) if settings.DESKTOP_AUDIO_USER else Path.home()
+    return (home / ".config" / "go-librespot" / "credentials.json").is_file()
+
+
 def configured_manually() -> bool:
-    """Existing installs (credentials and speaker already in .env) skip onboarding."""
-    return bool(is_live_spotify_configured() and settings.BLUETOOTH_SPEAKER_MAC.strip())
+    """Existing installs (Spotify sign-in and speaker already set up) skip onboarding."""
+    signed_in = is_live_spotify_configured() or (uses_librespot() and librespot_credentials_saved())
+    return bool(signed_in and settings.BLUETOOTH_SPEAKER_MAC.strip())
 
 
 def mark_complete() -> None:

@@ -345,3 +345,65 @@ class DesktopInstallerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GoLibrespotInstallerTests(unittest.TestCase):
+    """SPOTIFY_RECEIVER=go-librespot switches both editions to go-librespot over PipeWire."""
+
+    def dry_run(self, installer, env_text):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory) / "TapTune"
+            shutil.copytree(REPO_ROOT / "systemd", repo / "systemd")
+            (repo / ".env").write_text(env_text)
+            env = dict(os.environ)
+            env.pop("XDG_CONFIG_HOME", None)
+            return subprocess.run(
+                ["bash", str(repo / "systemd" / installer), "--dry-run"],
+                env=env, capture_output=True, text=True,
+            )
+
+    def test_both_editions_install_go_librespot_with_a_persistent_zeroconf_login(self):
+        env_text = ("SPOTIFY_RECEIVER=go-librespot\nSPOTIFY_DEVICE_NAME='Salon TapTune'\n"
+                    "BLUETOOTH_SPEAKER_MAC=12:34:56:78:90:AB\nSPOTIFY_INITIAL_VOLUME=25\n")
+        for installer in ("install-speaker.sh", "install-desktop-speaker.sh", "install-go-librespot.sh"):
+            with self.subTest(installer=installer):
+                result = self.dry_run(installer, env_text)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                out = result.stdout
+                self.assertIn("go-librespot/releases/download/v0.10.7/", out)
+                for line in ('device_name: "Salon TapTune"', "audio_backend: pulseaudio",
+                             "initial_volume: 25", "persist_credentials: true",
+                             "address: 127.0.0.1", "port: 3678", "zeroconf_backend: avahi"):
+                    self.assertIn(line, out)
+                self.assertIn("pipewire-pulse", out)
+                self.assertIn("enable-linger", out)
+                self.assertIn("bluetoothctl trust 12:34:56:78:90:AB", out)
+                for stopped in ("systemctl disable --now raspotify.service",
+                                "systemctl --user disable --now taptune-spotifyd.service",
+                                "systemctl disable --now bluealsa.service"):
+                    self.assertIn(stopped, out)
+                self.assertLess(out.index("disable --now raspotify.service"),
+                                out.index("restart taptune-go-librespot.service"))
+                self.assertNotIn("raspotify/install.sh", out)
+                self.assertNotIn("bluez-alsa-utils", out)
+
+    def test_legacy_installers_stop_go_librespot(self):
+        for installer in ("install-speaker.sh", "install-desktop-speaker.sh"):
+            with self.subTest(installer=installer):
+                result = self.dry_run(installer, "BLUETOOTH_SPEAKER_MAC=12:34:56:78:90:AB\n")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("systemctl --user disable --now taptune-go-librespot.service", result.stdout)
+                self.assertNotIn("go-librespot/releases", result.stdout)
+
+    def test_rejects_device_name_that_would_break_the_config(self):
+        result = self.dry_run("install-go-librespot.sh",
+                              'SPOTIFY_DEVICE_NAME=Bad"Name\nBLUETOOTH_SPEAKER_MAC=12:34:56:78:90:AB\n')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("SPOTIFY_DEVICE_NAME", result.stderr)
+        self.assertNotIn("apt-get", result.stdout)
+
+    def test_unit_runs_go_librespot_from_the_user_config_and_always_restarts(self):
+        unit = (REPO_ROOT / "systemd" / "taptune-go-librespot.user.service").read_text()
+        self.assertIn('ExecStart=/usr/local/bin/go-librespot --config_dir "%h/.config/go-librespot"', unit)
+        self.assertIn("Restart=always", unit)
+        self.assertIn("StartLimitIntervalSec=0", unit)

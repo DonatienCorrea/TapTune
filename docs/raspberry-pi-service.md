@@ -3,9 +3,11 @@
 [Documentation index](README.md)
 
 **This is the start-to-finish installation checklist.** Use Raspberry Pi OS
-**Lite** for the shortest standalone-player setup. Use **Desktop** only if you
-need PipeWire and can install/authenticate Spotifyd. Pick one route and keep it
-throughout; do not run both audio stacks.
+**Lite** for the shortest standalone-player setup. New installs on Lite and
+Desktop use the [go-librespot receiver](spotify-receiver.md) with PipeWire: you
+pair the speaker, then choose TapTune once in the Spotify app. Steps below
+marked *legacy* apply only to existing Raspotify/Spotifyd installs
+(`SPOTIFY_RECEIVER` empty or `legacy`). Do not run two audio stacks.
 
 You need a networked Raspberry Pi, SSH or terminal access, Python 3.10+, a PN532
 in I2C mode, a compatible tag, a Bluetooth speaker, Spotify Premium and a Spotify
@@ -64,23 +66,25 @@ return here after each linked reference.
    enable I2C and reboot as described in [Hardware setup](hardware-setup.md).
    Run `.venv/bin/python -m app.pn532_diag --seconds 30` and obtain a reliable
    complete UID. Then set `NFC_READER_ENABLED=true` in `.env`.
-2. **Authorize TapTune's Spotify Web API client.** Follow
+2. **Spotify Web API client (optional with go-librespot).** Needed for the music
+   browser on the web page, and required for *legacy* receivers. Follow
    [Spotify authorization](spotify-authorization.md), including the SSH callback
    tunnel if needed. Fill in the client ID, secret and refresh token in `.env`.
    The dashboard redirect URI and `.env` must match **exactly**.
-3. **Prepare the selected speaker path.** On **Lite**, complete
+3. **Pair the speaker.** Complete
    [speaker pairing](speaker-setup.md#1-pair-the-bluetooth-speaker) and save its
-   MAC in `.env`; the next checklist step installs the receiver. On **Desktop**,
-   complete [Desktop prerequisites](speaker-setup-desktop.md) through Spotifyd
-   authentication and audio packages, but do not install services separately.
+   MAC in `.env`; the next checklist step installs the receiver. For a *legacy*
+   **Desktop** install, also complete [Desktop prerequisites](speaker-setup-desktop.md)
+   through Spotifyd authentication, but do not install services separately.
 4. **Review `.env`.** Keep `SPOTIFY_DEVICE_NAME=TapTune` consistent with the
    receiver name, `SPOTIFY_INITIAL_VOLUME=10` for a safe starting level, and
    `DATABASE_PATH=./data/raspi_spotify_nfc.db` unless intentionally relocating
    the database. Set your real `BLUETOOTH_SPEAKER_MAC`.
 
-The two Spotify authorizations are different: the Web API token controls
-playback; Raspotify/Spotifyd must also log into **the same account** to receive
-audio. On Lite the receiver login happens just after its installation below.
+With go-librespot, the receiver login is simply choosing TapTune once in the
+Spotify app, just after installation below. With *legacy* receivers, the two
+Spotify authorizations are different: the Web API token controls playback;
+Raspotify/Spotifyd must also log into **the same account** to receive audio.
 
 ## Configure and start services
 
@@ -98,6 +102,14 @@ prove wiring or detect whether Spotifyd's cached account is correct.
 The command runs the matching speaker installer, then installs and restarts the
 TapTune unit with the correct mode. It invokes `sudo` only for system changes.
 **Do not run another service installer afterwards.**
+
+With go-librespot (new installs), both editions install go-librespot, PipeWire
+and WirePlumber for the audio user, and stop Raspotify, Spotifyd and BlueALSA.
+Then open Spotify on a phone on the same Wi-Fi, tap **Devices** and choose
+**TapTune** once. The `/setup` page shows when the Pi is signed in. See
+[Spotify receiver](spotify-receiver.md).
+
+The rest of this section describes the *legacy* receivers.
 
 Lite installs BlueALSA plus the managed Raspotify package. Its installer may
 download and execute the upstream Raspotify installer from
@@ -274,6 +286,10 @@ current checkout, `--skip-tests` to intentionally bypass tests, and
 `taptune --dry-run update` to preview. If upgrading an old installation without
 the linked command, run `git pull --ff-only` and `./taptune update` from its
 checkout. Do not use a new clone or recopy `.env.example` over your live `.env`.
+
+`taptune update` keeps the receiver you already have. To move an existing
+Raspotify/Spotifyd install to go-librespot, or back, follow
+[Move an existing install](spotify-receiver.md#move-an-existing-install).
 
 Keep a separate secure backup before changing audio stacks or restoring data.
 If update fails, it reports the failed step and stops; there is no automatic
