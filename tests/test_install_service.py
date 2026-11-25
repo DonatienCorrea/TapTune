@@ -76,9 +76,14 @@ class InstallServiceScriptTests(unittest.TestCase):
                 self.assertNotIn("DESKTOP_AUDIO_USER", result.stdout)
 
     def test_lite_orders_the_app_after_its_receiver(self):
-        result = subprocess.run(
-            ["bash", str(SCRIPT_PATH), "--lite", "--dry-run"], capture_output=True, text=True, check=True,
-        )
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            shutil.copytree(REPO_ROOT / "systemd", repo / "systemd")
+            (repo / ".env").write_text("SPOTIFY_RECEIVER=legacy\n")
+            result = subprocess.run(
+                ["bash", str(repo / "systemd/install-service.sh"), "--lite", "--dry-run"],
+                capture_output=True, text=True, check=True,
+            )
         self.assertIn("Wants=network-online.target raspotify.service\n", result.stdout)
         self.assertIn("After=network-online.target bluetooth.service bluealsa.service raspotify.service\n", result.stdout)
         self.assertNotIn("DESKTOP_AUDIO_USER", result.stdout)

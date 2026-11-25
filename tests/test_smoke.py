@@ -22,6 +22,7 @@ class SmokeTests(unittest.TestCase):
         config.settings.DATABASE_PATH = self.database_path
         spotify_credentials = patch.multiple(
             config.settings,
+            SPOTIFY_RECEIVER="legacy",
             SPOTIFY_CLIENT_ID="",
             SPOTIFY_CLIENT_SECRET="",
             SPOTIFY_REFRESH_TOKEN="",

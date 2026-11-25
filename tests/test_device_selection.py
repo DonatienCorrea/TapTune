@@ -46,7 +46,7 @@ class DeviceSelectionTests(unittest.TestCase):
         delay = patch.object(spotify_service, "RETRY_DELAY_SECONDS", 0)
         delay.start()
         self.addCleanup(delay.stop)
-        patcher = patch.object(config.settings, "SPOTIFY_DEVICE_NAME", "TapTune")
+        patcher = patch.multiple(config.settings, SPOTIFY_RECEIVER="legacy", SPOTIFY_DEVICE_NAME="TapTune")
         patcher.start()
         self.addCleanup(patcher.stop)
         live_spotify = patch.object(spotify_service, "is_live_spotify_configured", return_value=False)

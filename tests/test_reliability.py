@@ -21,6 +21,7 @@ class SpotifyRetryTests(unittest.TestCase):
     def setUp(self):
         patcher = patch.multiple(
             config.settings, SPOTIFY_CLIENT_ID="id", SPOTIFY_CLIENT_SECRET="secret",
+            SPOTIFY_RECEIVER="legacy",
             SPOTIFY_REFRESH_TOKEN="token", BLUETOOTH_SPEAKER_MAC="",
         )
         patcher.start()

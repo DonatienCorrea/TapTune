@@ -258,6 +258,7 @@ class TagReconnectTests(unittest.TestCase):
     def setUp(self):
         patcher = patch.multiple(
             config.settings, SPOTIFY_DEVICE_NAME="TapTune", BLUETOOTH_SPEAKER_MAC=MAC,
+            SPOTIFY_RECEIVER="legacy",
             SPOTIFY_CLIENT_ID="id", SPOTIFY_CLIENT_SECRET="secret", SPOTIFY_REFRESH_TOKEN="token",
         )
         patcher.start()
