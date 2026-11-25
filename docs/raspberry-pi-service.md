@@ -307,3 +307,20 @@ taptune restart
 Never overwrite a custom `DATABASE_PATH` with this default-path example.
 Restore `.env` only from a trusted backup, keep mode `600`, and reconfigure if
 restoring audio settings. Repeat the no-login cold-boot check after updates.
+
+## Reset for a new owner or place
+
+```bash
+taptune reset
+```
+
+Makes TapTune behave like a freshly installed Pi, for example before giving it
+away or moving it. After you type `reset` to confirm, it backs up `.env` and the
+tags, signs the Pi out of Spotify (go-librespot), unpairs the Bluetooth speaker,
+forgets every saved Wi-Fi network and reopens the setup wizard. Your tags and
+the optional Spotify Developer settings in `.env` are always kept.
+
+Forgetting Wi-Fi disconnects an SSH session over Wi-Fi; the reset finishes on
+its own. About a minute later the Pi opens the `TapTune-Setup` Wi-Fi: join it
+from a phone to set TapTune up again. Over Ethernet, open
+`http://<hostname>.local/setup` instead.

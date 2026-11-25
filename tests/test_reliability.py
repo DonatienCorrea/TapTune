@@ -245,5 +245,66 @@ class TaptuneCliTests(unittest.TestCase):
         self.assertIn("unknown command", result.stderr)
 
 
+class TaptuneResetTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.repo = Path(temporary.name)
+        shutil.copy2(CLI, self.repo / "taptune")
+        (self.repo / "systemd").mkdir()
+        shutil.copy2(SYSTEMD / "install-common.sh", self.repo / "systemd")
+        (self.repo / ".env").write_text("SPOTIFY_RECEIVER=go-librespot\nBLUETOOTH_SPEAKER_MAC=AA:BB:CC:DD:EE:FF\n")
+        bin_dir = self.repo / "bin"
+        bin_dir.mkdir()
+        hotspot = "bed69db1-17dc-419b-bbac-3eff35e29389"
+        (bin_dir / "nmcli").write_text(
+            "#!/bin/sh\nprintf '%s\\n' "
+            f"'{hotspot}:802-11-wireless' 'aaaa-1111:802-11-wireless' 'eeee-0000:802-3-ethernet' "
+            "'bbbb-2222:802-11-wireless'\n"
+        )
+        (bin_dir / "nmcli").chmod(0o755)
+        for tool in ("systemctl", "bluetoothctl"):
+            (bin_dir / tool).write_text("#!/bin/sh\nexit 0\n")
+            (bin_dir / tool).chmod(0o755)
+        self.env = dict(os.environ, PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}", HOME=str(self.repo))
+        self.env.pop("XDG_CONFIG_HOME", None)
+
+    def reset(self, *flags, dry_run=True):
+        args = ["bash", str(self.repo / "taptune"), *(["--dry-run"] if dry_run else []), "--desktop", "reset", *flags]
+        return subprocess.run(args, env=self.env, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+
+    def test_reset_signs_out_forgets_speaker_and_wifi_but_keeps_tags(self):
+        result = self.reset()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        out = result.stdout
+        steps = [
+            "env.", "systemctl stop raspi-spotify-nfc.service", "go-librespot/credentials.json",
+            "bluetoothctl remove AA:BB:CC:DD:EE:FF", "write_env", "data/setup_complete", "nmcli\\ connection\\ delete",
+        ]
+        positions = [out.index(step) for step in steps]
+        self.assertEqual(positions, sorted(positions))
+        wifi = out[positions[-1]:]
+        for uuid in ("aaaa-1111", "bbbb-2222"):
+            self.assertIn(f"nmcli\\ connection\\ delete\\ uuid\\ {uuid}", wifi)
+        for kept in ("bed69db1-17dc-419b-bbac-3eff35e29389", "eeee-0000"):
+            self.assertNotIn(kept, wifi)
+        self.assertIn("systemctl\\ start\\ raspi-spotify-nfc.service", wifi)
+        self.assertNotIn("raspi_spotify_nfc.db", out)
+
+    def test_hotspot_uuid_matches_the_app(self):
+        from app.wifi_setup import HOTSPOT_UUID
+        self.assertIn(f'HOTSPOT_UUID="{HOTSPOT_UUID}"', CLI.read_text())
+
+    def test_reset_without_confirmation_changes_nothing(self):
+        result = self.reset(dry_run=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("confirm", result.stderr)
+        self.assertFalse((self.repo / "data").exists())
+        self.assertIn("BLUETOOTH_SPEAKER_MAC=AA:BB:CC:DD:EE:FF", (self.repo / ".env").read_text())
+
+    def test_reset_takes_no_options(self):
+        self.assertIn("takes no options", self.reset("--wipe-tags").stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
