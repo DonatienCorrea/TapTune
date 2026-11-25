@@ -39,6 +39,49 @@ _volume_lock = threading.Lock()
 logger = logging.getLogger(__name__)
 
 SPOTIFY_REQUEST_TIMEOUT_SECONDS = 10
+# Spotify limits Web API calls made with go-librespot's token. Remember the
+# limit so nothing calls again during the wait, which only extends it.
+DEFAULT_RATE_LIMIT_SECONDS = 30
+LATEST_EPISODE_CACHE_SECONDS = 600
+_rate_limited_until = 0.0
+_latest_episodes: dict = {}
+_web_api_lock = threading.Lock()
+
+
+class RateLimited(Exception):
+    def __init__(self, seconds: float):
+        super().__init__(f"Spotify asked to wait {int(seconds)} s")
+        self.seconds = max(1, int(seconds))
+
+
+def rate_limit_remaining() -> float:
+    return max(0.0, _rate_limited_until - time.monotonic())
+
+
+def check_rate_limit() -> None:
+    remaining = rate_limit_remaining()
+    if remaining > 0:
+        raise RateLimited(remaining)
+
+
+def note_rate_limit(error: Exception) -> Optional[int]:
+    """Start the cooldown when `error` is Spotify's 429; return its length."""
+    global _rate_limited_until
+    if not (SpotifyException and isinstance(error, SpotifyException) and error.http_status == 429):
+        return None
+    retry = str((error.headers or {}).get("Retry-After") or "")
+    seconds = int(retry) if retry.isdigit() else DEFAULT_RATE_LIMIT_SECONDS
+    with _web_api_lock:
+        _rate_limited_until = max(_rate_limited_until, time.monotonic() + seconds)
+    logger.warning("Spotify asked to wait %s s before more Web API calls.", seconds)
+    return seconds
+
+
+def clear_web_api_state() -> None:
+    global _rate_limited_until
+    with _web_api_lock:
+        _rate_limited_until = 0.0
+        _latest_episodes.clear()
 SPOTIFY_SCOPES = (
     "user-modify-playback-state user-read-playback-state "
     "user-library-read playlist-read-private playlist-read-collaborative "
@@ -191,7 +234,12 @@ def build_receiver_spotify_client() -> Any:
         raise librespot.NotLoggedIn("no Spotify access token from go-librespot")
     if Spotify is None:
         raise RuntimeError("Spotify support requires the 'spotipy' dependency.")
-    return Spotify(auth=access_token, requests_timeout=SPOTIFY_REQUEST_TIMEOUT_SECONDS)
+    # Spotify can answer 429 with a Retry-After of minutes or hours; spotipy's
+    # default retries would sleep through it and leave the music page hanging.
+    return Spotify(
+        auth=access_token, requests_timeout=SPOTIFY_REQUEST_TIMEOUT_SECONDS,
+        status_forcelist=(500, 502, 503, 504),
+    )
 
 
 def build_web_api_client() -> Any:
@@ -622,16 +670,27 @@ def _librespot_command(device: dict, endpoint: str, **fields) -> dict:
 
 def _librespot_latest_episode(show_id: str) -> Optional[dict]:
     """Latest episode via the Web API: developer credentials if set, then go-librespot's session token."""
+    cached = _latest_episodes.get(show_id)
+    if cached and time.monotonic() - cached[0] < LATEST_EPISODE_CACHE_SECONDS:
+        return cached[1]
     sources = [("go-librespot token", build_receiver_spotify_client)]
     if is_live_spotify_configured():
         sources.insert(0, ("developer credentials", build_spotify_client))
     errors = []
     for label, make_client in sources:
         try:
-            return _latest_episode(make_client(), show_id)
+            if make_client is build_receiver_spotify_client:
+                check_rate_limit()
+            episode = _latest_episode(make_client(), show_id)
         except Exception as error:  # noqa: BLE001 - try the next Web API source.
+            if make_client is build_receiver_spotify_client:
+                note_rate_limit(error)
             logger.info("Latest-episode lookup with %s failed: %s", label, error)
             errors.append(f"{label}: {error}")
+            continue
+        with _web_api_lock:
+            _latest_episodes[show_id] = (time.monotonic(), episode)
+        return episode
     raise RuntimeError("; ".join(errors))
 
 

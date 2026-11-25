@@ -1,5 +1,6 @@
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -22,6 +23,10 @@ def album(identifier="abc", name="Album"):
 
 class SpotifyBrowserTests(unittest.TestCase):
     def setUp(self):
+        spotify_browser.clear_cache()
+        spotify_service.clear_web_api_state()
+        self.addCleanup(spotify_browser.clear_cache)
+        self.addCleanup(spotify_service.clear_web_api_state)
         self.spotify = Mock()
         self.patches = [
             patch.object(spotify_browser, "is_web_api_configured", return_value=True),
@@ -30,6 +35,14 @@ class SpotifyBrowserTests(unittest.TestCase):
         for patcher in self.patches:
             patcher.start()
             self.addCleanup(patcher.stop)
+
+    def test_repeated_requests_reuse_the_recent_answer(self):
+        self.spotify.current_user_playlists.return_value = {"items": [], "next": None}
+        spotify_browser.browse_music("playlists")
+        spotify_browser.browse_music("playlists")
+        self.spotify.current_user_playlists.assert_called_once()
+        spotify_browser.browse_music("playlists", offset=20)
+        self.assertEqual(self.spotify.current_user_playlists.call_count, 2)
 
     def test_saved_albums_are_normalized_and_paginated(self):
         self.spotify.current_user_saved_albums.return_value = {
@@ -151,6 +164,10 @@ class SpotifyBrowserTests(unittest.TestCase):
 
 class MusicWebTests(unittest.TestCase):
     def setUp(self):
+        spotify_browser.clear_cache()
+        spotify_service.clear_web_api_state()
+        self.addCleanup(spotify_browser.clear_cache)
+        self.addCleanup(spotify_service.clear_web_api_state)
         skip_setup = patch.object(config.settings, "SETUP_SKIP", True)
         skip_setup.start()
         self.addCleanup(skip_setup.stop)
@@ -265,6 +282,27 @@ class MusicWebTests(unittest.TestCase):
             response = self.client.get("/api/music")
         self.assertEqual(response.status_code, 429)
         self.assertEqual(response.headers["Retry-After"], "10")
+
+    def test_rate_limit_waits_without_calling_spotify_again(self):
+        spotify = Mock()
+        spotify.current_user_saved_albums.side_effect = SpotifyException(
+            429, -1, "limit", headers={"Retry-After": "3600"})
+        with patch.object(spotify_browser, "is_web_api_configured", return_value=True), \
+                patch.object(spotify_browser, "build_web_api_client", return_value=spotify):
+            self.assertEqual(self.client.get("/api/music").status_code, 429)
+            response = self.client.get("/api/music?collection=playlists")
+            self.assertEqual(response.status_code, 429)
+            self.assertEqual(response.json, {"error": "spotify_rate_limit"})
+            self.assertLessEqual(int(response.headers["Retry-After"]), 3600)
+            spotify.current_user_playlists.assert_not_called()
+            spotify.current_user_playlists.return_value = {"items": [], "next": None}
+            with patch("app.spotify_service.time.monotonic", return_value=time.monotonic() + 3601):
+                self.assertEqual(self.client.get("/api/music?collection=playlists").status_code, 200)
+
+    def test_receiver_client_does_not_sleep_through_rate_limits(self):
+        with patch.object(spotify_service.librespot, "token", return_value="token"):
+            client = spotify_service.build_receiver_spotify_client()
+        self.assertNotIn(429, client.status_forcelist)
 
     def test_writer_requires_running_initialized_reader(self):
         response = self.client.post("/api/tag-writes", json={"value": "spotify:album:abc"})

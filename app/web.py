@@ -300,6 +300,11 @@ def create_app() -> Flask:
     def api_error(code, status):
         return api_response({"error": code}, status)
 
+    def rate_limit_response(seconds):
+        response = api_error("spotify_rate_limit", 429)
+        response.headers["Retry-After"] = str(max(1, int(seconds)))
+        return response
+
     @app.get("/api/music")
     def music():
         try:
@@ -311,6 +316,8 @@ def create_app() -> Flask:
             )
         except ValueError:
             return api_error("invalid_music_request", 400)
+        except spotify_service.RateLimited as error:
+            return rate_limit_response(error.seconds)
         except spotify_service.NotLoggedIn:
             app.logger.warning("Spotify browsing needs the Pi to be signed in to Spotify (go-librespot).")
             return api_error("spotify_not_signed_in", 409)
@@ -326,11 +333,7 @@ def create_app() -> Flask:
                 if status == 403:
                     return api_error("spotify_permissions", 403)
                 if status == 429:
-                    response = api_error("spotify_rate_limit", 429)
-                    retry = (error.headers or {}).get("Retry-After")
-                    if retry and str(retry).isdigit():
-                        response.headers["Retry-After"] = str(retry)
-                    return response
+                    return rate_limit_response(spotify_service.note_rate_limit(error))
             elif spotify_service.SpotifyOauthError and isinstance(error, spotify_service.SpotifyOauthError):
                 app.logger.warning("Spotify browsing authorization failed.")
                 return api_error("spotify_auth_error", 403)
