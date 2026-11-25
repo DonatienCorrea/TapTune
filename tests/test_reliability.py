@@ -142,6 +142,25 @@ class TaptuneCliTests(unittest.TestCase):
                 self.assertNotIn("taptune-bluetooth", out)
                 self.assertNotIn("taptune-ready-sound", out)
 
+    def test_go_librespot_restart_and_logs_use_its_user_unit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory) / "TapTune"
+            shutil.copytree(SYSTEMD, repo / "systemd")
+            shutil.copy2(CLI, repo / "taptune")
+            (repo / ".env").write_text("SPOTIFY_RECEIVER=go-librespot\n")
+            env = dict(os.environ)
+            env.pop("XDG_CONFIG_HOME", None)
+            for mode in ("--lite", "--desktop"):
+                with self.subTest(mode=mode):
+                    out = subprocess.run(["bash", str(repo / "taptune"), "--dry-run", mode, "restart"],
+                                         capture_output=True, text=True, check=True, env=env).stdout
+                    self.assertIn("systemctl --user restart wireplumber.service taptune-go-librespot.service", out)
+                    self.assertNotIn("raspotify", out)
+                    self.assertNotIn("taptune-spotifyd", out)
+            out = subprocess.run(["bash", str(repo / "taptune"), "--dry-run", "logs"],
+                                 capture_output=True, text=True, check=True, env=env).stdout
+            self.assertIn("_SYSTEMD_USER_UNIT=taptune-go-librespot.service", out)
+
     def test_restart_and_update_fail_when_the_app_never_answers(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -112,8 +112,10 @@ fi
 
     def test_prepare_lite_creates_private_env_without_services(self):
         self.run_install("--lite")
-        self.assertEqual((self.root / ".env").read_bytes(),
-                         (self.root / ".env.example").read_bytes())
+        example = (self.root / ".env.example").read_text()
+        self.assertIn("\nSPOTIFY_RECEIVER=\n", example)
+        self.assertEqual((self.root / ".env").read_text(),
+                         example.replace("\nSPOTIFY_RECEIVER=\n", "\nSPOTIFY_RECEIVER=go-librespot\n"))
         self.assertEqual(stat.S_IMODE((self.root / ".env").stat().st_mode), 0o600)
         self.assertIn("requirements-pi.txt", self.commands())
         self.assertNotIn("install-speaker.sh", self.commands())
@@ -133,6 +135,7 @@ fi
     def test_app_only_preparation_skips_hardware_packages(self):
         self.env["TEST_OS"] = "Darwin"
         self.run_install("--app-only")
+        self.assertEqual((self.root / ".env").read_bytes(), (self.root / ".env.example").read_bytes())
         self.assertIn("requirements.txt", self.commands())
         self.assertNotIn("requirements-pi.txt", self.commands())
 
@@ -212,6 +215,20 @@ fi
         self.live_config(NFC_READER_ENABLED="false", BLUETOOTH_SPEAKER_MAC="")
         self.run_install("--app-only", "--configure")
         self.assertEqual(self.commands(), "install-service.sh --app-only\n")
+
+    def test_configure_go_librespot_needs_no_spotify_developer_app(self):
+        self.live_config(SPOTIFY_RECEIVER="go-librespot", SPOTIFY_CLIENT_ID="",
+                         SPOTIFY_CLIENT_SECRET="", SPOTIFY_REFRESH_TOKEN="")
+        result = self.run_install("--desktop", "--configure")
+        self.assertEqual(self.commands(), "install-desktop-speaker.sh \ninstall-service.sh --desktop\n")
+        self.assertIn("choose TapTune once", result.stdout)
+
+    def test_configure_rejects_go_librespot_without_a_local_speaker(self):
+        self.live_config(SPOTIFY_RECEIVER="go-librespot")
+        self.assertIn("--lite or --desktop", self.run_install("--app-only", "--configure", ok=False).stderr)
+        self.live_config(SPOTIFY_RECEIVER="librespot")
+        self.assertIn("go-librespot or legacy", self.run_install("--lite", "--configure", ok=False).stderr)
+        self.assertEqual(self.commands(), "")
 
     def test_failed_dependency_install_stops_without_creating_env(self):
         self.executable(Path(self.env["MOCK_PYTHON"]), '''

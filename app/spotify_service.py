@@ -25,6 +25,8 @@ except ModuleNotFoundError:  # pragma: no cover - requests ships with spotipy.
 
 from .config import settings
 from .bluetooth import BluetoothNotReady, prepare_speaker
+from . import librespot
+from .librespot import LibrespotError, LibrespotUnavailable, NotLoggedIn
 
 SPOTIFY_URI_PATTERN = re.compile(r"^spotify:(track|playlist|album|show):([A-Za-z0-9]+)$")
 SPOTIFY_EPISODE_URI_PATTERN = re.compile(r"^spotify:episode:[A-Za-z0-9]+$")
@@ -164,7 +166,17 @@ def _refresh_token_with_retries(auth_manager: Any, sleep=time.sleep) -> None:
 
 
 def is_live_spotify_configured() -> bool:
+    """Whether Spotify Web API developer credentials are set (legacy playback, music browser)."""
     return bool(settings.SPOTIFY_CLIENT_ID and settings.SPOTIFY_CLIENT_SECRET and settings.SPOTIFY_REFRESH_TOKEN)
+
+
+def uses_librespot() -> bool:
+    return settings.SPOTIFY_RECEIVER == "go-librespot"
+
+
+def is_playback_configured() -> bool:
+    """Whether tags really play: through go-librespot, or through the Web API (legacy)."""
+    return uses_librespot() or is_live_spotify_configured()
 
 
 def get_tag_type(value: str) -> Optional[str]:
@@ -253,7 +265,8 @@ def _speaker_not_ready_response() -> dict:
         "device_name": settings.SPOTIFY_DEVICE_NAME,
         "message": (
             f"The '{settings.SPOTIFY_DEVICE_NAME}' speaker is not ready yet. Check that the "
-            "Raspberry Pi is connected to the network and that Spotifyd or Raspotify is running, then try again."
+            "Raspberry Pi is connected to the network and that its Spotify receiver "
+            "(go-librespot, Spotifyd or Raspotify) is running, then try again."
         ),
     }
 
@@ -296,8 +309,24 @@ def _handle_error(error: Exception) -> dict:
 def _error_response(error: Exception) -> dict:
     if isinstance(error, BluetoothNotReady):
         return {"status": "error", "error": "bluetooth_not_ready", "message": str(error)}
-    if isinstance(error, SpeakerNotReady):
+    if isinstance(error, (SpeakerNotReady, LibrespotUnavailable)):
         return _speaker_not_ready_response()
+    if isinstance(error, NotLoggedIn):
+        return {
+            "status": "error",
+            "error": "spotify_not_logged_in",
+            "message": (
+                f"The '{settings.SPOTIFY_DEVICE_NAME}' speaker is not signed in to Spotify. Open Spotify on a "
+                f"phone on the same network, tap Devices and choose {settings.SPOTIFY_DEVICE_NAME} once."
+            ),
+        }
+    if isinstance(error, LibrespotError):
+        return {
+            "status": "error",
+            "error": "spotify_api_error",
+            "http_status": error.status,
+            "message": str(error),
+        }
     if SpotifyException is not None and isinstance(error, SpotifyException):
         return _spotify_error_response(error)
     if SpotifyOauthError is not None and isinstance(error, SpotifyOauthError):
@@ -339,6 +368,8 @@ def play_content(uri: str, position_ms: int = 0) -> dict:
         return {"status": "unsupported_uri", "uri": uri}
     if isinstance(position_ms, bool) or not isinstance(position_ms, int) or position_ms < 0:
         return {"status": "invalid_position", "position_ms": position_ms}
+    if uses_librespot():
+        return _librespot_call(_librespot_play, match.group(1), match.group(2), uri, position_ms)
 
     try:
         spotify = build_spotify_client()
@@ -422,6 +453,8 @@ def _resume(spotify: Any, current: Optional[dict], device_id: Optional[str]) -> 
 
 
 def toggle_playback() -> dict:
+    if uses_librespot():
+        return _librespot_call(_librespot_toggle)
     try:
         spotify = build_spotify_client()
         current = spotify.current_playback()
@@ -441,6 +474,8 @@ def toggle_playback() -> dict:
 
 
 def next_track() -> dict:
+    if uses_librespot():
+        return _librespot_call(_librespot_next)
     try:
         spotify = build_spotify_client()
         current = spotify.current_playback()
@@ -461,7 +496,7 @@ def _prepare_local_speaker(current: Optional[dict]) -> None:
     Pause, next and volume never reconnect: a speaker that went to sleep while
     nothing played is only woken when music should come out of it.
     """
-    if not is_live_spotify_configured() or not settings.BLUETOOTH_SPEAKER_MAC:
+    if not is_playback_configured() or not settings.BLUETOOTH_SPEAKER_MAC:
         return
     device = (current or {}).get("device") or {}
     local_name = settings.SPOTIFY_DEVICE_NAME.casefold()
@@ -492,6 +527,8 @@ def _remember_volume(device_id: str, base: int, new_volume: int) -> None:
 
 
 def change_volume(step: int) -> dict:
+    if uses_librespot():
+        return _librespot_call(_librespot_volume, step)
     try:
         spotify = build_spotify_client()
         with _volume_lock:
@@ -522,6 +559,143 @@ def change_volume(step: int) -> dict:
             return result if isinstance(result, dict) else {"status": "ok", "volume_percent": new_volume}
     except Exception as error:  # noqa: BLE001 - use the same API error translation as playback.
         return _handle_error(error)
+
+
+# go-librespot receiver: everything goes through its local API. When another
+# Connect device (e.g. a phone) is the active one, commands are relayed to it, as
+# the Web API path does; otherwise they act on the Pi's own player.
+
+def _librespot_call(function, *args) -> dict:
+    try:
+        return function(*args)
+    except Exception as error:  # noqa: BLE001 - same translation as the Web API path.
+        return _handle_error(error)
+
+
+def _librespot_cluster() -> dict:
+    try:
+        return librespot.devices() or {}
+    except LibrespotError as error:
+        logger.warning("Could not read the Spotify Connect devices from go-librespot: %s", error)
+        return {}
+
+
+def _librespot_remote_active(cluster: dict) -> Optional[dict]:
+    active = cluster.get("active_device_id")
+    for device in cluster.get("devices") or []:
+        if active and device.get("id") == active and not device.get("is_self") and not device.get("is_offline"):
+            return device
+    return None
+
+
+def _librespot_self_id(cluster: dict) -> Optional[str]:
+    return next((device.get("id") for device in cluster.get("devices") or [] if device.get("is_self")), None)
+
+
+def _librespot_command(device: dict, endpoint: str, **fields) -> dict:
+    logger.info("Sending %s to the active Spotify device %s.", endpoint, device.get("name") or device["id"])
+    librespot.post("/connect/command", {"device_id": device["id"], "endpoint": endpoint, **fields})
+    return {"status": "ok", "mode": "go-librespot", "device": device.get("name") or device["id"]}
+
+
+def _librespot_latest_episode(show_id: str) -> Optional[dict]:
+    """Latest episode via the Web API: developer credentials if set, else go-librespot's session token."""
+    if is_live_spotify_configured():
+        return _latest_episode(build_spotify_client(), show_id)
+    access_token = librespot.token()
+    if not access_token or Spotify is None:
+        raise RuntimeError("no Spotify access token from go-librespot")
+    return _latest_episode(Spotify(auth=access_token, requests_timeout=SPOTIFY_REQUEST_TIMEOUT_SECONDS), show_id)
+
+
+def _librespot_play(kind: str, item_id: str, uri: str, position_ms: int) -> dict:
+    librespot.require_session()
+    body = {"uri": uri}
+    episode = None
+    if kind == "show":
+        try:
+            episode = _librespot_latest_episode(item_id)
+        except Exception as error:  # noqa: BLE001 - fall back to the show itself.
+            logger.warning("Latest-episode lookup failed (%s); playing the show from its start.", error)
+        else:
+            if episode is None:
+                return {
+                    "status": "error",
+                    "error": "show_no_episodes",
+                    "message": "No playable episodes were found for this Spotify show.",
+                }
+            body["skip_to_uri"] = episode["uri"]
+    remote = _librespot_remote_active(_librespot_cluster())
+    if remote is not None:
+        result = _librespot_command(remote, "play", **body)
+    else:
+        _prepare_local_speaker(None)
+        if position_ms:
+            body["position"] = position_ms
+        librespot.post("/player/play", body)
+        logger.info("Playing %s on %s.", body.get("skip_to_uri") or uri, settings.SPOTIFY_DEVICE_NAME)
+        result = {"status": "ok", "mode": "go-librespot", "device": settings.SPOTIFY_DEVICE_NAME}
+    if kind == "show" and episode is not None:
+        result.update(uri=episode["uri"], episode_name=episode.get("name") or episode["uri"])
+    return result
+
+
+def _librespot_toggle() -> dict:
+    cluster = _librespot_cluster()
+    remote = _librespot_remote_active(cluster)
+    if remote is not None:
+        playing = (cluster.get("now_playing") or {}).get("playing")
+        logger.info("Play/pause: %s.", "pausing" if playing else "resuming")
+        return _librespot_command(remote, "pause" if playing else "resume")
+    current = librespot.require_session()
+    if not current.get("stopped") and not current.get("paused"):
+        logger.info("Play/pause: pausing.")
+        librespot.post("/player/pause")
+    elif current.get("track"):
+        logger.info("Play/pause: resuming.")
+        _prepare_local_speaker(None)
+        librespot.post("/player/resume")
+    else:
+        # Nothing loaded on the Pi: pull the account's last playback onto it.
+        self_id = _librespot_self_id(cluster)
+        if self_id is None:
+            return {
+                "status": "error",
+                "error": "nothing_to_resume",
+                "message": "Nothing to resume yet. Tap a music tag first.",
+            }
+        logger.info("Play/pause: resuming the account's last playback on the Pi.")
+        _prepare_local_speaker(None)
+        librespot.post("/connect/transfer", {"device_id": self_id})
+    return {"status": "ok", "mode": "go-librespot", "device": settings.SPOTIFY_DEVICE_NAME}
+
+
+def _librespot_next() -> dict:
+    remote = _librespot_remote_active(_librespot_cluster())
+    if remote is not None:
+        return _librespot_command(remote, "skip_next")
+    librespot.require_session()
+    librespot.post("/player/next")
+    return {"status": "ok", "mode": "go-librespot", "device": settings.SPOTIFY_DEVICE_NAME}
+
+
+def _librespot_volume(step: int) -> dict:
+    with _volume_lock:
+        remote = _librespot_remote_active(_librespot_cluster())
+        if remote is not None:
+            volume = round((remote.get("volume") or 0) * 100 / 65535)
+            new_volume = max(0, min(100, volume + step))
+            _librespot_command(remote, "set_volume", volume=round(new_volume * 65535 / 100))
+            name = remote.get("name") or remote["id"]
+        else:
+            current = librespot.request("GET", "/player/volume") or {}
+            maximum = current.get("max") or 100
+            volume = round((current.get("value") or 0) * 100 / maximum)
+            new_volume = max(0, min(100, volume + step))
+            librespot.post("/player/volume", {"volume": round(new_volume * maximum / 100)})
+            name = settings.SPOTIFY_DEVICE_NAME
+        logger.info("Volume %d%% -> %d%% on device %s.", volume, new_volume, name)
+        return {"status": "ok", "mode": "go-librespot", "volume_percent": new_volume}
 
 
 def dispatch_tag_value(value: str) -> dict:

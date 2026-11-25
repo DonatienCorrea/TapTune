@@ -6,8 +6,8 @@ usage() {
 Usage: ./install.sh --lite|--desktop|--app-only [--configure] [--dry-run]
 
 Choose exactly one:
-  --lite       Raspberry Pi OS Lite: PN532 + BlueALSA/Raspotify
-  --desktop    Raspberry Pi OS Desktop: PN532 + PipeWire/Spotifyd
+  --lite       Raspberry Pi OS Lite: PN532 + PipeWire/go-librespot
+  --desktop    Raspberry Pi OS Desktop: PN532 + PipeWire/go-librespot
   --app-only   Base Python dependencies only; no local audio stack
 
 Without --configure: create/reuse .venv, install dependencies, and create a
@@ -18,8 +18,12 @@ private .env ONLY if absent. Never starts TapTune or changes system services.
   --dry-run    Print commands without writes, installs, sudo or service changes.
   --help       Show this help.
 
-Run as your normal user, NOT with sudo. Desktop must use the Spotifyd audio
-user. Preparation needs Python 3.10+, venv support and internet access.
+SPOTIFY_RECEIVER in .env picks the Spotify receiver: go-librespot (written into
+a new Lite/Desktop .env; sign in by choosing TapTune in the Spotify app) or
+legacy/empty (Raspotify on Lite, Spotifyd on Desktop; needs a Spotify developer app).
+
+Run as your normal user, NOT with sudo. It becomes the speaker's audio user
+(legacy Desktop: the Spotifyd user). Preparation needs Python 3.10+, venv support and internet access.
 Pi service configuration needs Linux/systemd and sudo access.
 Read docs/raspberry-pi-service.md for wiring, pairing and both Spotify logins.
 EOF
@@ -75,7 +79,14 @@ if [ "$CONFIGURE" -eq 0 ]; then
     if [ "$DRY_RUN" -eq 1 ]; then
       printf '# Create private .env from .env.example only if absent (umask 077).\n'
     else
-      (umask 077; set -o noclobber; cat "$REPO_DIR/.env.example" > "$REPO_DIR/.env")
+      # New Pi installs use go-librespot; app-only keeps the fake/Web API client.
+      if [ "$MODE" = "app-only" ]; then
+        (umask 077; set -o noclobber; cat "$REPO_DIR/.env.example" > "$REPO_DIR/.env")
+      else
+        (umask 077; set -o noclobber
+          sed 's/^SPOTIFY_RECEIVER=$/SPOTIFY_RECEIVER=go-librespot/' \
+            "$REPO_DIR/.env.example" > "$REPO_DIR/.env")
+      fi
       chmod 600 "$REPO_DIR/.env"
     fi
   else
@@ -111,7 +122,14 @@ path, mode = Path(sys.argv[1]), sys.argv[2]
 if stat.S_IMODE(path.stat().st_mode) & 0o077:
     raise SystemExit("error: .env is accessible to other users; run chmod 600 .env")
 values = dotenv_values(path)
-required = ["SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET", "SPOTIFY_REFRESH_TOKEN"]
+receiver = (values.get("SPOTIFY_RECEIVER") or "legacy").strip() or "legacy"
+if receiver not in {"legacy", "go-librespot"}:
+    raise SystemExit("error: SPOTIFY_RECEIVER must be go-librespot or legacy")
+if receiver == "go-librespot" and mode == "app-only":
+    raise SystemExit("error: SPOTIFY_RECEIVER=go-librespot needs --lite or --desktop; set it to legacy")
+required = []
+if receiver == "legacy":
+    required += ["SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET", "SPOTIFY_REFRESH_TOKEN"]
 if mode != "app-only":
     required += ["SPOTIFY_DEVICE_NAME", "BLUETOOTH_SPEAKER_MAC"]
 missing = [name for name in required if not (values.get(name) or "").strip()]
@@ -130,7 +148,7 @@ PY
     printf '%s\n' "$SPEAKER_INFO" | grep -Eq 'Paired: yes' || die "pair the Bluetooth speaker first"
     printf '%s\n' "$SPEAKER_INFO" | grep -Eq 'Trusted: yes' || die "trust the Bluetooth speaker first"
   fi
-  if [ "$MODE" = desktop ]; then
+  if [ "$MODE" = desktop ] && [ "$(env_value SPOTIFY_RECEIVER)" != "go-librespot" ]; then
     [ -x /usr/local/bin/spotifyd ] || die "install Spotifyd at /usr/local/bin/spotifyd; see docs/speaker-setup-desktop.md"
     /usr/local/bin/spotifyd --version
     [ -f "$HOME/.config/spotifyd/spotifyd.conf" ] || die "configure and authenticate Spotifyd as this user first"
@@ -163,7 +181,10 @@ if [ "$DRY_RUN" -eq 1 ]; then
   printf '\nPreview only; nothing changed. Run the listed scripts with --dry-run to inspect their rendered units.\n'
 else
   printf '\nConfigured %s. Inspect: taptune status; taptune logs\n' "$MODE"
-  if [ "$MODE" = lite ]; then
-    printf 'First install: choose TapTune in Spotify once to cache the receiver login (docs/speaker-setup.md).\n'
+  if [ "$MODE" != app-only ]; then
+    printf 'First install: open Spotify on a phone on this Wi-Fi, tap Devices and choose %s once;\n' \
+      "$(env_value SPOTIFY_DEVICE_NAME)"
+    printf 'the Pi keeps that sign-in. http://%s.local:%s/setup shows when it is done.\n' \
+      "$(hostname)" "$(port="$(env_value APP_PORT)"; printf '%s' "${port:-5000}")"
   fi
 fi

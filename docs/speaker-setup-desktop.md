@@ -2,6 +2,10 @@
 
 [Installation checklist](raspberry-pi-service.md) · [Documentation index](README.md)
 
+> New installs use [go-librespot](spotify-receiver.md) instead of Spotifyd, with
+> the same PipeWire audio user. This guide is for installs with
+> `SPOTIFY_RECEIVER` empty or `legacy`. Pairing (section 1) is the same for both.
+
 This is the advanced route for Raspberry Pi OS Desktop with PipeWire
 (Bookworm/Debian 12 or Trixie/Debian 13). **Lite + Raspotify is the shorter
 route** if you do not need a desktop. Do not install BlueALSA/Raspotify alongside

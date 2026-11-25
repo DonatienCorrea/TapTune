@@ -2,6 +2,10 @@
 
 [Installation checklist](raspberry-pi-service.md) · [Documentation index](README.md)
 
+> New installs use [go-librespot with PipeWire](spotify-receiver.md) instead.
+> This guide is for installs with `SPOTIFY_RECEIVER` empty or `legacy`. Pairing
+> (section 1) is the same for both.
+
 This is the speaker reference for **Raspberry Pi OS Lite without PipeWire**.
 For Desktop, use [PipeWire + Spotifyd](speaker-setup-desktop.md), not these
 commands. For a fresh install, the checklist prepares Python first and calls

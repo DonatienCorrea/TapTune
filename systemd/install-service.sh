@@ -5,6 +5,8 @@
 # file. Run it from anywhere inside the repository, as the normal user.
 #   --lite      also start after Raspotify and BlueALSA (install-speaker.sh)
 #   --desktop   play through this user's PipeWire (install-desktop-speaker.sh)
+#               With SPOTIFY_RECEIVER=go-librespot in .env, --lite behaves like
+#               --desktop: both editions play through this user's PipeWire.
 #   --app-only  (default) no local speaker services are pulled in
 set -euo pipefail
 
@@ -30,6 +32,9 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 UNIT_SRC="$SCRIPT_DIR/raspi-spotify-nfc.service"
 UNIT_DST="/etc/systemd/system/raspi-spotify-nfc.service"
 source "$SCRIPT_DIR/install-common.sh"
+if [ "$MODE" = lite ] && [ "$(env_value SPOTIFY_RECEIVER)" = "go-librespot" ]; then
+  MODE=desktop
+fi
 
 if [ ! -f "$UNIT_SRC" ]; then
   echo "error: $UNIT_SRC not found" >&2
@@ -61,7 +66,7 @@ case "$MODE" in
     # running at boot without login thanks to install-desktop-speaker.sh (linger).
     AUDIO_USER="$(id -un)"
     if [ "$DRY_RUN" -eq 0 ] && [ "$(id -u)" -eq 0 ]; then
-      echo "error: run 'install-service.sh --desktop' as the Spotifyd audio user, without sudo" >&2
+      echo "error: run 'install-service.sh --desktop' as the speaker's audio user, without sudo" >&2
       exit 1
     fi
     if ! printf '%s' "$AUDIO_USER" | grep -Eq '^[a-z_][a-z0-9_-]{0,31}$'; then

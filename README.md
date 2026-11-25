@@ -37,8 +37,10 @@ TapTune provides:
 ## Quick install on Raspberry Pi
 
 **Use Raspberry Pi OS Lite for the shortest supported standalone-player route.**
-Desktop/PipeWire is supported, but requires a compatible Spotifyd binary and its
-own account authentication. Never combine the two audio stacks.
+New installs on Lite and Desktop use the [go-librespot receiver](docs/spotify-receiver.md):
+choose TapTune once in the Spotify app, with no Spotify Developer app needed for
+tag playback. Existing Raspotify/Spotifyd installs keep working unchanged.
+Never combine two audio stacks.
 
 ```bash
 sudo apt update
@@ -56,7 +58,7 @@ when to log the receiver into Spotify; there is no second manual service install
 
 For Desktop, use `--desktop` in both commands. `./install.sh --help` explains
 all modes; add `--dry-run` to preview without changes. Run as your normal user,
-not with `sudo` (on Desktop, the Spotifyd audio user).
+not with `sudo` (the audio user that runs the Spotify receiver).
 
 ## Documentation
 
@@ -66,7 +68,7 @@ not with `sudo` (on Desktop, the Spotifyd audio user).
 | Try TapTune on a computer without a reader or Spotify account | [Getting started in fake mode](docs/getting-started.md) |
 | Connect and test the PN532 reader | [Hardware setup](docs/hardware-setup.md) |
 | Assign tags and understand supported actions | [Using tags](docs/tag-usage.md) |
-| Connect a Spotify account | [Spotify authorization](docs/spotify-authorization.md) |
+| Connect a Spotify account | [Spotify receiver sign-in](docs/spotify-receiver.md) · [Web API authorization](docs/spotify-authorization.md) |
 | Build the physical player, start to finish | [Installation checklist](docs/raspberry-pi-service.md) |
 | Play music through a Bluetooth speaker | [Speaker setup](docs/speaker-setup.md) (Lite) or [PipeWire desktop setup](docs/speaker-setup-desktop.md) (Debian 13 Desktop) |
 | Diagnose a problem | [Troubleshooting](docs/troubleshooting.md) |

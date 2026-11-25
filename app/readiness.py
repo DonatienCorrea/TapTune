@@ -20,7 +20,8 @@ from urllib.request import urlopen
 
 from .bluetooth import BluetoothNotReady, desktop_command, prepare_speaker, speaker_mac
 from .config import settings
-from .spotify_service import build_spotify_client, find_device_id, is_live_spotify_configured
+from . import librespot
+from .spotify_service import build_spotify_client, find_device_id, is_playback_configured, uses_librespot
 
 logger = logging.getLogger(__name__)
 
@@ -199,7 +200,23 @@ def app_ready() -> bool:
         return False
 
 
+def _librespot_logged_in() -> bool:
+    try:
+        logged_in = librespot.status() is not None
+    except Exception as error:  # noqa: BLE001 - go-librespot may still be starting.
+        _wait_log("Waiting for go-librespot's local API: %s", error)
+        return False
+    if not logged_in:
+        _wait_log(
+            "Waiting for Spotify sign-in: open Spotify on a phone on the same network, tap Devices "
+            "and choose '%s' once.", settings.SPOTIFY_DEVICE_NAME,
+        )
+    return logged_in
+
+
 def speaker_device_visible() -> bool:
+    if uses_librespot():
+        return _librespot_logged_in()
     try:
         visible = find_device_id(build_spotify_client()) is not None
     except Exception as error:  # noqa: BLE001 - network may not be up yet during boot.
@@ -297,7 +314,7 @@ def connect_speaker_at_boot(
 
 
 def should_announce_ready() -> bool:
-    return bool(settings.READY_SOUND_ENABLED and settings.SPOTIFY_DEVICE_NAME and is_live_spotify_configured())
+    return bool(settings.READY_SOUND_ENABLED and settings.SPOTIFY_DEVICE_NAME and is_playback_configured())
 
 
 def initialize_speaker(
@@ -314,8 +331,15 @@ def initialize_speaker(
             return False
         attempt_started = time.monotonic()
         try:
-            spotify = build_spotify_client()
-            device_id = find_device_id(spotify)
+            if uses_librespot():
+                current = librespot.request("GET", "/player/volume") or {}
+                maximum = current.get("max") or 100
+                librespot.post("/player/volume", {"volume": round(settings.SPOTIFY_INITIAL_VOLUME * maximum / 100)})
+                device_id = settings.SPOTIFY_DEVICE_NAME
+                spotify = None
+            else:
+                spotify = build_spotify_client()
+                device_id = find_device_id(spotify)
             if device_id is None:
                 _wait_log(
                     "Waiting for the Spotify receiver '%s' before setting the startup volume "
@@ -323,7 +347,8 @@ def initialize_speaker(
                     settings.SPOTIFY_DEVICE_NAME,
                 )
             else:
-                spotify.volume(settings.SPOTIFY_INITIAL_VOLUME, device_id=device_id)
+                if spotify is not None:
+                    spotify.volume(settings.SPOTIFY_INITIAL_VOLUME, device_id=device_id)
                 logger.info("Set '%s' startup volume to %s%%.", settings.SPOTIFY_DEVICE_NAME, settings.SPOTIFY_INITIAL_VOLUME)
                 remaining = max(0.0, timeout_seconds - waited - (time.monotonic() - attempt_started))
                 if should_announce_ready():
@@ -344,7 +369,7 @@ def initialize_speaker(
 
 
 def start_speaker_thread(target: Callable[[], bool] = initialize_speaker) -> Optional[threading.Thread]:
-    if not settings.SPOTIFY_DEVICE_NAME or not is_live_spotify_configured():
+    if not settings.SPOTIFY_DEVICE_NAME or not is_playback_configured():
         return None
     thread = threading.Thread(target=target, name="speaker-startup", daemon=True)
     thread.start()
@@ -366,7 +391,7 @@ def main() -> int:
         logger.info("Ready sound disabled.")
         return 0
     if not should_announce_ready():
-        logger.error("Ready sound requires live Spotify credentials and SPOTIFY_DEVICE_NAME.")
+        logger.error("Ready sound requires SPOTIFY_DEVICE_NAME and go-librespot or live Spotify credentials.")
         # Configuration error: systemd must not retry it (RestartPreventExitStatus=2).
         return 2
     play = play_desktop_sound if args.desktop else play_ready_sound
