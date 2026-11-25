@@ -101,7 +101,7 @@
       } | tojson }}</script>
       <script src="{{ url_for('static', filename='setup-speaker.js') }}" defer></script>
       {% if not complete %}
-      <p class="music-caption">{{ 'Le pas à pas de configuration depuis le téléphone arrive prochainement. En attendant, renseignez BLUETOOTH_SPEAKER_MAC et les identifiants SPOTIFY_* dans le fichier .env, puis redémarrez TapTune.' if fr else 'Guided phone setup is coming. Until then, set BLUETOOTH_SPEAKER_MAC and the SPOTIFY_* credentials in the .env file, then restart TapTune.' }}</p>
+      <p class="music-caption">{{ 'Associez l’enceinte Bluetooth ci-dessus. Les autres étapes guidées arrivent prochainement : en attendant, renseignez les identifiants SPOTIFY_* dans le fichier .env, puis redémarrez TapTune.' if fr else 'Pair the Bluetooth speaker above. The other guided steps are coming: until then, set the SPOTIFY_* credentials in the .env file, then restart TapTune.' }}</p>
       {% endif %}
     </main>
   </div>

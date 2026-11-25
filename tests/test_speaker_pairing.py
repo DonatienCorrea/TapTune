@@ -223,6 +223,10 @@ class RouteTests(unittest.TestCase):
             first = self.client.get("/setup").get_data(as_text=True)
         self.assertNotIn("Change speaker", first)
         self.assertRegex(first, r'id="speaker-pairing"\s*>')
+        with patch("app.setup.setup_steps", return_value=[{"id": "bluetooth", "state": "todo", "reason": "not_configured"}]):
+            first_fr = self.client.get("/fr/setup").get_data(as_text=True)
+        self.assertNotIn("BLUETOOTH_SPEAKER_MAC", first)
+        self.assertNotIn("BLUETOOTH_SPEAKER_MAC", first_fr)
 
 
 if __name__ == "__main__":
