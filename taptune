@@ -48,7 +48,7 @@ Commands:
                --no-pull      reinstall the current checkout without git pull
                --skip-tests   do not run the test suite before restarting
   restart    Restart every TapTune service in the right order.
-  status     Show whether each service is running, plus /health and /ready.
+  status     Show service health, app readiness and the Bluetooth audio profile on PipeWire.
   logs       Show the logs of all TapTune services, merged in time order.
                -f, --follow       keep printing new lines (Ctrl-C to stop)
                -n, --lines N      number of lines to show (default 200)
@@ -323,6 +323,24 @@ unit_state() {
   printf '%s' "${state:-unknown}"
 }
 
+bluetooth_audio_profile() {
+  local card="bluez_card.${1//:/_}" cards profile
+  if ! cards="$(LC_ALL=C pactl list cards 2>/dev/null)"; then
+    printf 'unavailable (could not query PipeWire with pactl)'
+    return
+  fi
+  profile="$(awk -v card="$card" '
+    /^Card #/ { matched = 0 }
+    $1 == "Name:" { matched = tolower($2) == tolower(card) }
+    matched && $1 == "Active" && $2 == "Profile:" { print $3; exit }
+  ' <<< "$cards")"
+  case "$profile" in
+    a2dp-sink|a2dp-sink-*) printf '%s (A2DP)' "$profile" ;;
+    "") printf 'unavailable (no active profile for this speaker)' ;;
+    *) printf '%s (not A2DP)' "$profile" ;;
+  esac
+}
+
 cmd_status() {
   [ "$#" -eq 0 ] || die "status takes no options"
   detect_mode
@@ -359,6 +377,9 @@ cmd_status() {
   if [ -n "$mac" ] && command -v bluetoothctl >/dev/null 2>&1; then
     printf 'Bluetooth speaker %s: %s\n' "$mac" \
       "$(bluetoothctl info "$mac" 2>/dev/null | sed -n 's/^[[:space:]]*Connected: //p' | head -n 1 | sed 's/yes/connected/;s/no/disconnected/')"
+  fi
+  if [ -n "$mac" ] && { [ "$MODE" = desktop ] || [ "$glr" -eq 1 ]; }; then
+    printf 'Bluetooth audio profile: %s\n' "$(bluetooth_audio_profile "$mac")"
   fi
 }
 

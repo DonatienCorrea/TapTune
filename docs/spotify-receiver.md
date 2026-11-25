@@ -31,12 +31,22 @@ Spotify → Devices again.
 
 `taptune status` shows a **Spotify sign-in (go-librespot)** line.
 
+On the Pi, `taptune status` also shows the paired speaker's active PipeWire
+profile. `a2dp-sink` (including codec-specific variants) means stereo A2DP;
+`headset-head-unit` means hands-free mode. Turn on the speaker and connect it
+before checking. A Bluetooth connection alone does not confirm A2DP.
+
 ## What uses what
 
 - **Tags, play/pause, next and volume** go through go-librespot's local API,
   which listens only on `127.0.0.1:3678`. No Spotify Developer app is needed.
-- If a phone is already playing, these commands are sent to that phone, as
+  If a phone is already playing, these commands are sent to that phone, as
   before.
+- **Startup volume** comes from `SPOTIFY_INITIAL_VOLUME` in `.env` (default
+  `10`, in percent). go-librespot controls the music level in software and
+  uses the configured level rather than restoring the last session's volume
+  on startup. Audio still goes through PipeWire. After changing the setting,
+  run `taptune update` to regenerate the receiver configuration.
 - **Show tags** still start the newest episode. Finding it needs the Spotify
   Web API. TapTune first uses the Spotify Developer app credentials if you
   filled them in, then the sign-in that go-librespot already has. If neither

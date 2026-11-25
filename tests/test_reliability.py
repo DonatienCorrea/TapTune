@@ -143,6 +143,43 @@ class TaptuneCliTests(unittest.TestCase):
                 self.assertNotIn("taptune-bluetooth", out)
                 self.assertNotIn("taptune-ready-sound", out)
 
+    def test_status_distinguishes_a2dp_from_other_or_missing_speaker_profiles(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            shutil.copy2(CLI, repo / "taptune")
+            (repo / "systemd").mkdir()
+            shutil.copy2(SYSTEMD / "install-common.sh", repo / "systemd")
+            (repo / ".env").write_text("SPOTIFY_RECEIVER=go-librespot\nBLUETOOTH_SPEAKER_MAC=aa:bb:cc:dd:ee:ff\n")
+            bin_dir = repo / "bin"
+            bin_dir.mkdir()
+            for tool, script in (
+                ("systemctl", "echo active"),
+                ("python3", "cat >/dev/null; echo '{}'"),
+                ("bluetoothctl", "echo 'Connected: yes'"),
+                ("pactl", '[ "$*" = "list cards" ] && [ "$LC_ALL" = C ] && printf "%s\\n" "$CARDS"'),
+            ):
+                executable = bin_dir / tool
+                executable.write_text(f"#!/bin/sh\n{script}\n")
+                executable.chmod(0o755)
+            other_card = "Card #1\n\tName: bluez_card.00_11_22_33_44_55\n\tActive Profile: a2dp-sink\n"
+            for profile, expected in (
+                ("a2dp-sink-sbc_xq", "a2dp-sink-sbc_xq (A2DP)"),
+                ("headset-head-unit", "headset-head-unit (not A2DP)"),
+                ("", "unavailable (no active profile for this speaker)"),
+            ):
+                with self.subTest(profile=profile):
+                    cards = other_card
+                    if profile:
+                        cards += ("Card #2\n\tName: bluez_card.AA_BB_CC_DD_EE_FF\n"
+                                  "\tProfiles:\n\t\ta2dp-sink: High Fidelity Playback (A2DP Sink)\n"
+                                  f"\tActive Profile: {profile}\n")
+                    env = dict(os.environ, PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}", CARDS=cards)
+                    result = subprocess.run(
+                        ["bash", str(repo / "taptune"), "--dry-run", "--lite", "status"],
+                        env=env, capture_output=True, text=True, check=True,
+                    )
+                    self.assertIn(f"Bluetooth audio profile: {expected}\n", result.stdout)
+
     def test_go_librespot_restart_and_logs_use_its_user_unit(self):
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory) / "TapTune"
