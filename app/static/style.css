@@ -758,3 +758,8 @@
 }
 .wifi-portal select { padding-inline-end: 36px; }
 .wifi-portal select:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+
+.speaker-setup { border: 1px solid currentColor; padding: .75rem 1rem; margin: 1rem 0; display: grid; gap: .75rem; justify-items: start; }
+.speaker-setup h2 { font-size: 1.05rem; margin: 0; }
+.speaker-setup p { margin: 0; }
+.speaker-list { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }

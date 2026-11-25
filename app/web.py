@@ -10,6 +10,7 @@ from . import spotify_service
 from .spotify_browser import browse_music
 from .tag_writer import TagWriter, WriterBusy
 from . import setup as setup_state
+from . import speaker_pairing
 from .activity import ACTIVITY_LIMIT, list_activity, record_activity, record_playback
 
 SPOTIFY_BROWSER_ERRORS = spotify_service.NETWORK_ERRORS + (RuntimeError,) + tuple(
@@ -409,6 +410,44 @@ def create_app() -> Flask:
     def setup_api():
         steps = setup_state.setup_steps()
         return api_response({"steps": steps, "complete": setup_state.setup_complete(steps)})
+
+    def speaker_call(action):
+        if not valid_write_request():
+            return api_error("invalid_origin", 403)
+        try:
+            return action()
+        except speaker_pairing.PairingBusy:
+            return api_error("bluetooth_busy", 409)
+        except speaker_pairing.PairingError as error:
+            if error.detail:
+                app.logger.warning("Speaker setup failed (%s): %s", error.code, error.detail)
+            return api_error(error.code, 400 if error.code == "invalid_mac" else 502)
+
+    @app.post("/api/setup/speaker/scan")
+    def speaker_scan():
+        return speaker_call(lambda: api_response({"speakers": speaker_pairing.scan_speakers()}))
+
+    @app.post("/api/setup/speaker/pair")
+    def speaker_pair():
+        def pair():
+            data = request.get_json()
+            speaker = speaker_pairing.pair_speaker(data.get("mac") if isinstance(data, dict) else None)
+            try:
+                receiver = speaker_pairing.save_speaker(speaker["mac"])
+            except (OSError, setup_state.InvalidSetting):
+                app.logger.exception("Could not save the Bluetooth speaker.")
+                return api_error("save_failed", 500)
+            return api_response({"speaker": speaker, "receiver": receiver})
+        return speaker_call(pair)
+
+    @app.post("/api/setup/speaker/test")
+    def speaker_test():
+        def play():
+            from .readiness import build_chime_wav, play_ready_sound
+            if not settings.BLUETOOTH_SPEAKER_MAC.strip():
+                return api_error("no_speaker", 409)
+            return api_response({"played": bool(play_ready_sound(build_chime_wav()))})
+        return speaker_call(play)
 
     @app.get("/")
     def index_en():
