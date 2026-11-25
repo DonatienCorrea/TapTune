@@ -18,7 +18,7 @@ def done(output="", code=0, stderr=""):
 class FakeBluez:
     """A tiny bluetoothctl: devices appear on scan and keep paired/trusted/connected state."""
 
-    def __init__(self, nearby=None, pair_works=True, connect_works=True, powered=True, known=None):
+    def __init__(self, nearby=None, pair_works=True, connect_works=True, powered=True, known=None, bredr_scan=True):
         self.nearby = nearby if nearby is not None else {
             MAC: {"Name": "JBL Flip 5", "Icon": "audio-card"},
             "00:11:22:33:44:55": {"Name": "Phone", "Icon": "phone"},
@@ -30,6 +30,7 @@ class FakeBluez:
         self.connect_works = connect_works
         self.powered = powered
         self.pairable = False
+        self.bredr_scan = bredr_scan
         self.commands = []
 
     def __call__(self, command, **kwargs):
@@ -45,7 +46,9 @@ class FakeBluez:
         if args == ["pairable", "on"]:
             self.pairable = True
             return done()
-        if args == ["scan", "on"]:
+        if args == ["scan", "bredr"] and not self.bredr_scan:
+            return done("Invalid argument bredr", code=1)
+        if args in (["scan", "on"], ["scan", "bredr"]):
             for address, device in self.nearby.items():
                 self.known.setdefault(address, dict(device))
             return done("Discovery started")
@@ -87,6 +90,13 @@ class ScanTests(unittest.TestCase):
         speakers = speaker_pairing.scan_speakers(bluez, seconds=1)
         self.assertEqual([s["name"] for s in speakers], ["Old speaker", "JBL Flip 5", "Sonos"])
         self.assertTrue(speakers[0]["paired"])
+        scans = [c for c in bluez.commands if "scan" in c]
+        self.assertEqual(scans, [["bluetoothctl", "--timeout", "1", "scan", "bredr"]])
+
+    def test_older_bluez_falls_back_to_a_mixed_scan(self):
+        bluez = FakeBluez(bredr_scan=False)
+        speakers = speaker_pairing.scan_speakers(bluez, seconds=1)
+        self.assertEqual([s["name"] for s in speakers], ["JBL Flip 5", "Sonos"])
         self.assertIn(["bluetoothctl", "--timeout", "1", "scan", "on"], bluez.commands)
 
     def test_adapter_off_is_reported(self):

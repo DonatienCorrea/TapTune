@@ -24,9 +24,9 @@ from .config import settings
 
 logger = logging.getLogger(__name__)
 
-SCAN_SECONDS = 10
+SCAN_SECONDS = 15
 # A device found by a scan is forgotten by BlueZ ~30 s after the scan ends.
-RESCAN_SECONDS = 8
+RESCAN_SECONDS = 12
 PAIR_TIMEOUT_SECONDS = 25
 MAX_DEVICES = 40
 AUDIO_SINK_UUID = "0000110b"
@@ -106,7 +106,13 @@ def _make_bondable(runner: Callable) -> None:
 
 
 def _scan(runner: Callable, seconds: int) -> None:
-    _bt(["--timeout", str(seconds), "scan", "on"], runner, timeout=seconds + 5)
+    # Speakers play over classic Bluetooth. "scan on" splits the time with
+    # Bluetooth LE, where busy rooms (and the speaker itself) advertise a lot,
+    # so a classic-only scan finds them far more reliably. BlueZ before 5.65
+    # rejects "bredr"; fall back to a mixed scan there.
+    result = _bt(["--timeout", str(seconds), "scan", "bredr"], runner, timeout=seconds + 5)
+    if result.returncode != 0:
+        _bt(["--timeout", str(seconds), "scan", "on"], runner, timeout=seconds + 5)
 
 
 def _locked(function):
