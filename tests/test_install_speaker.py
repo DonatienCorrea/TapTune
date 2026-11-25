@@ -371,10 +371,11 @@ class GoLibrespotInstallerTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 out = result.stdout
                 self.assertIn("go-librespot/releases/download/v0.10.7/", out)
-                for line in ('device_name: "Salon TapTune"', "audio_backend: pulseaudio",
-                             "initial_volume: 25", "persist_credentials: true",
+                for line in ('device_name: "Salon TapTune"', "audio_backend: alsa", "audio_device: pulse",
+                             "initial_volume: 25", "ignore_last_volume: true", "persist_credentials: true",
                              "address: 127.0.0.1", "port: 3678", "zeroconf_backend: avahi"):
                     self.assertIn(line, out)
+                self.assertIn("libasound2-plugins", out)
                 self.assertIn("pipewire-pulse", out)
                 self.assertIn("enable-linger", out)
                 self.assertIn("bluetoothctl trust 12:34:56:78:90:AB", out)

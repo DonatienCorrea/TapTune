@@ -80,10 +80,14 @@ GLR_CONFIG="# Managed by TapTune (systemd/install-go-librespot.sh); rerunning it
 log_level: info
 device_name: \"$DEVICE_NAME\"
 device_type: speaker
-audio_backend: pulseaudio
+# The native PulseAudio backend ignores initial_volume when it opens a stream.
+# Use software volume via ALSA's pulse PCM, still routed through PipeWire.
+audio_backend: alsa
+audio_device: pulse
 bitrate: 320
 volume_steps: 100
 initial_volume: $VOLUME
+ignore_last_volume: true
 zeroconf_enabled: true
 zeroconf_backend: avahi
 credentials:
@@ -102,7 +106,7 @@ fi
 
 run sudo apt-get update
 run sudo apt-get install -y pipewire pipewire-pulse wireplumber libspa-0.2-bluetooth \
-  pulseaudio-utils bluez avahi-daemon libasound2 curl
+  pulseaudio-utils bluez avahi-daemon libasound2 libasound2-plugins curl
 
 GLR_STAMP="/usr/local/share/taptune/go-librespot.version"
 if [ "$DRY_RUN" -eq 1 ] || [ "$(cat "$GLR_STAMP" 2>/dev/null || true)" != "$GLR_VERSION $ASSET" ] \
