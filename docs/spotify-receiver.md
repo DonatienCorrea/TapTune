@@ -20,7 +20,7 @@ Lite, PipeWire runs in the background without a desktop.
    installs go-librespot, PipeWire and the `taptune-go-librespot` user service.
 2. On a phone or computer on the **same Wi-Fi**, open Spotify, tap
    **Devices** and choose **TapTune** (your `SPOTIFY_DEVICE_NAME`).
-3. Open `http://<pi-name>.local:5000/setup`. The Spotify step turns to
+3. Open `http://<pi-name>.local/setup`. The Spotify step turns to
    *done* by itself once the Pi is signed in.
 
 TapTune never asks for your Spotify password. go-librespot saves its sign-in

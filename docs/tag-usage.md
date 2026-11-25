@@ -14,7 +14,8 @@ over a UID mapping.
 2. Connect the PN532, set `NFC_READER_ENABLED=true`, and start TapTune with
    `python -m app.main` or the installed systemd service. Do not run a second
    NFC diagnostic or writer process at the same time.
-3. Open `http://<pi-ip>:5000/` on your iPhone or another device on the same network.
+3. Open `http://<hostname>.local/` on your iPhone or another device on the same network
+   for an installed Pi, or `http://<pi-ip>:5000/` when running the app directly.
 4. Browse **My albums**, **My playlists**, or **Recent albums**, or select **Search Spotify** to search
    albums, playlists, tracks and podcast shows together. Search results are grouped lists; saved collections use artwork grids. **Load more** fetches another page.
    Recent albums are derived from recently played tracks, deduplicated within

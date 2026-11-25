@@ -26,9 +26,10 @@ def create_portal(networks, failed, submissions, hotspot_is_active):
     app.config["MAX_CONTENT_LENGTH"] = 4096
     token = secrets.token_urlsafe(32)
     lock = threading.Lock()
-    hostname = socket.gethostname().split(".", 1)[0]
+    lan_origin = f"http://{socket.gethostname().split('.', 1)[0]}.local"
     port = "" if settings.APP_PORT == 80 else f":{settings.APP_PORT}"
-    lan_url = f"http://{hostname}.local{port}"
+    lan_url = lan_origin if settings.TAPTUNE_HTTP_PORT_80 else lan_origin + port
+    lan_fallback = lan_origin + port if settings.TAPTUNE_HTTP_PORT_80 and port else None
 
     @app.before_request
     def captive_redirect():
@@ -59,9 +60,11 @@ def create_portal(networks, failed, submissions, hotspot_is_active):
     @app.route("/fr/setup", methods=["GET", "POST"])
     def setup():
         locale = "fr" if request.path.startswith("/fr/") else "en"
+        lan_path = "/fr/" if locale == "fr" else "/"
         wifi = {
             "networks": networks, "token": token,
-            "lan_url": lan_url + ("/fr/" if locale == "fr" else "/"),
+            "lan_url": lan_url + lan_path,
+            "lan_fallback": lan_fallback + lan_path if lan_fallback else None,
             "state": "connecting" if lock.locked() else "failed" if failed else "ready",
         }
 
@@ -139,8 +142,5 @@ def wait_for_credentials(interface, networks, failed):
                     dns.terminate()
 
 
-def start_wifi_setup():
-    if settings.TAPTUNE_WIFI_SETUP:
-        threading.Thread(
-            target=WifiSetup().run, args=(wait_for_credentials,), name="wifi-setup", daemon=True,
-        ).start()
+def run_wifi_setup() -> bool:
+    return WifiSetup().run(wait_for_credentials)

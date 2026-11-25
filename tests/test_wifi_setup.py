@@ -5,8 +5,10 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, call, patch
+from unittest.mock import MagicMock, Mock, call, patch
 
+from app import main
+from app.config import settings
 from app import wifi_setup as wifi
 from app.wifi_portal import PORTAL_URL, create_portal
 
@@ -81,7 +83,7 @@ class WifiSetupTests(unittest.TestCase):
             with self.subTest(uplink=uplink):
                 runner = NetworkCommands(uplink)
                 portal = Mock()
-                wifi.WifiSetup(runner).run(portal, uptime=lambda: 61)
+                self.assertTrue(wifi.WifiSetup(runner).run(portal, uptime=lambda: 61))
                 portal.assert_not_called()
                 self.assertEqual(len(runner.calls), 2)
 
@@ -90,7 +92,9 @@ class WifiSetupTests(unittest.TestCase):
         portal = Mock(side_effect=[("Home:café", "bad-passphrase"), ("Home:café", "correct-passphrase")])
         sleep = Mock()
         with self.assertLogs(wifi.logger, "INFO") as logs:
-            wifi.WifiSetup(runner).run(portal, uptime=Mock(side_effect=[55, 58, 60]), sleep=sleep)
+            self.assertTrue(wifi.WifiSetup(runner).run(
+                portal, uptime=Mock(side_effect=[55, 58, 60]), sleep=sleep,
+            ))
         self.assertEqual(sleep.call_args_list, [call(3), call(2)])
         self.assertEqual(portal.call_args_list, [
             call("wlan0", ("Home:café", "Guest"), False),
@@ -112,7 +116,7 @@ class WifiSetupTests(unittest.TestCase):
 
         portal = Mock()
         with self.assertLogs(wifi.logger, "ERROR"):
-            wifi.WifiSetup(runner).run(portal, uptime=lambda: 60)
+            self.assertFalse(wifi.WifiSetup(runner).run(portal, uptime=lambda: 60))
         self.assertFalse(commands.firewall)
         portal.assert_not_called()
 
@@ -142,14 +146,46 @@ class WifiSetupTests(unittest.TestCase):
             self.assertEqual(runner.call_args.args[0][-3:], ["connection", "load", str(profile)])
 
 
+class NetworkServiceTests(unittest.TestCase):
+    def test_port_80_waits_for_wifi_setup_to_finish_and_serves_the_main_app(self):
+        for ready in (False, True):
+            with self.subTest(ready=ready):
+                server = MagicMock()
+                with patch.multiple(settings, TAPTUNE_WIFI_SETUP=True, TAPTUNE_HTTP_PORT_80=True,
+                                    APP_HOST="127.0.0.1", APP_PORT=5000), \
+                        patch.object(main, "make_server", return_value=server) as bind:
+                    def finish_wifi_setup():
+                        bind.assert_not_called()
+                        return ready
+
+                    with patch.object(main, "run_wifi_setup", side_effect=finish_wifi_setup) as setup:
+                        main.run_network_services()
+                setup.assert_called_once_with()
+                if ready:
+                    bind.assert_called_once_with("127.0.0.1", 80, main.app, threaded=True)
+                    server.serve_forever.assert_called_once_with()
+                else:
+                    bind.assert_not_called()
+
+    def test_port_80_bind_failure_is_nonfatal_and_logs_the_configured_port(self):
+        with patch.multiple(settings, TAPTUNE_WIFI_SETUP=False, TAPTUNE_HTTP_PORT_80=True, APP_PORT=5001), \
+                patch.object(main, "make_server", side_effect=SystemExit(1)), self.assertLogs(main.logger) as logs:
+            main.run_network_services()
+        self.assertIn("use port 5001 instead", logs.output[0])
+
+
 class PortalTests(unittest.TestCase):
     def setUp(self):
         self.jobs = queue.Queue(maxsize=1)
         self.networks = ("Home:café", '"><img src=x>', "Guest")
         self.active = Mock(return_value=True)
-        with patch("app.wifi_portal.socket.gethostname", return_value="jukebox"):
-            self.client = create_portal(self.networks, False, self.jobs, self.active).test_client()
         self.options = {"base_url": PORTAL_URL, "environ_overrides": {"REMOTE_ADDR": "10.42.66.20"}}
+        self.use_portal()
+
+    def use_portal(self, *, port_80=False, app_port=5000):
+        with patch("app.wifi_portal.socket.gethostname", return_value="jukebox"), \
+                patch.multiple(settings, TAPTUNE_HTTP_PORT_80=port_80, APP_PORT=app_port):
+            self.client = create_portal(self.networks, False, self.jobs, self.active).test_client()
         response = self.client.get("/setup", **self.options)
         self.token = re.search(r'name="token" value="([^"]+)"', response.get_data(as_text=True))[1]
 
@@ -207,6 +243,14 @@ class PortalTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 400)
                 self.assertIn("Check your entries", response.get_data(as_text=True))
         self.assertTrue(self.jobs.empty())
+
+    def test_handoff_prefers_the_portless_url_and_links_the_configured_port_as_a_fallback(self):
+        self.use_portal(port_80=True, app_port=5001)
+        with self.client.post("/fr/setup", data={"token": self.token, "network": "Guest"}, **self.options) as response:
+            self.assertEqual(response.status_code, 202)
+            page = response.get_data(as_text=True)
+            self.assertIn('href="http://jukebox.local/fr/"', page)
+            self.assertIn('href="http://jukebox.local:5001/fr/"', page)
 
     def test_recovered_portal_shows_retry_and_manual_entry_without_scan_results(self):
         recovered = create_portal((), True, self.jobs, self.active).test_client()

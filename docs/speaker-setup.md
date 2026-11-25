@@ -14,7 +14,7 @@ this guide only for pairing and the one-time receiver login.
 ## 1. Pair the Bluetooth speaker
 
 **From the web page (no terminal):** once the TapTune service runs, open
-`http://<pi-name>.local:5000/setup` (French: `/fr/setup`), put the speaker in
+`http://<pi-name>.local/setup` (French: `/fr/setup`), put the speaker in
 pairing mode, choose **Search for speakers**, pick yours, then **Play a test
 sound**. TapTune pairs, trusts and connects it, saves only
 `BLUETOOTH_SPEAKER_MAC` in `.env` and uses it immediately. **Change speaker**

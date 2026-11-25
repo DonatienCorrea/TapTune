@@ -89,6 +89,8 @@ The default database is `data/raspi_spotify_nfc.db`. It is ignored by Git.
 
 ## Reaching TapTune from your phone
 
-TapTune enables Avahi (mDNS) when the service is installed, so the Pi answers at `<hostname>.local`. [Set the hostname and Wi-Fi in Raspberry Pi Imager](raspberry-pi-service.md#set-wi-fi-in-raspberry-pi-imager), then open `http://taptune.local:5000/setup` if you chose `taptune`. An existing installation keeps its hostname: use `http://<hostname>.local:5000/setup` (run `hostname` on the Pi). The installer never changes the hostname or `/etc/hosts`.
+TapTune enables Avahi (mDNS) when the service is installed. On Lite and Desktop, open `http://<hostname>.local/setup` from the same network. [Set the hostname and Wi-Fi in Raspberry Pi Imager](raspberry-pi-service.md#set-wi-fi-in-raspberry-pi-imager); if you chose `taptune`, open `http://taptune.local/setup`. Existing installations keep their hostname (run `hostname` on the Pi). The installer never changes the hostname or `/etc/hosts`.
+
+If port 80 is unavailable, or you installed in app-only mode, use `http://<hostname>.local:5000/setup` (substitute `APP_PORT` if changed).
 
 The setup page on the local network shows live Wi-Fi, speaker and Spotify status. The home page only redirects to setup on a first run; installations whose `.env` already has the speaker and Spotify credentials, or that completed setup once, keep their home page even when the speaker is off or the network drops. To move an installed Pi without a keyboard or Ethernet cable, use the separate [TapTune-Setup hotspot](raspberry-pi-service.md#move-taptune-to-a-different-wi-fi-network). The Wi-Fi form is not available on the local network.

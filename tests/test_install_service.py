@@ -97,9 +97,11 @@ class InstallServiceScriptTests(unittest.TestCase):
                     capture_output=True, text=True, check=True,
                 ).stdout
                 if mode == "app-only":
+                    self.assertNotIn("TAPTUNE_HTTP_PORT_80", output)
                     self.assertNotIn("TAPTUNE_WIFI_SETUP", output)
                     self.assertNotIn("TapTune-Setup", output)
                 else:
+                    self.assertIn("Environment=TAPTUNE_HTTP_PORT_80=true", output)
                     self.assertIn("Environment=TAPTUNE_WIFI_SETUP=true", output)
                     self.assertIn(f'ExecStopPost=-"{path}/.venv/bin/python" -m app.wifi_setup cleanup', output)
                     self.assertIn("Provision a private TapTune-Setup profile", output)

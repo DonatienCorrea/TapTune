@@ -135,7 +135,9 @@ If the startup check expired while completing the receiver login, run
 
 ## Assign and verify a tag
 
-Open `http://<pi-ip>:5000/`. Choose music in the Spotify picker, select
+Open `http://<hostname>.local/` from the same network. If port 80 is unavailable,
+use `http://<hostname>.local:5000/` or `http://<pi-ip>:5000/`, substituting your
+configured `APP_PORT` if changed. Choose music in the Spotify picker, select
 **Write tag**, and place an unlocked NTAG213/215/216, supported Feiju 144-byte Type 2 tag, or writable NFC Type 4 NDEF tag on the Pi's reader
 until the page confirms the write was verified. Remove it, then tap again to
 play. See [Using tags](tag-usage.md#browse-spotify-and-write-a-tag) for details.
@@ -149,7 +151,7 @@ curl -X POST -d 'uid=04A7B2F1' http://127.0.0.1:5000/dispatch
 ```
 
 The UI and dispatch endpoint have **no authentication**. Use a trusted local
-network; do not forward port 5000 from the internet. `.env`, receiver caches and
+network; do not forward either HTTP port from the internet. `.env`, receiver caches and
 backups contain account secrets: never commit or attach them to an issue.
 
 Reboot with the speaker powered on. **Before logging into the Pi**, wait for
@@ -178,16 +180,20 @@ sudo nmcli --show-secrets -g 802-11-wireless-security.psk connection show id Tap
    blank only for an open network. Use a personal Wi-Fi network; enterprise and
    networks that require a browser sign-in are not supported.
 3. The hotspot disconnects while the Pi tries to join. Rejoin the selected Wi-Fi
-   on your phone and open `http://taptune.local:5000/` (substitute your hostname
-   and configured port). If joining failed, look for `TapTune-Setup` again after
+   on your phone and open `http://taptune.local/` (substitute your hostname).
+   If joining failed, look for `TapTune-Setup` again after
    the connection attempt times out, reconnect and retry.
 
 The password form only runs on the hotspot. The hotspot does not share internet
 access or expose the normal TapTune app. Successful Wi-Fi credentials are stored
 by NetworkManager, not in TapTune's `.env`. Reinstalling the service preserves the
 hotspot key. The hotspot needs an AP-capable Wi-Fi adapter and uses port 80 on
-its own address; leave that port free while using the fallback. To opt out, set
-`TAPTUNE_WIFI_SETUP=false` in `.env` and restart TapTune.
+its own address. On Lite and Desktop, TapTune adds the port-free LAN address
+only once a network is connected and the hotspot is no longer needed. Leave
+`APP_PORT` at 5000 (or another non-80 port) so the hotspot has port 80 available.
+If another service owns port 80, the normal app stays reachable on `APP_PORT`.
+To disable the port-free LAN address, set `TAPTUNE_HTTP_PORT_80=false` in `.env`
+and restart TapTune. To disable the hotspot, set `TAPTUNE_WIFI_SETUP=false`.
 
 [Instructions en français](fr/wi-fi.md).
 
@@ -323,4 +329,5 @@ the optional Spotify Developer settings in `.env` are always kept.
 Forgetting Wi-Fi disconnects an SSH session over Wi-Fi; the reset finishes on
 its own. About a minute later the Pi opens the `TapTune-Setup` Wi-Fi: join it
 from a phone to set TapTune up again. Over Ethernet, open
-`http://<hostname>.local/setup` instead.
+`http://<hostname>.local/setup` instead, or `http://<hostname>.local:5000/setup`
+if the port-free address is unavailable.

@@ -35,8 +35,10 @@ sudo nmcli --show-secrets -g 802-11-wireless-security.psk connection show id Tap
    pour un réseau ouvert. Les réseaux d’entreprise et ceux qui exigent une
    connexion dans le navigateur ne sont pas pris en charge.
 3. Le point d’accès disparaît pendant la tentative. Reconnectez votre
-   téléphone au réseau choisi et ouvrez `http://taptune.local:5000/fr/`
-   (adaptez le nom d’hôte et le port). Si le Pi n’a pas pu se connecter,
+   téléphone au réseau choisi et ouvrez `http://taptune.local/fr/` (adaptez
+   le nom d’hôte). Si le port 80 est indisponible, essayez
+   `http://taptune.local:5000/fr/` (ou le port `APP_PORT` configuré).
+   Si le Pi n’a pas pu se connecter,
    `TapTune-Setup` réapparaît : rejoignez-le et réessayez.
 
 Le formulaire Wi-Fi n’est accessible que depuis le point d’accès. Celui-ci ne
