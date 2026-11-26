@@ -30,10 +30,10 @@
 {% set actions = [
   ('update', 'save-button', 'Mettre à jour TapTune' if fr else 'Update TapTune',
    'Installe la dernière version. La musique s’arrête environ une minute.' if fr else 'Installs the latest version. Music stops for about a minute.'),
-  ('restart', 'helper-button', 'Redémarrer TapTune' if fr else 'Restart TapTune',
-   'À essayer en premier si les tags ou la musique ne répondent plus.' if fr else 'Try this first if tags or music stop responding.'),
   ('reboot', 'helper-button', 'Redémarrer le Pi' if fr else 'Restart the Pi',
-   'Si redémarrer TapTune n’a pas suffi. Prend environ une minute.' if fr else 'If restarting TapTune did not help. Takes about a minute.')
+   'Si les tags ou la musique ne répondent plus. Prend environ une minute.' if fr else 'If tags or music stop responding. Takes about a minute.'),
+  ('poweroff', 'helper-button', 'Éteindre le Pi' if fr else 'Power off the Pi',
+   'Avant de le débrancher. Rebranchez-le pour le rallumer.' if fr else 'Before unplugging it. Plug it back in to turn it on.')
 ] %}
 {% block main %}
 <h1 class="page-title">Maintenance</h1>
@@ -132,11 +132,12 @@
 <script type="application/json" id="maintenance-text">{{ {
   'confirm': {
     'update': ['Mettre à jour TapTune ?' if fr else 'Update TapTune?', 'La musique s’arrête pendant la mise à jour, puis TapTune redémarre tout seul.' if fr else 'Music stops during the update, then TapTune restarts by itself.', 'Mettre à jour' if fr else 'Update'],
-    'restart': ['Redémarrer TapTune ?' if fr else 'Restart TapTune?', 'La musique s’arrête quelques secondes.' if fr else 'Music stops for a few seconds.', 'Redémarrer' if fr else 'Restart'],
-    'reboot': ['Redémarrer le Pi ?' if fr else 'Restart the Pi?', 'Cette page ne répondra plus pendant environ une minute.' if fr else 'This page stops responding for about a minute.', 'Redémarrer le Pi' if fr else 'Restart the Pi']
+    'reboot': ['Redémarrer le Pi ?' if fr else 'Restart the Pi?', 'Cette page ne répondra plus pendant environ une minute.' if fr else 'This page stops responding for about a minute.', 'Redémarrer le Pi' if fr else 'Restart the Pi'],
+    'poweroff': ['Éteindre le Pi ?' if fr else 'Power off the Pi?', 'TapTune et cette page s’arrêtent jusqu’à ce que vous rebranchiez le Pi.' if fr else 'TapTune and this page stop until you plug the Pi back in.', 'Éteindre' if fr else 'Power off']
   },
   'updating': 'Mise à jour en cours… Cela peut prendre plusieurs minutes.' if fr else 'Updating… This can take a few minutes.',
   'restarting': 'TapTune redémarre…' if fr else 'TapTune is restarting…',
+  'powered_off': 'Le Pi s’éteint. Attendez 20 secondes avant de le débrancher ; rebranchez-le pour le rallumer.' if fr else 'The Pi is shutting down. Wait 20 seconds before unplugging it; plug it back in to turn it on.',
   'rebooting': 'Le Pi redémarre. Patientez environ une minute ; la page se rechargera toute seule.' if fr else 'The Pi is restarting. Wait about a minute; this page reloads by itself.',
   'updated': 'Mise à jour terminée.' if fr else 'Update finished.',
   'update_failed': 'La mise à jour a échoué. TapTune continue avec la version précédente. Ouvrez les détails ou téléchargez le diagnostic.' if fr else 'The update failed. TapTune keeps running the previous version. Open the details or download the diagnostic logs.',

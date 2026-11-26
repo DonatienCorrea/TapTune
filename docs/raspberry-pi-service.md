@@ -107,7 +107,7 @@ taps, played music and messages, and has a **Maintenance** section:
 - the current version;
 - **Update TapTune**: downloads and installs the latest version in the
   background; TapTune restarts by itself when done;
-- **Restart TapTune** and **Restart the Pi**;
+- **Restart the Pi** and **Power off the Pi** (before unplugging it);
 - **Download diagnostic logs**: a text file to send when asking for help.
 
 No screen or terminal is needed for updates or logs.

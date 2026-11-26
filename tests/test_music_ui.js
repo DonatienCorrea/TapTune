@@ -75,6 +75,12 @@ async function picker(job = null, items = []) {
     pending_selection: "Restored music",
   });
   const scenario = { available: true, job, items, failPoll: false, failState: false, failStart: false };
+  const categories = ["recent", "music", "podcasts"].map((name) => {
+    const button = el(name);
+    button.dataset.collection = name;
+    return button;
+  });
+  el("music-source-select").value = "albums";
   const opened = [];
   const timers = new Map();
   let timerId = 0;
@@ -82,7 +88,7 @@ async function picker(job = null, items = []) {
   vm.runInNewContext(script, {
     document: {
       getElementById: el,
-      querySelectorAll: () => [],
+      querySelectorAll: (selector) => selector === "[data-collection]" ? categories : [],
       createElement: (tag) => new Element(tag),
       createElementNS: (_, tag) => new Element(tag),
     },
@@ -135,10 +141,11 @@ const waiting = { id: "restored", status: "waiting", value: "spotify:album:abc",
 
 test("credential-free search opens Spotify to find a podcast to share", async () => {
   const ui = await picker();
+  ui.el("podcasts").click();
   ui.el("spotify-search-query").value = "science & stories";
   ui.el("spotify-external-search").listeners.submit({ preventDefault() {} });
   assert.deepEqual(ui.opened[0], [
-    "https://open.spotify.com/search/science%20%26%20stories", "_blank", "noopener,noreferrer",
+    "https://open.spotify.com/search/science%20%26%20stories/podcasts", "_blank", "noopener,noreferrer",
   ]);
 });
 
@@ -268,7 +275,14 @@ test("reader failures offer status checking rather than a disabled retry", async
 
 test("library views only request a collection from the API", async () => {
   const ui = await picker();
-  assert.deepEqual(ui.scenario.musicPaths, ["/api/music?collection=albums"]);
+  assert.deepEqual(ui.scenario.musicPaths, ["/api/music?collection=recent"]);
+  ui.el("music").click();
+  ui.el("music-source-select").value = "playlists";
+  ui.el("music-source-select").listeners.change();
+  ui.el("podcasts").click();
+  assert.deepEqual(ui.scenario.musicPaths.slice(1), [
+    "/api/music?collection=albums", "/api/music?collection=playlists", "/api/music?collection=podcasts",
+  ]);
 });
 
 const maintenanceScript = readFileSync(join(__dirname, "../app/static/maintenance.js"), "utf8");
@@ -280,12 +294,13 @@ async function maintenance(system) {
     return elements.get(id);
   };
   el("maintenance-text").textContent = JSON.stringify({
-    confirm: { update: ["Update?", "", "Update"], restart: ["Restart?", "", "Restart"] },
-    updating: "Updating…", restarting: "Restarting…", updated: "Update finished.",
+    confirm: { update: ["Update?", "", "Update"], reboot: ["Reboot?", "", "Reboot"], poweroff: ["Off?", "", "Off"] },
+    updating: "Updating…", restarting: "Restarting…", rebooting: "Rebooting…", powered_off: "Shutting down.",
+    updated: "Update finished.",
     update_failed: "Update failed.", error: "Could not start.", not_back: "Still down.",
     unknown_version: "unknown",
   });
-  const buttons = ["update", "restart"].map((action) => {
+  const buttons = ["update", "reboot", "poweroff"].map((action) => {
     const button = new Element("button");
     button.dataset.systemAction = action;
     return button;
@@ -335,15 +350,26 @@ test("update keeps polling through the restart and reports the new version", asy
   assert.equal(ui.buttons[1].disabled, false);
 });
 
-test("restart reloads the page once TapTune answers again", async () => {
+test("reboot reloads the page once TapTune answers again", async () => {
   const ui = await maintenance({ version: "v1", update: { state: "idle", log: "" } });
   ui.buttons[1].listeners.click();
   await ui.settle();
-  assert.deepEqual(ui.scenario.posts, ["/api/system/restart"]);
+  assert.deepEqual(ui.scenario.posts, ["/api/system/reboot"]);
+  assert.equal(ui.el("maintenance-status").textContent, "Rebooting…");
   ui.scenario.down = true;
   await ui.tick();
   assert.equal(ui.scenario.reloaded, false);
   ui.scenario.down = false;
   await ui.tick();
   assert.equal(ui.scenario.reloaded, true);
+});
+
+test("power off says so and keeps the actions disabled", async () => {
+  const ui = await maintenance({ version: "v1", update: { state: "idle", log: "" } });
+  ui.buttons[2].listeners.click();
+  await ui.settle();
+  assert.deepEqual(ui.scenario.posts, ["/api/system/poweroff"]);
+  assert.equal(ui.el("maintenance-status").textContent, "Shutting down.");
+  assert.equal(ui.buttons[0].disabled, true);
+  assert.equal(ui.scenario.reloaded, false);
 });

@@ -153,6 +153,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .spotify-browser .is-error { color: #ffb4ab; }
 #music-status:empty { display: none; }
 .link-view { margin-bottom: 8px; }
+#music-source-view { display: flex; align-items: center; gap: 12px; margin-block: 12px; }
+#music-source-select { width: auto; }
 .music-search { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; margin: 12px 0; }
 .spotify-browser .music-search input { padding: 12px 20px; border-color: transparent; border-radius: 999px; background: var(--music-hover); color: var(--music-text); }
 .spotify-browser .music-search input::placeholder { color: var(--music-muted); }

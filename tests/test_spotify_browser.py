@@ -20,6 +20,11 @@ def album(identifier="abc", name="Album"):
 
 class SpotifyBrowserTests(unittest.TestCase):
     def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        database = patch.object(config.settings, "DATABASE_PATH", str(Path(temporary.name) / "tags.db"))
+        database.start()
+        self.addCleanup(database.stop)
         spotify_browser.clear_cache()
         self.addCleanup(spotify_browser.clear_cache)
         for name in ("require_session", "library_albums", "library_playlists", "status"):
@@ -76,6 +81,8 @@ class SpotifyBrowserTests(unittest.TestCase):
             from app.db import upsert_tag
             upsert_tag("CARD", "spotify:album:abc", "content", "Morning music")
             record_activity("playback", "INFO", "nfc", "Playback command sent.", uid="CARD",
+                            value="spotify:album:oldTagValue")
+            record_activity("playback", "INFO", "nfc", "Playback command sent.", uid="CARD",
                             value="spotify:album:abc")
             record_activity("playback", "ERROR", "nfc", "Failed.", uid="CARD",
                             value="spotify:album:bad")
@@ -101,6 +108,11 @@ class SpotifyBrowserTests(unittest.TestCase):
         self.assertEqual(item["image"], "https://image-cdn-fa.spotifycdn.com/cover")
         self.assertIn("oembed", calls[0][0])
         self.assertEqual(calls[0][1], 8)
+        self.assertEqual([i["name"] for i in spotify_browser.browse_music("podcasts")["items"]], ["Podcast show"])
+        from app.activity import record_activity
+        record_activity("playback", "INFO", "nfc", "Played", uid="UNLABELLED", value=item["uri"])
+        self.assertEqual(spotify_browser.browse_music("recent")["items"][0]["name"], "Podcast show")
+        self.require_session.assert_not_called()
 
     def test_spotify_link_import_rejects_non_spotify_urls(self):
         for value in ("https://evil.example/album/abc", "http://open.spotify.com/album/abc",
@@ -151,11 +163,13 @@ class MusicWebTests(unittest.TestCase):
             page = self.client.get(path)
             self.assertEqual(page.status_code, 200)
             for marker in (b'id="link-view"', b'id="music-link-import"', b'id="spotify-external-search"',
-                           b'data-collection="playing"', b'id="write-tag"', b'id="assignment"',
+                           b'value="playing"', b'id="write-tag"', b'id="assignment"',
                            b'/static/music.js'):
                 self.assertIn(marker, page.data)
             self.assertIn(b'<details id="advanced-options" class="advanced-options">', page.data)
-            self.assertIn(b'data-collection="link"', page.data)
+            self.assertEqual(page.data.count(b'data-collection='), 3)
+            for category in ("recent", "music", "podcasts"):
+                self.assertIn(f'data-collection="{category}"'.encode(), page.data)
             self.assertNotIn(b'id="music-search"', page.data)
             self.assertIn(b'id="write-selection" class="write-panel" hidden', page.data)
             self.assertIn(b'class="spotify-browser" aria-labelledby="music-view-heading"', page.data)

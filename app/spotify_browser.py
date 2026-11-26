@@ -9,12 +9,11 @@ import urllib.parse
 import urllib.request
 
 from . import librespot
-from .activity import list_activity
-from .db import list_tags
+from .db import get_connection
 from .spotify_service import get_tag_type
 
 
-COLLECTIONS = frozenset({"albums", "playlists", "recent", "playing"})
+COLLECTIONS = frozenset({"albums", "playlists", "recent", "playing", "podcasts"})
 PAGE_SIZE = 20
 LINK_ID = re.compile(r"^[A-Za-z0-9]+$")
 # Reopening a tab or reloading the page reuses recent answers instead of
@@ -62,8 +61,18 @@ def browse_music(collection, offset=0):
         raise ValueError("Invalid page")
     if collection == "recent":
         return _local_recent_music()
+    if collection == "podcasts":
+        with get_connection() as conn:
+            rows = conn.execute("""
+                SELECT uri, title AS name FROM music_titles WHERE uri LIKE 'spotify:show:%'
+                ORDER BY title COLLATE NOCASE, uri LIMIT ? OFFSET ?
+            """, (PAGE_SIZE + 1, offset)).fetchall()
+        return {"items": [music_item(dict(row)) for row in rows[:PAGE_SIZE]],
+                "next": {"offset": offset + PAGE_SIZE} if len(rows) > PAGE_SIZE else None}
     if collection == "playing":
-        return _currently_playing()
+        result = _currently_playing()
+        _remember_titles(result["items"])
+        return result
     return _cached((collection, offset), lambda: _fetch_librespot_library(collection, offset))
 
 
@@ -81,6 +90,13 @@ def _cached(key, fetch):
             del _cache[min(_cache, key=lambda k: _cache[k][0])]
         _cache[key] = (now, result)
     return result
+
+
+def _remember_titles(items):
+    titles = [(i["uri"], i["name"]) for i in items if i["name"] and i["name"] != i["uri"]]
+    if titles:
+        with get_connection() as conn:
+            conn.executemany("INSERT OR REPLACE INTO music_titles (uri, title) VALUES (?, ?)", titles)
 
 
 def _fetch_librespot_library(collection, offset):
@@ -103,30 +119,22 @@ def _fetch_librespot_library(collection, offset):
         if normalized:
             items.append(normalized)
     total = page.get("total")
+    _remember_titles(items)
     next_page = {"offset": offset + PAGE_SIZE} if isinstance(total, int) and offset + len(page.get("items") or []) < total else None
     return {"items": items, "next": next_page}
 
 
 def _local_recent_music():
-    labels = {tag["uid"]: tag.get("label") for tag in list_tags()}
-    rows, _ = list_activity(kind="playback", page=1)
-    items, seen = [], set()
-    for row in rows:
-        if row.get("level") != "INFO":
-            continue
-        uri = row.get("value") or row.get("resolved_uri") or ""
-        if get_tag_type(uri) != "content" or uri in seen:
-            continue
-        kind, identifier = uri.split(":")[1:]
-        items.append({
-            "uri": uri, "name": labels.get(row.get("uid")) or f"{kind.title()} · {identifier[:8]}",
-            "kind": kind, "detail": "Played from TapTune",
-            "image": None, "url": "https://open.spotify.com/" + kind + "/" + identifier,
-        })
-        seen.add(uri)
-        if len(items) == PAGE_SIZE:
-            break
-    return {"items": items, "next": None}
+    with get_connection() as conn:
+        rows = conn.execute("""
+            SELECT a.value AS uri, COALESCE(NULLIF(TRIM(t.label), ''), m.title) AS name
+            FROM activity a LEFT JOIN tags t ON t.uid = a.uid AND t.value = a.value AND t.label != a.value
+            LEFT JOIN music_titles m ON m.uri = a.value
+            WHERE a.kind = 'playback' AND a.level = 'INFO' AND a.value LIKE 'spotify:%'
+                AND COALESCE(NULLIF(TRIM(t.label), ''), m.title) IS NOT NULL
+            GROUP BY a.value ORDER BY MAX(a.id) DESC LIMIT ?
+        """, (PAGE_SIZE,)).fetchall()
+    return {"items": [item for row in rows if (item := music_item(dict(row)))], "next": None}
 
 
 def _currently_playing():
@@ -193,10 +201,12 @@ def import_spotify_link(value, opener=urllib.request.urlopen):
     title = payload.get("title")
     if not isinstance(title, str) or not title.strip():
         title = uri
-    return {
+    item = {
         "uri": uri, "name": title, "kind": kind,
         "detail": "Spotify link", "image": thumbnail, "url": share_url,
     }
+    _remember_titles([item])
+    return item
 
 
 class LinkPreviewUnavailable(Exception):

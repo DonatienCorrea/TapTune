@@ -9,6 +9,11 @@ CREATE TABLE IF NOT EXISTS tags (
 
 CREATE INDEX IF NOT EXISTS idx_tags_tag_type ON tags(tag_type);
 
+CREATE TABLE IF NOT EXISTS music_titles (
+    uri TEXT PRIMARY KEY,
+    title TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS activity (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     kind TEXT NOT NULL,

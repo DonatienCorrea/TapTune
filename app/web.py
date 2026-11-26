@@ -45,7 +45,12 @@ TRANSLATIONS = {
         "write_title": "Write tag",
         "albums": "My albums",
         "playlists": "My playlists",
-        "recent": "TapTune history",
+        "recent": "Recently played",
+        "music": "Music",
+        "podcasts": "Podcasts",
+        "music_source": "Browse",
+        "podcast_query": "Podcast name…",
+        "empty_podcasts": "No podcasts added yet. Find a show in Spotify and paste its link above.",
         "playing": "What's playing",
         "link": "Spotify link",
         "spotify_link_label": "Paste a Spotify link",
@@ -63,16 +68,16 @@ TRANSLATIONS = {
         "show": "Podcast show",
         "load_more": "Load more",
         "loading": "Loading music…",
-        "empty_albums": "No saved albums. Try Spotify link.",
-        "empty_playlists": "No playlists. Try Spotify link.",
-        "empty_recent": "No music played from TapTune tags yet.",
+        "empty_albums": "No saved albums. Paste a Spotify link above.",
+        "empty_playlists": "No playlists. Paste a Spotify link above.",
+        "empty_recent": "No titled plays yet. Choose Music or Podcasts to get started.",
         "empty_playing": "Nothing is playing on TapTune right now. Start Spotify on a phone and select TapTune under Devices.",
         "connection_checking": "Checking Spotify…",
         "connection_live": "Spotify connected",
         "connection_note": "Uses this device’s saved Spotify connection.",
         "connection_blocked": "Spotify needs attention",
         "retry_music": "Try again",
-        "recent_note": "History of music started with TapTune tags, stored on this Pi.",
+        "recent_note": "Played on this Pi, most recent first. Only items with a known title are shown.",
         "select_music": "Choose",
         "selected_music": "Selected",
         "open_spotify": "Open in Spotify",
@@ -82,7 +87,7 @@ TRANSLATIONS = {
         "write_instruction": "Place the tag on the Pi reader, not your phone.",
         "write_warning": "Replaces existing tag content.",
         "tag_help": "Reader help",
-        "tag_help_note": "Use an unlocked NTAG213/215/216, a supported Feiju 144-byte Type 2 tag, or a writable NFC Type 4 NDEF tag. If the reader stays unavailable, use Restart TapTune on the Maintenance page.",
+        "tag_help_note": "Use an unlocked NTAG213/215/216, a supported Feiju 144-byte Type 2 tag, or a writable NFC Type 4 NDEF tag. If the reader stays unavailable, use Restart the Pi on the Maintenance page.",
         "writer_disabled": "Reader unavailable · See Reader help",
         "writer_ready": "Reader ready",
         "check_reader": "Check reader",
@@ -109,7 +114,7 @@ TRANSLATIONS = {
         "spotify_unavailable": "Spotify is not answering. Check the Pi's internet connection, then try again.",
         "spotify_not_signed_in": "The Pi is not signed in to Spotify yet. Open Spotify on a phone on the same Wi-Fi, tap Devices and choose TapTune once, then retry.",
         "invalid_music_request": "This view could not load. Reload the page.",
-        "reader_unavailable": "The Pi's reader is unavailable. Check its cable, then use Restart TapTune on the Maintenance page.",
+        "reader_unavailable": "The Pi's reader is unavailable. Check its cable, then use Restart the Pi on the Maintenance page.",
         "writer_busy": "Another tag write is pending. Wait for it to finish or expire.",
         "write_timeout": "No tag was written within 60 seconds. Remove any tag and try again.",
         "tag_changed": "The tag was removed or changed. Keep one tag on the reader and try again.",
@@ -152,7 +157,12 @@ TRANSLATIONS = {
         "write_title": "Écrire le tag",
         "albums": "Mes albums",
         "playlists": "Mes playlists",
-        "recent": "Historique TapTune",
+        "recent": "Écoutés récemment",
+        "music": "Musique",
+        "podcasts": "Podcasts",
+        "music_source": "Parcourir",
+        "podcast_query": "Nom du podcast…",
+        "empty_podcasts": "Aucun podcast ajouté. Cherchez une émission sur Spotify et collez son lien ci-dessus.",
         "playing": "En cours",
         "link": "Lien Spotify",
         "spotify_link_label": "Coller un lien Spotify",
@@ -170,16 +180,16 @@ TRANSLATIONS = {
         "show": "Podcast",
         "load_more": "Charger la suite",
         "loading": "Chargement de la musique…",
-        "empty_albums": "Aucun album enregistré. Essayez Lien Spotify.",
-        "empty_playlists": "Aucune playlist. Essayez Lien Spotify.",
-        "empty_recent": "Aucune musique lancée avec un tag TapTune pour le moment.",
+        "empty_albums": "Aucun album enregistré. Collez un lien Spotify ci-dessus.",
+        "empty_playlists": "Aucune playlist. Collez un lien Spotify ci-dessus.",
+        "empty_recent": "Aucune écoute avec un titre connu. Choisissez Musique ou Podcasts pour commencer.",
         "empty_playing": "Aucune musique ne joue sur TapTune. Lancez Spotify sur un téléphone, puis choisissez TapTune dans Appareils.",
         "connection_checking": "Vérification de Spotify…",
         "connection_live": "Spotify connecté",
         "connection_note": "Utilise la connexion Spotify enregistrée sur cet appareil.",
         "connection_blocked": "Vérifiez la connexion Spotify",
         "retry_music": "Réessayer",
-        "recent_note": "Historique local des musiques lancées avec les tags TapTune.",
+        "recent_note": "Écoutes sur ce Pi, de la plus récente à la plus ancienne. Seuls les titres connus sont affichés.",
         "select_music": "Choisir",
         "selected_music": "Sélection",
         "open_spotify": "Ouvrir dans Spotify",
@@ -189,7 +199,7 @@ TRANSLATIONS = {
         "write_instruction": "Posez le tag sur le lecteur du Pi, pas sur votre téléphone.",
         "write_warning": "Remplace le contenu existant du tag.",
         "tag_help": "Aide du lecteur",
-        "tag_help_note": "Utilisez un NTAG213/215/216 non verrouillé, un tag Feiju Type 2 de 144 octets pris en charge ou un tag NFC Type 4 NDEF accessible en écriture. Si le lecteur reste indisponible, utilisez Redémarrer TapTune sur la page Maintenance.",
+        "tag_help_note": "Utilisez un NTAG213/215/216 non verrouillé, un tag Feiju Type 2 de 144 octets pris en charge ou un tag NFC Type 4 NDEF accessible en écriture. Si le lecteur reste indisponible, utilisez Redémarrer le Pi sur la page Maintenance.",
         "writer_disabled": "Lecteur indisponible · Voir Aide du lecteur",
         "writer_ready": "Lecteur prêt",
         "check_reader": "Vérifier le lecteur",
@@ -216,7 +226,7 @@ TRANSLATIONS = {
         "spotify_unavailable": "Spotify ne répond pas. Vérifiez la connexion Internet du Pi, puis réessayez.",
         "spotify_not_signed_in": "Le Pi n’est pas encore connecté à Spotify. Ouvrez Spotify sur un téléphone connecté au même Wi-Fi, touchez Appareils et choisissez TapTune une fois, puis réessayez.",
         "invalid_music_request": "Cette vue n’a pas pu se charger. Rechargez la page.",
-        "reader_unavailable": "Le lecteur du Pi est indisponible. Vérifiez son câble, puis utilisez Redémarrer TapTune sur la page Maintenance.",
+        "reader_unavailable": "Le lecteur du Pi est indisponible. Vérifiez son câble, puis utilisez Redémarrer le Pi sur la page Maintenance.",
         "writer_busy": "Une autre écriture est en attente. Attendez sa fin ou son expiration.",
         "write_timeout": "Aucun tag écrit dans les 60 secondes. Retirez tout tag et réessayez.",
         "tag_changed": "Le tag a été retiré ou remplacé. Gardez un seul tag sur le lecteur et réessayez.",
@@ -264,7 +274,7 @@ def create_app() -> Flask:
     def music():
         try:
             result = browse_music(
-                request.args.get("collection", "albums"), offset=int(request.args.get("offset", "0")),
+                request.args.get("collection", "recent"), offset=int(request.args.get("offset", "0")),
             )
         except ValueError:
             return api_error("invalid_music_request", 400)
@@ -465,9 +475,9 @@ def create_app() -> Flask:
         record_activity("diagnostic", "WARNING", "web", "Update requested from the web page.")
         return api_response({"status": "started"}, 202)
 
-    @app.post("/api/system/restart")
-    def system_restart():
-        return system_action("Restart", system.restart_app)
+    @app.post("/api/system/poweroff")
+    def system_poweroff():
+        return system_action("Power off", system.poweroff)
 
     @app.post("/api/system/reboot")
     def system_reboot():

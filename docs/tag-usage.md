@@ -6,12 +6,10 @@
 
 1. Open `http://taptune.local/` on a phone or computer on the same Wi-Fi.
 2. Choose music:
-   - **My albums** / **My playlists**: your saved Spotify music (**Load more** for more).
-   - **What's playing**: what TapTune is playing right now.
-   - **TapTune history**: music already started from tags on this Pi.
-   - **Spotify link**: paste a link to an album, playlist, song or podcast.
-     To find something new (a podcast, for example), search for it: Spotify
-     opens in a new tab. There, use **Share → Copy link** and paste it here.
+   - **Recently played**: named music and shows played on this Pi, newest first.
+   - **Music**: choose saved albums, playlists, or what's playing. You can also paste a Spotify share link.
+   - **Podcasts**: choose a previously imported show, or search in Spotify,
+     then use **Share → Copy link** and paste the show link into TapTune.
 3. Choose **Write tag**. **This replaces what is on the tag.**
 4. Within 60 seconds, place the tag on the **Pi's reader** and leave it until
    the page says **Tag written** and **Verified**.
