@@ -2,6 +2,7 @@ import queue
 import re
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,6 +12,16 @@ from app import main
 from app.config import settings
 from app import wifi_setup as wifi
 from app.wifi_portal import PORTAL_URL, create_portal
+
+
+class WifiSetupCliTests(unittest.TestCase):
+    def test_cli_runs_without_a_duplicate_import_warning(self):
+        result = subprocess.run(
+            [sys.executable, "-Werror::RuntimeWarning", "-m", "app.wifi_setup", "--help"],
+            cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("{provision,cleanup}", result.stdout)
 
 
 class NetworkCommands:

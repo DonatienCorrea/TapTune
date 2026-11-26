@@ -216,7 +216,8 @@ class SmokeTests(unittest.TestCase):
             missing_schema = Path(temp_directory) / "schema.sql"
             with patch.object(db, "SCHEMA_PATH", missing_schema):
                 with self.assertRaisesRegex(FileNotFoundError, "Database schema not found"):
-                    db.get_connection()
+                    with db.get_connection():
+                        self.fail("Opened a database without a schema")
 
 
 class ConfigurationTests(unittest.TestCase):

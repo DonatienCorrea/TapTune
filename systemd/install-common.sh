@@ -31,7 +31,7 @@ retry() {
 }
 
 apt_install() {
-  retry sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"
+  retry sudo env DEBIAN_FRONTEND=noninteractive apt-get -q -o APT::Get::HideAutoRemove=true install -y "$@"
 }
 
 # The systemd/*.sh installers accept only --dry-run (preview without changes).

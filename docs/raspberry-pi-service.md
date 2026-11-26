@@ -147,8 +147,9 @@ usually fixes itself.
 | `taptune reset` | Make the Pi like new (see below) |
 
 `taptune update` backs up `.env` and the tag database to `data/backups/` (last
-10 kept) before updating. If a step fails, it stops and says which one; nothing
-is rolled back. To restore the tag database from a backup:
+10 kept) before updating. Expected output from passing tests is hidden; failing
+tests still show their details. If a step fails, the update stops and says which
+one; nothing is rolled back. To restore the tag database from a backup:
 
 ```bash
 sudo systemctl stop raspi-spotify-nfc.service

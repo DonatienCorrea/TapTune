@@ -183,7 +183,7 @@ cmd_update() {
 
   if [ "$tests" -eq 1 ]; then
     info "Running the test suite"
-    (cd "$REPO_DIR" && run "$PYTHON" -m unittest discover -s tests -q) ||
+    (cd "$REPO_DIR" && run "$PYTHON" -m unittest discover -s tests -q --buffer) ||
       die "tests failed; services were not reinstalled or restarted (the previous version keeps running)"
   fi
 

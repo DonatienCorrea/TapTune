@@ -95,7 +95,9 @@ class InstallServiceScriptTests(unittest.TestCase):
                         env=env, capture_output=True, text=True, check=True,
                     )
                     calls = log.read_text()
-                    self.assertEqual("apt-get install -y dnsmasq-base nftables" in calls, wifi)
+                    self.assertEqual(
+                        "apt-get -q -o APT::Get::HideAutoRemove=true install -y dnsmasq-base nftables" in calls, wifi,
+                    )
                     self.assertEqual("-m app.wifi_setup provision" in calls, wifi)
                     self.assertEqual("NetworkManager is not running" in result.stderr, not wifi)
                     self.assertNotIn("qrencode", calls)
