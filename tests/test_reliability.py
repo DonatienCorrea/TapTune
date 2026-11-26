@@ -33,7 +33,7 @@ class TaptuneCliTests(unittest.TestCase):
 
     def test_update_backs_up_pulls_then_reinstalls_every_service_in_order(self):
         out = self.cli("update").stdout
-        order = ["data/backups", "pull --ff-only", "requirements-pi.txt", "unittest discover",
+        order = ["data/backups", "pull --ff-only", "requirements-pi.txt", "unittest discover -s tests -q --buffer",
                  "install-go-librespot.sh --dry-run", "install-service.sh --dry-run", "/health"]
         positions = [out.index(step) for step in order]
         self.assertEqual(positions, sorted(positions))

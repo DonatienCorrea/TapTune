@@ -139,7 +139,6 @@ class MusicWebTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         patcher = patch.multiple(
             config.settings, DATABASE_PATH=str(Path(temporary.name) / "tags.db"),
-            NFC_READER_ENABLED=False,
         )
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -247,16 +246,15 @@ class MusicWebTests(unittest.TestCase):
         thread.reader_ready = threading.Event()
         thread.is_alive.return_value = True
         self.app.config["NFC_READER_THREAD"] = thread
-        with patch.object(config.settings, "NFC_READER_ENABLED", True):
-            self.assertEqual(self.client.post("/api/tag-writes", json={"value": "spotify:album:abc"}).status_code, 503)
-            thread.reader_ready.set()
-            response = self.client.post("/api/tag-writes", json={"value": "spotify:album:abc"})
-            self.assertEqual(response.status_code, 202)
-            job_id = response.json["id"]
-            self.assertEqual(self.client.get("/api/tag-writes/" + job_id).json["status"], "waiting")
-            self.assertEqual(self.client.post("/api/tag-writes", json={"value": "spotify:album:def"}).status_code, 409)
-            cancelled = self.client.post("/api/tag-writes/" + job_id + "/cancel", json={})
-            self.assertEqual(cancelled.json["status"], "cancelled")
+        self.assertEqual(self.client.post("/api/tag-writes", json={"value": "spotify:album:abc"}).status_code, 503)
+        thread.reader_ready.set()
+        response = self.client.post("/api/tag-writes", json={"value": "spotify:album:abc"})
+        self.assertEqual(response.status_code, 202)
+        job_id = response.json["id"]
+        self.assertEqual(self.client.get("/api/tag-writes/" + job_id).json["status"], "waiting")
+        self.assertEqual(self.client.post("/api/tag-writes", json={"value": "spotify:album:def"}).status_code, 409)
+        cancelled = self.client.post("/api/tag-writes/" + job_id + "/cancel", json={})
+        self.assertEqual(cancelled.json["status"], "cancelled")
 
     def test_writer_rejects_invalid_inputs_and_cross_origin_requests(self):
         for value in (None, [], {}, "action:next", "https://open.spotify.com/album/abc", "spotify:album:" + "a" * 201):
@@ -275,9 +273,8 @@ class MusicWebTests(unittest.TestCase):
         thread.reader_ready.set()
         thread.is_alive.return_value = True
         self.app.config["NFC_READER_THREAD"] = thread
-        with patch.object(config.settings, "NFC_READER_ENABLED", True):
-            started = self.client.post("/api/tag-writes", json={"value": "spotify:album:abc"},
-                                       headers={"Origin": "http://localhost"})
+        started = self.client.post("/api/tag-writes", json={"value": "spotify:album:abc"},
+                                   headers={"Origin": "http://localhost"})
         self.assertEqual(started.status_code, 202)
         reader = SimulatedReader()
         self.assertTrue(self.app.config["TAG_WRITER"].consume(reader, NFCEvent("040102", "unassigned")))

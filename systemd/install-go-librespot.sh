@@ -31,7 +31,7 @@ MAC="$(env_value BLUETOOTH_SPEAKER_MAC)"
 if [ -n "$MAC" ] && ! is_mac "$MAC"; then
   die "BLUETOOTH_SPEAKER_MAC in .env is not a Bluetooth address (expected AA:BB:CC:DD:EE:FF)"
 fi
-[ -n "$MAC" ] || echo "warning: no Bluetooth speaker yet; pair one from the TapTune setup page (/setup)." >&2
+[ -n "$MAC" ] || echo "No Bluetooth speaker paired yet. Pair one from the TapTune setup page (/setup)."
 VOLUME="$(env_value SPOTIFY_INITIAL_VOLUME)"
 VOLUME="${VOLUME:-10}"
 printf '%s' "$VOLUME" | grep -Eq '^(100|[1-9]?[0-9])$' ||
@@ -70,7 +70,7 @@ server:
 
 [ "$DRY_RUN" -eq 0 ] || echo "# Spotify Connect name: $DEVICE_NAME; go-librespot $GLR_VERSION ($ASSET) -> PipeWire -> ${MAC:-no speaker yet}"
 
-retry sudo apt-get update
+retry sudo apt-get -q update
 apt_install pipewire pipewire-pulse wireplumber libspa-0.2-bluetooth pulseaudio-utils \
   bluez avahi-daemon libasound2-plugins curl
 

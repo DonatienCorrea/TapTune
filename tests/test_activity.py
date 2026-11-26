@@ -35,6 +35,21 @@ class ActivityTests(unittest.TestCase):
             self.assertEqual(conn.execute("SELECT uid FROM tags").fetchone()["uid"], "old")
         self.assertEqual(len(activity.list_activity()[0]), 1)
 
+    def test_database_connections_close_after_commit_and_rollback(self):
+        insert = "INSERT INTO tags (uid, value, tag_type) VALUES (?, 'action:next', 'action')"
+        with get_connection() as committed:
+            committed.execute(insert, ("kept",))
+        with self.assertRaisesRegex(RuntimeError, "cancel transaction"):
+            with get_connection() as rolled_back:
+                rolled_back.execute(insert, ("discarded",))
+                raise RuntimeError("cancel transaction")
+
+        for connection in (committed, rolled_back):
+            with self.assertRaisesRegex(sqlite3.ProgrammingError, "closed database"):
+                connection.execute("SELECT 1")
+        with get_connection() as conn:
+            self.assertEqual([row["uid"] for row in conn.execute("SELECT uid FROM tags")], ["kept"])
+
     def test_search_filters_pagination_and_literal_wildcards(self):
         for i in range(55):
             activity.record_activity("playback", "INFO", "nfc", "Episode " + str(i), uid="CARD")

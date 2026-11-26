@@ -69,7 +69,7 @@ class InstallServiceScriptTests(unittest.TestCase):
             python.parent.mkdir(parents=True)
             python.write_text("#!/bin/sh\nexit 0\n")
             python.chmod(0o755)
-            (repo / ".env").write_text("NFC_READER_ENABLED=true\n")
+            (repo / ".env").write_text("SPOTIFY_DEVICE_NAME=TapTune\n")
             log = Path(directory) / "calls"
             bin_dir = Path(directory) / "bin"
             bin_dir.mkdir()
@@ -95,7 +95,9 @@ class InstallServiceScriptTests(unittest.TestCase):
                         env=env, capture_output=True, text=True, check=True,
                     )
                     calls = log.read_text()
-                    self.assertEqual("apt-get install -y dnsmasq-base nftables" in calls, wifi)
+                    self.assertEqual(
+                        "apt-get -q -o APT::Get::HideAutoRemove=true install -y dnsmasq-base nftables" in calls, wifi,
+                    )
                     self.assertEqual("-m app.wifi_setup provision" in calls, wifi)
                     self.assertEqual("NetworkManager is not running" in result.stderr, not wifi)
                     self.assertNotIn("qrencode", calls)

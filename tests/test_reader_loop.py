@@ -80,13 +80,27 @@ class ReaderLoopTests(unittest.TestCase):
         interrupt.assert_not_called()
 
     def test_reader_failure_interrupts_the_main_service_after_repeated_errors(self):
-        factory = unittest.mock.Mock(side_effect=OSError("I2C failed"))
-        with patch.object(main._thread, "interrupt_main") as interrupt, \
+        factory = unittest.mock.Mock(return_value=object())
+        with patch.object(main, "run_reader_loop", side_effect=OSError("I2C failed")), \
+                patch.object(main._thread, "interrupt_main") as interrupt, \
                 self.assertLogs(main.logger, level="ERROR"):
             main.run_reader_supervisor(factory, sleep=unittest.mock.Mock(), max_failures=3)
 
         self.assertEqual(factory.call_count, 3)
         interrupt.assert_called_once_with()
+
+    def test_missing_reader_is_checked_again_without_stopping_taptune(self):
+        stop = threading.Event()
+        factory = unittest.mock.Mock(side_effect=OSError("no device"))
+        sleep = unittest.mock.Mock(side_effect=lambda _: factory.call_count >= 5 and stop.set())
+        with patch.object(main._thread, "interrupt_main") as interrupt, \
+                self.assertLogs(main.logger, level="ERROR") as logs:
+            main.run_reader_supervisor(factory, stop_event=stop, sleep=sleep, max_failures=3)
+
+        self.assertEqual(factory.call_count, 5)
+        self.assertEqual(sleep.call_args_list[-1].args[0], main.READER_RETRY_MAX_SECONDS)
+        self.assertEqual(sum("No NFC reader found" in line for line in logs.output), 1)
+        interrupt.assert_not_called()
 
     def test_dispatch_failure_does_not_stop_the_reader(self):
         event = NFCEvent(uid="04A7B2F1", payload="action:next")
@@ -95,7 +109,6 @@ class ReaderLoopTests(unittest.TestCase):
             self.assertIsNone(main.dispatch_nfc_event(event))
 
     def test_ready_endpoint_waits_for_reader_to_open(self):
-        from app import config
         from app.web import app
 
         thread = unittest.mock.Mock()
@@ -103,7 +116,7 @@ class ReaderLoopTests(unittest.TestCase):
         thread.reader_ready = threading.Event()
         app.config["NFC_READER_THREAD"] = thread
         self.addCleanup(app.config.pop, "NFC_READER_THREAD", None)
-        with patch.object(config.settings, "NFC_READER_ENABLED", True):
+        with patch("app.web.reader_supported", return_value=True):
             client = app.test_client()
             self.assertEqual(client.get("/ready").status_code, 503)
             thread.reader_ready.set()

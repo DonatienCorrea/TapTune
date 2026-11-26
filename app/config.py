@@ -38,7 +38,7 @@ def parse_port(value: str) -> int:
     return port
 
 
-def parse_bool(value: str, name: str = "NFC_READER_ENABLED") -> bool:
+def parse_bool(value: str, name: str) -> bool:
     normalized = value.strip().lower()
     if normalized in {"1", "true", "yes", "on"}:
         return True
@@ -65,7 +65,6 @@ class Settings:
     APP_PORT = parse_port(os.getenv("APP_PORT", "5000"))
     TAPTUNE_HTTP_PORT_80 = parse_bool(os.getenv("TAPTUNE_HTTP_PORT_80", "false"), "TAPTUNE_HTTP_PORT_80")
     DATABASE_PATH = os.getenv("DATABASE_PATH", str(BASE_DIR / "data" / "raspi_spotify_nfc.db"))
-    NFC_READER_ENABLED = parse_bool(os.getenv("NFC_READER_ENABLED", "false"))
     # Name of the go-librespot Spotify Connect receiver running on the Pi.
     SPOTIFY_DEVICE_NAME = os.getenv("SPOTIFY_DEVICE_NAME", "TapTune").strip()
     LIBRESPOT_API_URL = os.getenv("LIBRESPOT_API_URL", "http://127.0.0.1:3678").strip().rstrip("/")

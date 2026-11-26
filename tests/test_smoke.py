@@ -37,8 +37,8 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()['status'], 'ok')
 
-    def test_ready_requires_initialized_running_reader_when_enabled(self):
-        with patch.object(config.settings, "NFC_READER_ENABLED", True):
+    def test_ready_requires_initialized_running_reader_on_a_pi(self):
+        with patch("app.web.reader_supported", return_value=True):
             self.assertEqual(self.client.get("/ready").status_code, 503)
             reader = Mock()
             self.app.config["NFC_READER_THREAD"] = reader
@@ -47,8 +47,8 @@ class SmokeTests(unittest.TestCase):
             reader.is_alive.return_value = False
             self.assertEqual(self.client.get("/ready").status_code, 503)
 
-    def test_ready_allows_deliberately_disabled_reader(self):
-        with patch.object(config.settings, "NFC_READER_ENABLED", False):
+    def test_ready_without_pn532_libraries(self):
+        with patch("app.web.reader_supported", return_value=False):
             response = self.client.get("/ready")
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.get_json()["reader_ready"])
@@ -216,19 +216,20 @@ class SmokeTests(unittest.TestCase):
             missing_schema = Path(temp_directory) / "schema.sql"
             with patch.object(db, "SCHEMA_PATH", missing_schema):
                 with self.assertRaisesRegex(FileNotFoundError, "Database schema not found"):
-                    db.get_connection()
+                    with db.get_connection():
+                        self.fail("Opened a database without a schema")
 
 
 class ConfigurationTests(unittest.TestCase):
     def test_parse_bool_accepts_common_environment_values(self):
         for value in ("1", "true", "YES", "on"):
-            self.assertTrue(config.parse_bool(value))
+            self.assertTrue(config.parse_bool(value, "X"))
         for value in ("0", "false", "NO", "off"):
-            self.assertFalse(config.parse_bool(value))
+            self.assertFalse(config.parse_bool(value, "X"))
 
     def test_parse_bool_rejects_invalid_values(self):
-        with self.assertRaisesRegex(ValueError, "NFC_READER_ENABLED"):
-            config.parse_bool("sometimes")
+        with self.assertRaisesRegex(ValueError, "SETUP_SKIP"):
+            config.parse_bool("sometimes", "SETUP_SKIP")
 
     def test_parse_port_accepts_valid_boundary_values(self):
         self.assertEqual(config.parse_port("1"), 1)

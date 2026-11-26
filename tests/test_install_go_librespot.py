@@ -41,7 +41,8 @@ class GoLibrespotInstallerTests(unittest.TestCase):
     def test_installs_before_a_speaker_is_paired_with_default_volume(self):
         result = self.dry_run("")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("/setup", result.stderr)
+        self.assertIn("/setup", result.stdout)
+        self.assertEqual(result.stderr, "")
         self.assertIn("initial_volume: 10", result.stdout)
         self.assertNotIn("bluetoothctl trust", result.stdout)
         self.assertIn("restart taptune-go-librespot.service", result.stdout)

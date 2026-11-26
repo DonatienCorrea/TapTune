@@ -2,6 +2,7 @@ import argparse
 import logging
 import time
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Optional
 
 from .ndef import NdefError, encode_spotify_ndef, extract_ndef_message, ndef_block_end, tag_value_from_ndef
@@ -34,16 +35,25 @@ class TargetProtocolMixin:
         return response
 
 
-try:
-    import board
-    from adafruit_pn532.i2c import PN532_I2C as AdafruitPN532I2C
+@lru_cache(maxsize=1)
+def _reader_driver():
+    try:
+        import board
+        from adafruit_pn532.i2c import PN532_I2C as AdafruitPN532I2C
+    except (ImportError, NotImplementedError):  # Pi-only dependencies
+        return None, None
 
     class PN532_I2C(TargetProtocolMixin, AdafruitPN532I2C):
         pass
 
-except (ImportError, NotImplementedError):  # pragma: no cover - Pi-only dependencies
-    board = None  # type: ignore
-    PN532_I2C = None  # type: ignore
+    return board, PN532_I2C
+
+
+def reader_supported() -> bool:
+    """True on a Pi with the PN532 libraries installed (requirements-pi.txt)."""
+    _, factory = _reader_driver()
+    return factory is not None
+
 
 PN532_LIBRARY_UNAVAILABLE_MESSAGE = (
     "PN532 support is not available; install requirements-pi.txt on the Pi."
@@ -88,12 +98,17 @@ class SimulatedReader(ReaderBase):
 
 class PN532Reader(ReaderBase):
     def __init__(self, i2c=None, reader_factory=None):
-        factory = reader_factory or PN532_I2C
-        if factory is None or (i2c is None and board is None):
-            raise RuntimeError(PN532_LIBRARY_UNAVAILABLE_MESSAGE)
+        if i2c is None or reader_factory is None:
+            board, factory = _reader_driver()
+            if board is None or factory is None:
+                raise RuntimeError(PN532_LIBRARY_UNAVAILABLE_MESSAGE)
+            if i2c is None:
+                i2c = board.I2C()
+            if reader_factory is None:
+                reader_factory = factory
 
-        self.i2c = i2c or board.I2C()
-        self.reader = factory(self.i2c, debug=False)
+        self.i2c = i2c
+        self.reader = reader_factory(i2c, debug=False)
         self.reader.SAM_configuration()
 
         self._last_uid = None

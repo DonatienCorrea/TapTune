@@ -7,7 +7,7 @@ from werkzeug.serving import make_server
 
 from .config import settings
 from .activity import install_activity_logging, record_activity, record_playback
-from .nfc_reader import NFCEvent, PN532Reader
+from .nfc_reader import NFCEvent, PN532Reader, reader_supported
 from .readiness import start_speaker_thread
 from .system import code_version
 from .spotify_service import dispatch_tag_value, get_tag_type
@@ -83,16 +83,19 @@ def run_reader_supervisor(
 ) -> None:
     """Open the PN532 and poll it, reopening it after I2C or startup errors.
 
-    Only after many consecutive failures is TapTune stopped so systemd restarts
-    the whole process.
+    A reader that never opened (not wired yet) is checked again every 30 s
+    forever. A reader that worked and then fails many times in a row stops
+    TapTune so systemd restarts the whole process.
     """
     failures = 0
+    opened = False
     delay = READER_RETRY_INITIAL_SECONDS
     previous_error = None
     while stop_event is None or not stop_event.is_set():
         started = time.monotonic()
         try:
             reader = reader_factory()
+            opened = True
             if failures:
                 logger.info("PN532 reader recovered after %d failed attempt(s).", failures)
             else:
@@ -111,6 +114,16 @@ def run_reader_supervisor(
                 delay = READER_RETRY_INITIAL_SECONDS
             failures += 1
             last_error = repr(error)
+            if failures >= max_failures and not opened:
+                if failures == max_failures:
+                    logger.error(
+                        "No NFC reader found: check the PN532 wiring and its I2C switch. "
+                        "TapTune keeps checking every %.0fs.", READER_RETRY_MAX_SECONDS,
+                    )
+                else:
+                    logger.debug("Still no NFC reader: %r", error)
+                sleep(READER_RETRY_MAX_SECONDS)
+                continue
             if failures >= max_failures:
                 logger.exception(
                     "PN532 reader failed %d times in a row; stopping TapTune for systemd to restart it.",
@@ -149,12 +162,12 @@ def log_startup_summary() -> None:
         "TapTune %s starting: http://%s:%s, Spotify receiver %r, reader %s, "
         "speaker %s, ready sound %s, database %s.",
         code_version(), settings.APP_HOST, settings.APP_PORT, settings.SPOTIFY_DEVICE_NAME,
-        "enabled" if settings.NFC_READER_ENABLED else "disabled",
+        "PN532" if reader_supported() else "unavailable (no PN532 libraries)",
         settings.BLUETOOTH_SPEAKER_MAC or "(none)",
         "on" if settings.READY_SOUND_ENABLED else "off", settings.DATABASE_PATH,
     )
-    if not settings.NFC_READER_ENABLED:
-        logger.warning("NFC_READER_ENABLED=false: tags are not read, only the web page works.")
+    if not reader_supported():
+        logger.warning("No PN532 libraries: tags are not read, only the web page works.")
 
 
 def log_thread_exception(args) -> None:
@@ -186,7 +199,7 @@ def main() -> None:
     install_activity_logging()
     threading.excepthook = log_thread_exception
     log_startup_summary()
-    if settings.NFC_READER_ENABLED:
+    if reader_supported():
         app.config["NFC_READER_THREAD"] = start_reader_thread(writer=app.config["TAG_WRITER"])
     start_speaker_thread()
     if settings.TAPTUNE_WIFI_SETUP or settings.TAPTUNE_HTTP_PORT_80:

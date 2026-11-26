@@ -1,26 +1,26 @@
 import sqlite3
+from contextlib import closing, contextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 from .config import BASE_DIR, settings
 
 SCHEMA_PATH = BASE_DIR / "data" / "schema.sql"
 
 
-def get_connection() -> sqlite3.Connection:
+@contextmanager
+def get_connection() -> Iterator[sqlite3.Connection]:
     if not SCHEMA_PATH.is_file():
         raise FileNotFoundError(f"Database schema not found: {SCHEMA_PATH}")
 
     db_dir = Path(settings.DATABASE_PATH).resolve().parent
     db_dir.mkdir(parents=True, exist_ok=True)
 
-    connection = sqlite3.connect(settings.DATABASE_PATH)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-
-    connection.executescript(SCHEMA_PATH.read_text())
-
-    return connection
+    with closing(sqlite3.connect(settings.DATABASE_PATH)) as connection, connection:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.executescript(SCHEMA_PATH.read_text())
+        yield connection
 
 
 def list_tags() -> List[Dict[str, Any]]:
@@ -54,12 +54,10 @@ def upsert_tag(uid: str, value: str, tag_type: str, label: Optional[str] = None)
             """,
             (uid, value, tag_type, label),
         )
-        conn.commit()
-        return get_tag_by_uid(uid) or {"uid": uid, "value": value, "tag_type": tag_type, "label": label}
+    return get_tag_by_uid(uid) or {"uid": uid, "value": value, "tag_type": tag_type, "label": label}
 
 
 def clear_all_tags() -> None:
     with get_connection() as conn:
         conn.execute("DELETE FROM tags")
         conn.execute("DELETE FROM activity")
-        conn.commit()

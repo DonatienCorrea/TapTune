@@ -13,28 +13,11 @@ podcast, or to pause, skip or change the volume.
 > wire the reader and run the installer once; after that, everything is done
 > from a phone.
 
-## What you need
-
-- A Raspberry Pi with Wi-Fi, running Raspberry Pi OS Lite
-- A PN532 NFC reader and NFC tags (NTAG213/215/216 work best)
-- A Bluetooth speaker
-- Spotify Premium
-
 ## Install
 
-Follow the [installation guide](docs/raspberry-pi-service.md). In short:
-
-```bash
-sudo apt update && sudo apt install -y git python3-venv
-git clone https://github.com/DonatienCorrea/TapTune.git
-cd TapTune
-./install.sh
-# connect the reader, pair the speaker (see the guide)
-./install.sh --configure
-```
-
-Then, in Spotify on your phone, tap **Devices** → **TapTune**, and open
-`http://taptune.local/` to write your first tag.
+TapTune requires Raspberry Pi OS Lite and Spotify Premium.
+Follow the [Raspberry Pi installation guide](docs/raspberry-pi-service.md) from
+wiring the reader to pairing the speaker and writing your first tag.
 
 ## What it does
 
