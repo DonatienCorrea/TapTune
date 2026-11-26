@@ -1,0 +1,48 @@
+<!doctype html>
+{% set fr = locale == 'fr' %}
+{% set prefix = '/fr' if fr else '' %}
+<html lang="{{ locale }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#f4f1e8">
+  <title>{{ page_title }} · TapTune</title>
+  {% block head %}{% endblock %}
+  {% if not portal %}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  {% endif %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <a class="skip-link" href="#main">{{ 'Aller au contenu' if fr else 'Skip to content' }}</a>
+  <div class="app-shell">
+    <header class="header">
+      {% set wordmark %}<svg class="logo-mark" viewBox="0 0 32 32" width="32" height="32" aria-hidden="true" focusable="false"><circle cx="16" cy="16" r="13"></circle><circle cx="16" cy="16" r="5"></circle><path d="M16 3v7M16 22v7"></path></svg><span>Tap<span class="brand-tune">Tune</span></span>{% endset %}
+      {% if portal %}
+      <span class="brand">{{ wordmark }}</span>
+      {% else %}
+      <a class="brand" href="{{ prefix }}/">{{ wordmark }}</a>
+      {% endif %}
+      <nav class="header-nav" aria-label="{{ 'Navigation principale' if fr else 'Main navigation' }}">
+        {% if not portal %}
+        {% for key, href, label in [
+          ('tag', prefix ~ '/', 'Créer un tag' if fr else 'Make a tag'),
+          ('setup', prefix ~ '/setup', 'Configuration' if fr else 'Setup'),
+          ('maintenance', prefix ~ '/logs', 'Maintenance')
+        ] %}
+        <a class="nav-link" href="{{ href }}"{% if active == key %} aria-current="page"{% endif %}>{{ label }}</a>
+        {% endfor %}
+        {% endif %}
+        <a class="nav-link" href="{{ switch_href or switch_url }}" lang="{{ 'en' if fr else 'fr' }}" hreflang="{{ 'en' if fr else 'fr' }}">{{ 'English' if fr else 'Français' }}</a>
+      </nav>
+    </header>
+    <main id="main" class="page">
+      {% block main %}{% endblock %}
+    </main>
+  </div>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

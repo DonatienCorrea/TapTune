@@ -43,11 +43,6 @@ class Element {
     return all.filter((child) => child.tag === "button"
       && (selector === "button" || child.dataset.uri));
   }
-  querySelector(selector) {
-    if (selector === "ul") return this.children.find((child) => child.tag === "ul");
-    const kind = selector.match(/data-group="([^"]+)"/)?.[1];
-    return this.children.find((child) => child.dataset.group === kind) || null;
-  }
 }
 
 async function picker(job = null, items = []) {
@@ -80,6 +75,7 @@ async function picker(job = null, items = []) {
     pending_selection: "Restored music",
   });
   const scenario = { available: true, job, items, failPoll: false, failState: false, failStart: false };
+  const opened = [];
   const timers = new Map();
   let timerId = 0;
   let jobId = 0;
@@ -90,6 +86,7 @@ async function picker(job = null, items = []) {
       createElement: (tag) => new Element(tag),
       createElementNS: (_, tag) => new Element(tag),
     },
+    window: { open: (...args) => opened.push(args) },
     URLSearchParams,
     setTimeout: (callback) => { timers.set(++timerId, callback); return timerId; },
     clearTimeout: (id) => timers.delete(id),
@@ -97,7 +94,8 @@ async function picker(job = null, items = []) {
       let data;
       let ok = true;
       if (path.startsWith("/api/music")) {
-        data = { items: scenario.items, mode: "fake", next: null };
+        scenario.musicPaths = [...(scenario.musicPaths || []), path];
+        data = { items: scenario.items, next: null };
       } else if (path === "/api/tag-writes" && options.method === "POST") {
         if (scenario.failStart) throw new TypeError("Failed to fetch");
         if (scenario.startError) {
@@ -124,7 +122,7 @@ async function picker(job = null, items = []) {
   const settle = () => new Promise((resolve) => setImmediate(resolve));
   await settle();
   return {
-    el, scenario,
+    el, scenario, opened,
     async poll() {
       const [id, callback] = timers.entries().next().value;
       timers.delete(id);
@@ -134,6 +132,15 @@ async function picker(job = null, items = []) {
 }
 
 const waiting = { id: "restored", status: "waiting", value: "spotify:album:abc", uid: null };
+
+test("credential-free search opens Spotify to find a podcast to share", async () => {
+  const ui = await picker();
+  ui.el("spotify-search-query").value = "science & stories";
+  ui.el("spotify-external-search").listeners.submit({ preventDefault() {} });
+  assert.deepEqual(ui.opened[0], [
+    "https://open.spotify.com/search/science%20%26%20stories", "_blank", "noopener,noreferrer",
+  ]);
+});
 
 test("waiting and verified success use distinct structured feedback", async () => {
   const ui = await picker(waiting);
@@ -257,4 +264,86 @@ test("reader failures offer status checking rather than a disabled retry", async
   await ui.el("check-write").click();
   assert.equal(ui.el("write-status").dataset.state, "error");
   assert.equal(ui.el("retry-write").hidden, false);
+});
+
+test("library views only request a collection from the API", async () => {
+  const ui = await picker();
+  assert.deepEqual(ui.scenario.musicPaths, ["/api/music?collection=albums"]);
+});
+
+const maintenanceScript = readFileSync(join(__dirname, "../app/static/maintenance.js"), "utf8");
+
+async function maintenance(system) {
+  const elements = new Map();
+  const el = (id) => {
+    if (!elements.has(id)) elements.set(id, new Element());
+    return elements.get(id);
+  };
+  el("maintenance-text").textContent = JSON.stringify({
+    confirm: { update: ["Update?", "", "Update"], restart: ["Restart?", "", "Restart"] },
+    updating: "Updating…", restarting: "Restarting…", updated: "Update finished.",
+    update_failed: "Update failed.", error: "Could not start.", not_back: "Still down.",
+    unknown_version: "unknown",
+  });
+  const buttons = ["update", "restart"].map((action) => {
+    const button = new Element("button");
+    button.dataset.systemAction = action;
+    return button;
+  });
+  const scenario = { system, down: false, posts: [], reloaded: false };
+  const timers = [];
+  vm.runInNewContext(maintenanceScript, {
+    document: { getElementById: el, querySelectorAll: () => buttons },
+    window: { confirm: () => true, location: { reload: () => { scenario.reloaded = true; } } },
+    setTimeout: (callback) => timers.push(callback),
+    fetch: async (path, options = {}) => {
+      if (options.method === "POST") {
+        scenario.posts.push(path);
+        return { ok: true, status: 202, json: async () => ({ status: "started" }) };
+      }
+      if (scenario.down) throw new TypeError("Failed to fetch");
+      return { ok: true, status: 200, json: async () => scenario.system };
+    },
+  });
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  await settle();
+  return {
+    el, buttons, scenario, settle,
+    async tick() {
+      timers.shift()();
+      await settle();
+    },
+  };
+}
+
+test("update keeps polling through the restart and reports the new version", async () => {
+  const ui = await maintenance({ version: "old", update: { state: "idle", log: "" } });
+  assert.equal(ui.el("system-version").textContent, "old");
+  ui.buttons[0].listeners.click();
+  await ui.settle();
+  assert.deepEqual(ui.scenario.posts, ["/api/system/update"]);
+  assert.equal(ui.buttons[1].disabled, true);
+  ui.scenario.down = true;
+  await ui.tick();
+  assert.equal(ui.el("maintenance-status").textContent, "Restarting…");
+  ui.scenario.down = false;
+  ui.scenario.system = { version: "new", update: { state: "succeeded", log: "done" } };
+  await ui.tick();
+  assert.equal(ui.el("maintenance-status").dataset.tone, "success");
+  assert.match(ui.el("maintenance-status").textContent, /new/);
+  assert.equal(ui.el("update-log").hidden, false);
+  assert.equal(ui.buttons[1].disabled, false);
+});
+
+test("restart reloads the page once TapTune answers again", async () => {
+  const ui = await maintenance({ version: "v1", update: { state: "idle", log: "" } });
+  ui.buttons[1].listeners.click();
+  await ui.settle();
+  assert.deepEqual(ui.scenario.posts, ["/api/system/restart"]);
+  ui.scenario.down = true;
+  await ui.tick();
+  assert.equal(ui.scenario.reloaded, false);
+  ui.scenario.down = false;
+  await ui.tick();
+  assert.equal(ui.scenario.reloaded, true);
 });

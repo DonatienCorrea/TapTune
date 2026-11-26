@@ -8,25 +8,23 @@ web
 
 ## Users
 
-Households and makers building a tactile music player with a Raspberry Pi. Developers and hobbyists also use the page as an installation and architecture reference.
+Households using a screen-free music player, and the (often non-technical) person who sets it up from a phone. Makers and developers build and extend it.
 
 ## Product Purpose
 
-TapTune turns physical NFC tags into a simple music interface: tap a tag to play a Spotify playlist, album, or track, or tap a control tag to pause or skip. Success means a household can use music without opening a phone while the maker can still inspect and maintain the system locally.
+TapTune turns physical NFC tags into a simple music interface: tap a tag to play a Spotify playlist, album, track or podcast, or tap a control tag to pause or skip. Success means a household can use music without opening a phone while the maker can still inspect and maintain the system locally.
 
 ## Positioning
 
-The project makes Spotify playback tangible by connecting inexpensive, programmable physical tags to a local Raspberry Pi service, with a simulated input path for development without hardware.
+The project makes Spotify playback tangible by connecting inexpensive, programmable physical tags to a local Raspberry Pi service.
 
 ## Operating Context
 
-The service runs on Raspberry Pi OS with a PN532 reader over I2C. A local Flask web UI assigns tag UIDs, SQLite persists mappings, and systemd keeps the service running. Playback uses a shared Spotify Premium account and Spotify Connect; Raspotify/BlueALSA on Lite or Spotifyd/PipeWire on Desktop makes the Pi its own Bluetooth speaker receiver without login. Boot prepares the receiver; a tag starts music. One bounded boot connection/chime is followed by no periodic Bluetooth reconnect; only local music start/resume taps may reconnect, never pause or volume. Reader polling is disabled by default for hardware-free setup and joins the service dispatch loop when `NFC_READER_ENABLED=true`.
+A headless Raspberry Pi running Raspberry Pi OS Lite, with a PN532 reader over I2C and a Bluetooth speaker. TapTune is a local Flask service; go-librespot is the Spotify Connect receiver (signed in by choosing TapTune once in the Spotify app, no developer credentials) and plays through PipeWire. SQLite stores tag assignments and the activity log. Boot prepares the receiver at 10% volume and plays one chime; it never starts music. Only music taps reconnect the speaker. Transient failures are retried automatically.
 
 ## Capabilities and Constraints
 
-Supports Spotify playlist, album, and track URIs plus play/pause, next and volume actions. The bilingual, mobile-friendly local web page browses saved albums, playlists, albums derived from recent listening, and Spotify search. Selections can fill a UID assignment or be written as verified NDEF links to unlocked NTAG213/215/216 tags using the Pi's PN532, not the phone's NFC hardware. A cancellable write pauses playback scanning and expires after 60 seconds. Library browsing needs additional Spotify authorization scopes. Reads supported NDEF values from Type 2 tags before falling back to UID assignments. Includes fake playback, an explicitly labelled demo music picker and a CLI simulator.
-
-The app owns startup connection/readiness and one chime; Desktop uses the dedicated audio user's PipeWire session, not a separate sound service. There are no status LEDs, and other errors are logged and inspected over SSH. Hardware-specific dependencies are separate from base development dependencies. One guided installer prepares Python and then explicitly configures live services after manual wiring, pairing and authorization; Lite is the shortest standalone route.
+Tags play Spotify albums, playlists, tracks and podcast shows (newest episode), or play/pause, next and volume ±10 actions. The bilingual, mobile-friendly local page offers saved albums, saved playlists, What's playing, TapTune history and pasted Spotify links (previewed without login; searching opens Spotify in a new tab). Selections are written as verified NDEF links to supported tags with the Pi's PN532, not the phone's NFC. A first-run setup page covers Wi-Fi, speaker pairing and Spotify sign-in; a protected TapTune-Setup hotspot moves the Pi to a new network. Without a screen, the Activity log page shows what happened and offers update, restart, reboot and diagnostic-log download. There is no in-app search, no fake/demo mode and no authentication: the Pi belongs on a trusted home network.
 
 ## Brand Commitments
 
@@ -41,4 +39,4 @@ The repository README, Python application modules, SQLite schema, systemd servic
 - Make the first action physical and understandable.
 - Keep the local system inspectable and maintainable.
 - Separate hardware concerns from playback and storage.
-- Let makers test the full flow before wiring hardware.
+- Keep setup and maintenance possible from a phone, without a screen or terminal.

@@ -1,60 +1,40 @@
 # Configurer le Wi-Fi de TapTune
 
-[Accueil en français](./) · [Checklist d’installation en anglais](../raspberry-pi-service.md)
+[Accueil en français](./) · [Guide d’installation (anglais)](../raspberry-pi-service.md)
 
 ## Première installation
 
-Dans Raspberry Pi Imager, choisissez Raspberry Pi OS Lite ou Desktop. Avant
-d’écrire la carte, personnalisez le système : définissez un nom d’hôte (par
-exemple `taptune`), le nom et le mot de passe du Wi-Fi ainsi que le pays du
-réseau sans fil. Créez votre compte et activez SSH si vous installez TapTune à
-distance. Au démarrage, connectez votre ordinateur au même réseau et accédez au
-Pi via `taptune.local` (ou le nom choisi). Le point d’accès de secours n’est
-disponible qu’une fois le service TapTune installé.
+Dans Raspberry Pi Imager, choisissez **Raspberry Pi OS Lite**. Avant d’écrire la
+carte, ouvrez la personnalisation et indiquez : le nom d’hôte `taptune`, votre
+compte, SSH activé, le nom et le mot de passe du Wi-Fi et le pays. Le Pi
+rejoint alors ce Wi-Fi au démarrage.
 
 ## Changer de réseau Wi-Fi depuis un téléphone
 
-Sous Raspberry Pi OS Lite et Desktop avec NetworkManager, si le Pi ne trouve
-pas de connexion Wi-Fi connue ni de liaison Ethernet après environ une minute
-au démarrage, il diffuse le réseau `TapTune-Setup`.
+Si le Pi ne trouve aucun réseau connu environ une minute après le démarrage, il
+crée son propre Wi-Fi **TapTune-Setup** (protégé par un mot de passe propre à ce Pi).
 
-Le point d’accès reste protégé par WPA2 avec un mot de passe unique au Pi.
-Lors de la première configuration, TapTune affiche un QR Wi-Fi et le mot de
-passe lorsqu’il crée le profil. Scannez le code dans les réglages Wi-Fi du
-téléphone pour le connecter : le mot de passe est transmis au téléphone, mais
-le point d’accès reste protégé. Gardez le QR et le mot de passe privés : toute
-personne qui rejoint le réseau peut configurer le Pi.
+1. Avant de déplacer le Pi, exécutez `taptune setup-wifi` pour afficher le QR
+   code et le mot de passe (ils s’affichent aussi à l’installation).
+2. Au nouvel endroit, scannez le QR code avec le téléphone ou rejoignez
+   `TapTune-Setup` avec le mot de passe. Restez connecté même si le téléphone
+   indique « pas d’Internet ».
+3. La page de configuration s’ouvre. Sinon, allez sur `http://10.42.66.1/fr/setup`
+   (`http://`, sans `s`).
+4. Choisissez votre Wi-Fi et saisissez son mot de passe. Le Pi quitte
+   `TapTune-Setup` et s’y connecte.
+5. Reconnectez le téléphone à votre Wi-Fi et ouvrez `http://taptune.local/fr/`
+   (ou `http://taptune.local:5000/fr/`). En cas d’échec, `TapTune-Setup`
+   réapparaît : réessayez.
 
-```bash
-taptune setup-wifi
-```
+Le mot de passe Wi-Fi ne peut être saisi que depuis `TapTune-Setup`. Les réseaux
+d’entreprise et ceux qui demandent une connexion dans le navigateur ne sont pas
+pris en charge. Gardez le QR code privé : quiconque rejoint ce réseau peut
+configurer le Pi. Pour désactiver ce secours, ajoutez `TAPTUNE_WIFI_SETUP=false`
+dans `.env` puis redémarrez TapTune.
 
-Exécutez cette commande avant de déplacer le Pi pour réafficher le QR et le
-mot de passe. `taptune reset` les affiche aussi avant d’effacer les réseaux
-Wi-Fi enregistrés. L’installation et la mise à jour du service en mode Lite ou
-Desktop installent automatiquement le générateur de QR sans changer le mot de
-passe du point d’accès. S’il manque, `taptune setup-wifi` affiche quand même le
-mot de passe ; exécutez `taptune update` pour rétablir l’affichage du QR.
+## Maintenance sans écran
 
-1. Démarrez le Pi au nouvel emplacement. Scannez le QR dans les réglages Wi-Fi
-   du téléphone ou choisissez `TapTune-Setup` et saisissez le mot de passe
-   imprimé. Restez connecté même si le téléphone indique que le réseau n’a pas
-   accès à Internet.
-2. Si la page de connexion ne s’ouvre pas, ouvrez `http://10.42.66.1/fr/setup`
-   dans le navigateur (utilisez `http://`, sans `s`). Sélectionnez un réseau
-   détecté avant le démarrage du point d’accès, ou saisissez son nom, puis
-   renseignez son **mot de passe Wi-Fi**. Laissez le champ vide uniquement
-   pour un réseau ouvert. Les réseaux d’entreprise et ceux qui exigent une
-   connexion dans le navigateur ne sont pas pris en charge.
-3. Le point d’accès disparaît pendant la tentative. Reconnectez votre
-   téléphone au réseau choisi et ouvrez `http://taptune.local/fr/` (adaptez
-   le nom d’hôte). Si le port 80 est indisponible, essayez
-   `http://taptune.local:5000/fr/` (ou le port `APP_PORT` configuré).
-   Si le Pi n’a pas pu se connecter,
-   `TapTune-Setup` réapparaît : rejoignez-le et réessayez.
-
-Le formulaire Wi-Fi n’est accessible que depuis le point d’accès. Celui-ci ne
-donne pas accès à Internet ni à l’interface habituelle de TapTune. NetworkManager
-enregistre les identifiants Wi-Fi, pas TapTune. Une réinstallation conserve le
-mot de passe du point d’accès. Pour désactiver le secours Wi-Fi, ajoutez
-`TAPTUNE_WIFI_SETUP=false` au fichier `.env` et redémarrez TapTune.
+La page **Journal** (`http://taptune.local/fr/logs`) affiche l’activité et
+permet de mettre à jour TapTune, de le redémarrer, de redémarrer le Pi et de
+télécharger les journaux de diagnostic.

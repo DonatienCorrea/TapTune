@@ -1,6 +1,6 @@
 import argparse
 
-from .db import record_event, upsert_tag
+from .db import upsert_tag
 from .activity import record_activity, record_playback
 from .spotify_service import dispatch_tag_value, get_tag_type
 
@@ -11,7 +11,6 @@ def dispatch_simulated_value(uid: str, value: str) -> dict:
         raise ValueError(f"Unsupported simulated tag value: {value}")
 
     upsert_tag(uid=uid, value=value, tag_type=tag_type, label=f"simulated-{uid}")
-    record_event(uid, tag_type, value, source="simulate")
     try:
         result = dispatch_tag_value(value)
     except Exception:

@@ -2,140 +2,47 @@
 
 [Documentation index](README.md)
 
-Start with the smallest failing boundary: web process, configuration, Spotify, I2C, reader initialization, card read, assignment, then dispatch.
-
-For a searchable view without SSH, select **Activity log** on the local music
-page, or open `http://<pi-ip>:5000/logs` (`/fr/logs` in French). Search by tag
-UID, Spotify URI, episode title, diagnostic message or component; filter to
-playback or diagnostics, or warnings and errors. Use **Search / refresh** to
-load new entries and **Older** to page through history.
-
-The log retains the latest 2,000 records in SQLite across restarts. It records
-tag dispatch results, unknown tags, and the selected episode name/URI for
-podcasts. A successful command means Spotify accepted the request, not that
-speaker output was independently confirmed; fake playback is labelled.
-Diagnostics capture INFO and higher messages from the TapTune Python process
-when started with `python -m app.main`, including reader, Bluetooth and tag
-writing messages. Existing system journals are not imported, and tracebacks,
-Raspotify/Spotifyd and OS service logs still require the commands below.
-Configured Spotify credentials and recognizable token fields are redacted
-before storage. Keep this unauthenticated page on a trusted LAN, like the
-music page; it contains household listening activity. Times are UTC.
-
-For the full logs of every service:
+Over SSH:
 
 ```bash
-taptune status          # is each service running? does TapTune answer?
-taptune logs -n 200     # merged logs of every TapTune service, this boot
-taptune logs -b -1      # the previous boot, e.g. after a start that failed
-taptune logs --save     # write status + logs to a file you can share
+taptune status            # is each part running?
+taptune logs              # what happened (add -b -1 for the previous boot)
+taptune logs --save       # save status + logs to a file to share
 ```
 
-`taptune` is linked by `install-service.sh`; from a checkout you can also run
-`./taptune`. See [Raspberry Pi service](raspberry-pi-service.md#logs-and-inspection).
+No screen or terminal? Open **Activity log** on the music page
+(`http://taptune.local/logs`). It lists taps, played music and messages (last
+2,000 entries, times in UTC). Its **Maintenance** section can update or restart
+TapTune, restart the Pi, and **Download diagnostic logs** to share when asking
+for help.
 
-| Symptom | What to check |
+| Problem | What to do |
 | --- | --- |
-| `curl` cannot connect | Confirm `systemctl status`, port `5000`, `APP_HOST`, and the Pi IP. |
-| `systemctl enable --now` fails with “unavailable resources or another system error” | Inspect `systemctl cat raspi-spotify-nfc.service` for the actual paths and journal for the failed directive. Run `./install.sh --lite --configure` (or `--desktop` / `--app-only`) **without sudo** to regenerate correctly quoted paths, including checkout names with spaces. Do not copy the template unit unchanged. |
-| The service exits immediately | Confirm `.env` exists, the unit paths match it, and `taptune logs` shows the Python error. |
-| Startup works only sometimes | Read `taptune logs -b 0` (or `-b -1`) for the first error. App/receiver process restarts and PN532 retries are separate from the bounded boot Bluetooth check. There is no periodic Bluetooth retry. After fixing the cause, `taptune restart` requests a fresh startup check. |
-| Fake mode is unexpected | All three live Spotify values must be non-empty. Remove placeholder values or complete the credentials, then restart. |
-| Spotify reports an authorization error | Recheck the client ID, client secret, refresh-token scopes, and exact redirect URI. |
-| Spotify reports no active device | Complete the receiver's separate account login using the [Lite](speaker-setup.md) or [Desktop](speaker-setup-desktop.md) guide, or open another Connect-capable player using the same account and play something once. |
-| Dispatch returns `speaker_not_ready` | Spotify has no current device and the Pi receiver named by `SPOTIFY_DEVICE_NAME` is not visible. Check the name and receiver's separate Spotify login in the [Lite](speaker-setup.md#troubleshooting) or [Desktop](speaker-setup-desktop.md#troubleshooting) guide. |
-| Dispatch returns `bluetooth_not_ready` | Power on the paired/trusted speaker; verify `.env`'s address and `bluetoothctl info <MAC>`. Inspect `taptune logs` for connection/routing failures, then tap a local music/start tag. Pause and volume do not trigger reconnection. |
-| Music plays on the phone instead of the Pi | Spotify's current device is retained even while paused. Select the Pi in Spotify's device picker before testing local playback. |
-| No music starts automatically at boot | Expected: boot prepares the receiver and volume; a content or play/pause tag starts music. |
-| No ready chime after boot | Check `READY_SOUND_ENABLED`, `/ready`, both Spotify logins, receiver name and audio output. The app performs one bounded check, not a periodic chime loop; after fixing the cause, restart TapTune. On Desktop inspect the configured audio user; do not start an obsolete ready-sound user unit. |
-| Speaker disconnects during idle | No automatic background reconnect is expected. Turn the speaker on if necessary, then tap a local music/start tag. Do not use pause/volume as a wake-up test. |
-| Duplicate TapTune devices, zeroconf errors or competing audio | Confirm only one receiver stack is running. Reapply the intended mode, inspect Raspotify and Spotifyd units (including other users'), and do not enable BlueALSA alongside PipeWire. A duplicate name alone does not establish the exact fault; inspect the receiver journal. |
-| Desktop Bluetooth connects but music is silent or mono / A2DP is unavailable | Inspect `pactl list cards` and `pactl list short sinks`: music should use A2DP and `2ch`, not `headset-head-unit` / `1ch 16000Hz`. Earlier installers left generic Spotifyd, BlueALSA playback and LightDM audio services competing. The updated Desktop installer cleans these up via `taptune update`; reboot and verify music. See [Desktop setup](speaker-setup-desktop.md#what-completion-configures) for the login-screen audio exclusion. |
-| `ModuleNotFoundError: spotipy` or PN532 support missing | Use `.venv/bin/python`, not the system Python. Rerun `./install.sh --lite` / `--desktop` for a Pi or `--app-only` for development; this prepares dependencies but starts no services. |
-| Python or venv preparation fails | Install Python 3.10+ and `python3-venv`, check the first pip/network error, and rerun preparation. No dependency install failure is treated as success. |
-| Tests print warnings or failure-path tracebacks but end with `OK` | Some tests deliberately exercise errors. Read the unittest summary and exit status; a traceback from a mocked failure is not evidence of a deployed service failure. A `FAILED` summary must still be investigated. |
-| A tag is “unknown” | Assign the complete UID printed by the reader. Avoid extra spaces and preserve the exact value. |
-| PN532 import fails | Activate the Pi virtual environment and rerun `./systemd/install-pi-dependencies.sh`. |
-| `/dev/i2c-1` is missing | Enable I2C with `sudo raspi-config` and reboot. |
-| `i2cdetect -y 1` does not show `24` | Power down, confirm I2C mode, and recheck 3.3 V, ground, SDA on physical pin 3, and SCL on pin 5. Then use the first-card test because generic probing is not definitive for every board. |
-| The reader command waits forever | Stop the service and other reader processes, place a known Type A card directly over the antenna, and run `python -m app.pn532_diag --seconds 30`. |
-| The UID changes or looks incomplete | Copy the entire value printed for one card. Do not assume every card has a four-byte UID. |
-| The diagnostic reads a card but service taps do nothing | Set `NFC_READER_ENABLED=true` in the service's `.env`, restart, and inspect `taptune logs` for reader retries or unassigned-tag warnings. |
-| The same held card plays repeatedly | Update to the current reader loop. It dispatches once and requires card removal before the next tap. |
-| A tag cannot be written | Use an unlocked NTAG213/215/216, a supported Feiju 144-byte Type 2 tag, or a writable NFC Type 4 NDEF tag and the Pi's PN532, not the iPhone's NFC hardware. ISO 14443-4 tags need an existing standard NDEF application and file; TapTune does not format them. Enable the reader and run `python -m app.main`. Keep one tag on the reader until verification succeeds. See [Browse Spotify and write a tag](tag-usage.md#browse-spotify-and-write-a-tag) for exact Feiju profile requirements. Unsupported tags can still use manual UID assignments. |
-| Writing fails with `Received unexpected command response!` at the `GET_VERSION` call | Update TapTune to a version that sends NTAG `GET_VERSION` through PN532 `InCommunicateThru`, then restart the service. Older versions used `InDataExchange`, which interprets `0x60` as MIFARE authentication. This failure occurs before tag memory is written. If it persists after updating, share the new traceback. |
-| Type 4 writing fails with `Received unexpected command response!` while selecting the NDEF application | Update to the protocol-aware reader. Earlier Type 4 support probed every tag with NTAG commands before trying APDUs, which can disrupt an ISO-DEP session. The reader now uses the discovery SAK byte to select the protocol without those probes. If it persists, share the new traceback; application selection occurs before any write. |
-| Feiju writes are acknowledged but verification fails | Update to the paced four-page Type 2 reader. Pi diagnostics found correct stored content despite an overlapping single-page read failure. Verification still requires the actual content to match; failures now log the read/write page and PN532 status where available. Keep the tag still and share fresh logs if the error persists. |
-| Type 2 WRITE reports PN532 status 11 (`0x0B`) | This is an RF protocol error. TapTune retries the same page up to three total attempts, waiting 100 ms and checking the UID before each retry. Keep one tag stationary; if attempts are exhausted, inspect reader power/wiring and share the page/status logs. No success is reported without read-back verification. |
+| The page doesn't open | Try `http://taptune.local:5000/` or `http://<pi-ip>:5000/`. Check the phone is on the same Wi-Fi. Run `taptune status`. |
+| TapTune doesn't appear in Spotify → Devices | Phone and Pi must be on the same Wi-Fi (mDNS allowed). Check `taptune status` and `taptune logs`. |
+| Setup page says Spotify isn't signed in | In Spotify, tap **Devices** and choose **TapTune** again (needed after a password change or `taptune reset`). |
+| Music plays on the phone instead of the Pi | A paused phone still counts as the active device. Choose TapTune under **Devices**. |
+| `bluetooth_not_ready` | Turn the speaker on, then tap a music tag. Check the address with `bluetoothctl info <MAC>`. Pause and volume tags never reconnect. |
+| `speaker_not_ready` | Spotify can't see TapTune. Sign in again (Spotify → Devices → TapTune) and check `SPOTIFY_DEVICE_NAME`. |
+| Sound is mono or very poor | `taptune status` should show an `a2dp-sink` profile, not `headset-head-unit`. Turn the speaker off and on, then tap a music tag. Unpair other devices that grab the speaker. |
+| No chime after boot | Check `READY_SOUND_ENABLED=true` and `taptune logs`. Fix the cause, then `taptune restart`. Music never starts by itself at boot. |
+| A tag does nothing | Was TapTune started with `NFC_READER_ENABLED=true`? Check `taptune logs` for an unknown-tag message, then write the tag again or use [manual setup](tag-usage.md#manual-setup). |
+| A tag can't be written | Use an unlocked NTAG213/215/216 and the Pi's reader. Keep the tag still until **Verified**. See [supported tags](tag-usage.md#supported-tags). |
+| Something fails just after boot | Wait a minute: TapTune retries by itself while the Spotify receiver starts. If it lasts, use **Restart TapTune** on the Activity log page. |
+| No albums or playlists on the music page | Spotify isn't signed in yet: see step 6 of the [installation guide](raspberry-pi-service.md#6-sign-in-to-spotify). |
+| A podcast starts from its first episode | Choose TapTune in Spotify → Devices once more, then tap again. |
+| Reader not found | See [Hardware setup](hardware-setup.md#if-it-doesnt-work). |
+| `TapTune-Setup` Wi-Fi doesn't appear | It appears only when no known network works, about a minute after boot. Check `TAPTUNE_WIFI_SETUP` isn't `false`. |
+| Install fails with `pair the Bluetooth speaker first` | Pair and trust the speaker ([step 4](raspberry-pi-service.md#4-pair-the-speaker)) and set `BLUETOOTH_SPEAKER_MAC`. |
+| Install fails with `.env is accessible to other users` | Run `chmod 600 .env`. |
+| `ModuleNotFoundError` | Use `.venv/bin/python`, or rerun `./install.sh`. |
+| An update failed | Download diagnostic logs from the Activity log page, or run `taptune update` over SSH to see the failing step. Backups are in `data/backups/`. |
+| Tests print tracebacks but end with `OK` | Normal: some tests check error handling. |
 
-## Web and service checks
-
-```bash
-sudo systemctl status raspi-spotify-nfc.service --no-pager
-curl http://127.0.0.1:5000/health
-sudo journalctl -u raspi-spotify-nfc.service -n 100 --no-pager
-ss -ltn | grep ':5000'
-```
-
-Remember that `/health` proves only that the Flask process responds.
-`/ready` additionally requires live Spotify configuration and the initialized
-reader thread to be alive when enabled. It does not itself contact Spotify or
-check the Bluetooth output; the ready-sound worker performs those checks before
-playing the chime.
-
-The app now owns boot Bluetooth and chime work on both stacks. Old
-`taptune-bluetooth.service` (system/user) and user
-`taptune-ready-sound.service` units are removed by reconfiguration/update;
-instructions to enable or restart them are obsolete. Desktop still needs
-the Spotifyd and PipeWire/WirePlumber **user** services. See
-[why these services remain separate](architecture.md#why-not-one-service).
-
-## PN532 checks
-
-Stop the service before running a standalone reader test:
-
-```bash
-sudo systemctl stop raspi-spotify-nfc.service
-source .venv/bin/activate
-python -m app.pn532_diag --seconds 30
-```
-
-If initialization reports missing PN532 support:
-
-```bash
-./systemd/install-pi-dependencies.sh
-```
-
-Then retry from the same activated environment.
-
-## Assignment and dispatch checks
-
-Inspect the saved UID:
-
-```bash
-sqlite3 data/raspi_spotify_nfc.db \
-  'select uid, tag_type, value, label, updated_at from tags order by updated_at desc;'
-```
-
-Dispatch the exact UID without the reader:
+Test a manual setup without the reader:
 
 ```bash
 curl -X POST -d 'uid=04A7B2F1' http://127.0.0.1:5000/dispatch
 ```
 
-- If this fails, correct the mapping or playback configuration before debugging hardware. Inspect the JSON `status` and error reason, not only HTTP connectivity.
-- If it succeeds but a physical tap does not, focus on `NFC_READER_ENABLED`, reader initialization, UID output, and service logs.
-
-Repeated action taps:
-
-- A tag acts once per tap. Lift it away from the reader before tapping again;
-  holding it in place does not repeat the action.
-- Spotify reports volume and play/pause state a few seconds late. TapTune
-  remembers what it just did, so repeated volume taps keep stepping and a
-  second play/pause tap resumes. The log shows each decision, for example
-  `Volume 40% -> 50%` or `Play/pause: resuming.`; if Spotify refuses to resume
-  on a device, TapTune moves playback to the Pi and logs a warning.
-
-## Spotify authorization checks
-
-See the dedicated [Spotify authorization troubleshooting table](spotify-authorization.md#troubleshooting) for callback, redirect URI, account, and refresh-token problems.
+If this works but tapping doesn't, the problem is the reader, not Spotify.

@@ -1,18 +1,14 @@
 """Find, pair and choose the Bluetooth speaker from the setup page.
 
-Uses `bluetoothctl` as the TapTune service user (root), so it works the same on
-Lite (BlueALSA) and Desktop (PipeWire): both play through the system BlueZ.
-Trusting the speaker lets BlueZ accept it again after a reboot; TapTune's
+Uses `bluetoothctl` as the TapTune service user (root). Trusting the speaker lets BlueZ accept it again after a reboot; TapTune's
 existing boot connection (app.readiness) then connects it by its saved MAC.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 import re
 import subprocess
-import tempfile
 import threading
 import time
 from pathlib import Path
@@ -30,11 +26,7 @@ RESCAN_SECONDS = 8
 PAIR_TIMEOUT_SECONDS = 25
 MAX_DEVICES = 40
 AUDIO_SINK_UUID = "0000110b"
-RASPOTIFY_CONF = Path("/etc/raspotify/conf")
 _DEVICE_LINE = re.compile(r"^Device ((?:[0-9A-F]{2}:){5}[0-9A-F]{2})(?: (.*))?$")
-_RECEIVER_LINE = re.compile(
-    r'^(LIBRESPOT_DEVICE="bluealsa:DEV=)((?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2})(,PROFILE=a2dp")\s*$'
-)
 
 _lock = threading.Lock()
 
@@ -188,88 +180,18 @@ def pair_speaker(mac: str, runner: Callable = subprocess.run, sleep: Callable = 
     return {"mac": mac, "name": (info or {}).get("Alias") or (info or {}).get("Name") or mac}
 
 
-def _write_atomic(path: Path, text: str) -> None:
-    mode = path.stat().st_mode & 0o777
-    descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            handle.write(text)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.chmod(temporary, mode)
-        os.replace(temporary, path)
-    except BaseException:
-        try:
-            os.unlink(temporary)
-        except FileNotFoundError:
-            pass
-        raise
-
-
-def update_lite_receiver(mac: str, conf: Path = RASPOTIFY_CONF, runner: Callable = subprocess.run) -> str:
-    """Point Raspotify's TapTune block at the new speaker (Lite/BlueALSA only).
-
-    Returns "absent" when there is no TapTune-managed BlueALSA output to change
-    (Desktop, a custom AUDIO_OUTPUT_DEVICE or no Raspotify), "unchanged",
-    "updated" (Raspotify restart accepted) or "failed".
-    """
-    if settings.DESKTOP_AUDIO_USER:
-        return "absent"
-    conf = Path(conf)
-    try:
-        if not conf.is_file():
-            return "absent"
-        lines = conf.read_text(encoding="utf-8").splitlines(keepends=True)
-        inside = changed = found = False
-        for index, line in enumerate(lines):
-            stripped = line.rstrip("\r\n")
-            if stripped == "# >>> TapTune >>>":
-                inside = True
-            elif stripped == "# <<< TapTune <<<":
-                inside = False
-            elif inside:
-                match = _RECEIVER_LINE.match(stripped)
-                if match:
-                    found = True
-                    if match.group(2).upper() != mac:
-                        lines[index] = f"{match.group(1)}{mac}{match.group(3)}\n"
-                        changed = True
-        if not found:
-            return "absent"
-        if not changed:
-            return "unchanged"
-        _write_atomic(conf, "".join(lines))
-    except OSError as error:
-        logger.warning("Could not update %s for speaker %s: %s", conf, mac, error)
-        return "failed"
-    try:
-        result = runner(
-            ["sudo", "-n", "systemctl", "--no-block", "restart", "raspotify.service"],
-            capture_output=True, text=True, timeout=10,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return "failed"
-    return "updated" if result.returncode == 0 else "failed"
-
-
-def save_speaker(mac: str, env_path: Path = setup_state.ENV_PATH, conf: Path = RASPOTIFY_CONF,
-                 runner: Callable = subprocess.run) -> str:
-    """Save the speaker's MAC in .env, use it now, and switch the Lite receiver.
-
-    Only BLUETOOTH_SPEAKER_MAC is written. Returns update_lite_receiver's status.
-    """
+def save_speaker(mac: str, env_path: Path = setup_state.ENV_PATH, runner: Callable = subprocess.run) -> None:
+    """Save the speaker's MAC in .env and use it now (only BLUETOOTH_SPEAKER_MAC is written)."""
     mac = normalize_mac(mac)
     previous = settings.BLUETOOTH_SPEAKER_MAC.strip().upper()
     setup_state.write_env({"BLUETOOTH_SPEAKER_MAC": mac}, env_path)
     with bluetooth._lock:
         settings.BLUETOOTH_SPEAKER_MAC = mac
         bluetooth._output_volume_set[0] = False
-    receiver = update_lite_receiver(mac, conf, runner)
     if previous and previous != mac:
         # The old speaker would otherwise keep the audio link.
         try:
             _bt(["disconnect", previous], runner, timeout=10)
         except (OSError, subprocess.SubprocessError):
             pass
-    logger.info("Bluetooth speaker set to %s from the setup page (receiver: %s).", mac, receiver)
-    return receiver
+    logger.info("Bluetooth speaker set to %s from the setup page.", mac)

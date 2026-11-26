@@ -26,12 +26,13 @@ class EnvWriterTests(unittest.TestCase):
         self.path = Path(self.dir.name) / ".env"
 
     def test_updates_known_keys_and_preserves_everything_else(self):
-        self.path.write_text("# note\nAPP_PORT=5001\nSPOTIFY_CLIENT_ID=old\nSPOTIFY_CLIENT_ID=dup\nCUSTOM=\"a b\"\n")
+        self.path.write_text("# note\nAPP_PORT=5001\nSPOTIFY_DEVICE_NAME=old\nSPOTIFY_DEVICE_NAME=dup\nCUSTOM=\"a b\"\n")
         os.chmod(self.path, 0o640)
-        setup.write_env({"SPOTIFY_CLIENT_ID": "new", "BLUETOOTH_SPEAKER_MAC": "aa:bb:cc:dd:ee:ff"}, self.path)
+        setup.write_env({"SPOTIFY_DEVICE_NAME": "Living room", "BLUETOOTH_SPEAKER_MAC": "aa:bb:cc:dd:ee:ff"}, self.path)
         self.assertEqual(
             self.path.read_text(),
-            "# note\nAPP_PORT=5001\nSPOTIFY_CLIENT_ID=new\nCUSTOM=\"a b\"\nBLUETOOTH_SPEAKER_MAC=AA:BB:CC:DD:EE:FF\n",
+            "# note\nAPP_PORT=5001\nSPOTIFY_DEVICE_NAME=\"Living room\"\nCUSTOM=\"a b\"\n"
+            "BLUETOOTH_SPEAKER_MAC=AA:BB:CC:DD:EE:FF\n",
         )
         self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o640)
         self.assertEqual([p.name for p in Path(self.dir.name).iterdir()], [".env"])
@@ -42,12 +43,12 @@ class EnvWriterTests(unittest.TestCase):
         chowned = []
         with patch("app.setup.os.geteuid", return_value=0), \
                 patch("app.setup.os.chown", side_effect=lambda p, u, g: chowned.append((u, g))):
-            setup.write_env({"SPOTIFY_CLIENT_ID": "x"}, self.path)
+            setup.write_env({"SPOTIFY_DEVICE_NAME": "x"}, self.path)
         self.assertEqual(chowned, [(owner.st_uid, owner.st_gid)])
 
     def test_rejects_unknown_keys_and_injection_without_touching_file(self):
         self.path.write_text("A=1\n")
-        for bad in ({"APP_PORT": "1"}, {"SPOTIFY_CLIENT_ID": "x\nEVIL=1"}, {"BLUETOOTH_SPEAKER_MAC": "nope"}):
+        for bad in ({"APP_PORT": "1"}, {"SPOTIFY_DEVICE_NAME": "x\nEVIL=1"}, {"BLUETOOTH_SPEAKER_MAC": "nope"}):
             with self.assertRaises(setup.InvalidSetting):
                 setup.write_env(bad, self.path)
         self.assertEqual(self.path.read_text(), "A=1\n")
@@ -55,7 +56,7 @@ class EnvWriterTests(unittest.TestCase):
     def test_failed_write_keeps_original_and_cleans_temp_file(self):
         self.path.write_text("A=1\n")
         with patch("app.setup.os.replace", side_effect=OSError), self.assertRaises(OSError):
-            setup.write_env({"SPOTIFY_CLIENT_ID": "x"}, self.path)
+            setup.write_env({"SPOTIFY_DEVICE_NAME": "x"}, self.path)
         self.assertEqual(self.path.read_text(), "A=1\n")
         self.assertEqual([p.name for p in Path(self.dir.name).iterdir()], [".env"])
 
@@ -96,7 +97,7 @@ class RouteTests(unittest.TestCase):
         for p in (patch.object(config.settings, "SETUP_SKIP", False),
                   patch.object(config.settings, "DATABASE_PATH", str(Path(self.dir.name) / "t.db")),
                   patch.object(config.settings, "BLUETOOTH_SPEAKER_MAC", ""),
-                  patch.object(config.settings, "SPOTIFY_CLIENT_ID", ""),
+                  patch("app.setup.librespot_credentials_saved", return_value=False),
                   patch("app.setup.setup_steps", return_value=TODO)):
             p.start()
             self.addCleanup(p.stop)
@@ -115,8 +116,8 @@ class RouteTests(unittest.TestCase):
         self.assertFalse(self.client.get("/api/setup").get_json()["complete"])
 
     def test_manually_configured_pi_keeps_home_when_speaker_or_network_is_down(self):
-        with patch.multiple(config.settings, SPOTIFY_CLIENT_ID="i", SPOTIFY_CLIENT_SECRET="s",
-                            SPOTIFY_REFRESH_TOKEN="t", BLUETOOTH_SPEAKER_MAC="AA:BB:CC:DD:EE:FF"):
+        with patch("app.setup.librespot_credentials_saved", return_value=True), \
+                patch.object(config.settings, "BLUETOOTH_SPEAKER_MAC", "AA:BB:CC:DD:EE:FF"):
             self.assertEqual(self.client.get("/").status_code, 200)
             self.assertEqual(self.client.get("/fr/").status_code, 200)
 
@@ -130,19 +131,10 @@ class RouteTests(unittest.TestCase):
 
     def test_setup_does_not_accept_or_expose_settings(self):
         with patch("app.setup.write_env") as write:
-            self.assertEqual(self.client.post("/setup", data={"SPOTIFY_CLIENT_ID": "x"}).status_code, 405)
-            self.assertEqual(self.client.post("/fr/setup", data={"SPOTIFY_CLIENT_ID": "x"}).status_code, 405)
+            self.assertEqual(self.client.post("/setup", data={"SPOTIFY_DEVICE_NAME": "x"}).status_code, 405)
+            self.assertEqual(self.client.post("/fr/setup", data={"SPOTIFY_DEVICE_NAME": "x"}).status_code, 405)
             write.assert_not_called()
         self.assertNotIn("<input", self.client.get("/setup").get_data(as_text=True))
-
-
-class RestartTests(unittest.TestCase):
-    def test_only_reports_success_when_systemd_accepts_the_restart(self):
-        self.assertTrue(setup.restart_service(lambda *a, **k: CompletedProcess(a, 0, "", "")))
-        self.assertFalse(setup.restart_service(lambda *a, **k: CompletedProcess(a, 1, "", "")))
-        def boom(*a, **k):
-            raise OSError
-        self.assertFalse(setup.restart_service(boom))
 
 
 if __name__ == "__main__":

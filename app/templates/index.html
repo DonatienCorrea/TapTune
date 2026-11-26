@@ -1,190 +1,141 @@
-<!doctype html>
-<html lang="{{ locale }}">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>{{ translations['page_title'] }}</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-</head>
-<body>
-  <a class="skip-link" href="#music-picker">{{ translations['browse_title'] }}</a>
-  <div class="app-shell">
-    <header class="header">
-      <div>
-        <h1 class="title"><svg class="logo-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><circle cx="16" cy="16" r="13"></circle><circle cx="16" cy="16" r="5"></circle><path d="M16 3v7M16 22v7"></path></svg><span>Tap<span class="brand-tune">Tune</span></span></h1>
-      </div>
-      <div class="header-actions">
-        <a class="badge switch-link" href="{{ '/fr/logs' if locale == 'fr' else '/logs' }}">{{ 'Journal' if locale == 'fr' else 'Activity log' }}</a>
-        <a class="badge switch-link" href="{{ switch_url }}">{{ translations['switch_label'] }}</a>
-      </div>
-    </header>
-
-    <main id="music-picker" class="music-panel">
-      <div class="picker-heading">
-        <h2 class="section-title">{{ translations['browse_title'] }}</h2>
-      </div>
-      <details id="spotify-connection" class="connection-panel">
-        <summary><strong id="connection-title" role="status">{{ translations['connection_checking'] if spotify_configured else translations['demo_title'] }}</strong></summary>
-        <p id="connection-note">{{ translations['connection_saved'] if spotify_configured else translations['demo_music'] }}</p>
-        <a href="https://github.com/DonatienCorrea/TapTune/blob/master/docs/spotify-authorization.md" target="_blank" rel="noopener noreferrer">{{ translations['authorization_guide'] }}</a>
-      </details>
-      <h3 id="choose-heading" class="sr-only" tabindex="-1">{{ translations['choose_title'] }}</h3>
-      <section class="spotify-browser" aria-labelledby="music-view-heading">
-      <h4 id="music-view-heading" class="sr-only">{{ translations['albums'] }}</h4>
-      <div class="music-browser-header">
-      <nav class="collection-nav" aria-label="{{ translations['search'] }}">
-        {% for collection in ['albums', 'playlists', 'recent', 'search'] %}
-          <button type="button" class="helper-button" data-collection="{{ collection }}" aria-pressed="{{ 'true' if collection == 'albums' else 'false' }}">{{ translations[collection] }}</button>
+{% extends "base.html" %}
+{% set page_title = translations['browse_title'] %}
+{% set active = 'tag' %}
+{% block main %}
+<h1 class="page-title">{{ translations['browse_title'] }}</h1>
+<div id="music-picker" class="music-panel">
+  <details id="spotify-connection" class="connection-panel">
+    <summary><strong id="connection-title" role="status">{{ translations['connection_checking'] }}</strong></summary>
+    <p id="connection-note">{{ translations['connection_note'] }}</p>
+  </details>
+  <h2 id="choose-heading" class="sr-only" tabindex="-1">{{ translations['choose_title'] }}</h2>
+  <section class="spotify-browser" aria-labelledby="music-view-heading">
+    <h3 id="music-view-heading" class="sr-only">{{ translations['albums'] }}</h3>
+    <div class="music-browser-header">
+      <nav class="collection-nav" aria-label="{{ translations['choose_title'] }}">
+        {% for collection in ['albums', 'playlists', 'playing', 'recent', 'link'] %}
+        <button type="button" class="helper-button" data-collection="{{ collection }}" aria-pressed="{{ 'true' if collection == 'albums' else 'false' }}">{{ translations[collection] }}</button>
         {% endfor %}
       </nav>
-        <a class="music-source" href="https://open.spotify.com/" target="_blank" rel="noopener noreferrer">Spotify <span aria-hidden="true">↗</span></a>
-      </div>
-      <form id="music-search" class="music-search" role="search" hidden>
-        <div class="field">
-          <label for="music-query" class="sr-only">{{ translations['search_label'] }}</label>
-          <div class="music-search-input">
-            <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m16 16 4.5 4.5"></path></svg>
-            <input id="music-query" type="search" maxlength="200" required autocomplete="off" placeholder="{{ translations['search_placeholder'] }}">
-          </div>
-        </div>
-        <button type="submit" class="save-button">{{ translations['search_button'] }}</button>
+      <a class="music-source" href="https://open.spotify.com/" target="_blank" rel="noopener noreferrer">Spotify <span aria-hidden="true">↗</span></a>
+    </div>
+    <div id="link-view" class="link-view" hidden>
+      <form id="spotify-external-search" class="music-search" role="search">
+        <label for="spotify-search-query" class="sr-only">{{ translations['spotify_search_label'] }}</label>
+        <input id="spotify-search-query" type="search" maxlength="200" required autocomplete="off" placeholder="{{ translations['spotify_search_placeholder'] }}">
+        <button type="submit" class="helper-button">{{ translations['spotify_search_button'] }}</button>
       </form>
-      <p id="recent-note" class="music-caption" hidden>{{ translations['recent_note'] }}</p>
-      <p id="music-status" role="status" aria-live="polite"></p>
-      <a id="authorization-guide" href="https://github.com/DonatienCorrea/TapTune/blob/master/docs/spotify-authorization.md" target="_blank" rel="noopener noreferrer" hidden>{{ translations['authorization_guide'] }}</a>
-      <button id="retry-music" type="button" class="helper-button" hidden>{{ translations['retry_music'] }}</button>
-      <ul id="music-results" class="music-results" aria-busy="false"></ul>
-      <button id="load-more" type="button" class="helper-button" hidden>{{ translations['load_more'] }}</button>
-      </section>
+      <p class="music-caption">{{ translations['spotify_search_help'] }}</p>
+      <form id="music-link-import" class="music-search">
+        <label for="music-link" class="sr-only">{{ translations['spotify_link_label'] }}</label>
+        <input id="music-link" type="url" maxlength="500" required autocomplete="off" spellcheck="false" placeholder="{{ translations['spotify_link_placeholder'] }}">
+        <button type="submit" class="save-button">{{ translations['spotify_link_button'] }}</button>
+      </form>
+    </div>
+    <p id="recent-note" class="music-caption" hidden>{{ translations['recent_note'] }}</p>
+    <p id="music-status" role="status" aria-live="polite"></p>
+    <button id="retry-music" type="button" class="helper-button" hidden>{{ translations['retry_music'] }}</button>
+    <ul id="music-results" class="music-results" aria-busy="false"></ul>
+    <button id="load-more" type="button" class="helper-button" hidden>{{ translations['load_more'] }}</button>
+  </section>
 
-      <section id="write-step" class="write-step" aria-labelledby="selection-heading">
-        <h3 id="selection-heading" class="step-heading" tabindex="-1">{{ translations['write_title'] }}</h3>
-        <p id="selection-hint" class="music-caption">{{ translations['selection_hint'] }}</p>
-        <div id="write-selection" class="write-panel" hidden>
-        <div class="selection-summary">
-          <p id="selected-name"></p>
-          <p id="selected-detail" class="music-caption"></p>
-          <button id="change-music" type="button" class="text-button">{{ translations['change_music'] }}</button>
-          <p id="write-instruction">{{ translations['write_instruction'] }}</p>
-          <p id="write-warning" class="overwrite-warning">{{ translations['write_warning'] }}</p>
-        </div>
-        <div id="write-controls" class="write-controls">
-          <p id="reader-status" role="status"></p>
-          <button id="write-tag" type="button" class="save-button" disabled>{{ translations['write_tag'] }}</button>
-        </div>
-        <section id="write-status" class="write-feedback" hidden aria-label="{{ translations['write_title'] }}">
-          <div class="write-feedback-content" role="status" aria-live="polite" aria-atomic="true">
-            <svg class="write-feedback-icon" viewBox="0 0 48 48" width="48" height="48" aria-hidden="true" focusable="false"><path id="write-icon-path"></path></svg>
-            <div>
-              <h4 id="write-status-title"></h4>
-              <p id="write-status-detail"></p>
-              <p id="write-status-uid" class="feedback-uid" hidden>UID <code id="write-uid"></code></p>
-            </div>
+  <section id="write-step" class="write-step" aria-labelledby="selection-heading">
+    <h2 id="selection-heading" class="section-title" tabindex="-1">{{ translations['write_title'] }}</h2>
+    <p id="selection-hint" class="music-caption">{{ translations['selection_hint'] }}</p>
+    <div id="write-selection" class="write-panel" hidden>
+      <div class="selection-summary">
+        <p id="selected-name"></p>
+        <p id="selected-detail" class="music-caption"></p>
+        <button id="change-music" type="button" class="text-button">{{ translations['change_music'] }}</button>
+        <p id="write-instruction">{{ translations['write_instruction'] }}</p>
+        <p id="write-warning" class="overwrite-warning">{{ translations['write_warning'] }}</p>
+      </div>
+      <div id="write-controls" class="write-controls">
+        <p id="reader-status" role="status"></p>
+        <button id="write-tag" type="button" class="save-button" disabled>{{ translations['write_tag'] }}</button>
+      </div>
+      <section id="write-status" class="write-feedback" hidden aria-label="{{ translations['write_title'] }}">
+        <div class="write-feedback-content" role="status" aria-live="polite" aria-atomic="true">
+          <svg class="write-feedback-icon" viewBox="0 0 48 48" width="48" height="48" aria-hidden="true" focusable="false"><path id="write-icon-path"></path></svg>
+          <div>
+            <h3 id="write-status-title"></h3>
+            <p id="write-status-detail"></p>
+            <p id="write-status-uid" class="feedback-uid" hidden>UID <code id="write-uid"></code></p>
           </div>
-          <div id="write-feedback-actions" class="write-feedback-actions" hidden>
-            <button id="cancel-write" type="button" class="helper-button" hidden>{{ translations['cancel'] }}</button>
-            <button id="retry-write" type="button" class="helper-button" hidden>{{ translations['retry_music'] }}</button>
-            <button id="write-another" type="button" class="helper-button" hidden>{{ translations['write_another'] }}</button>
-            <button id="check-write" type="button" class="helper-button" hidden>{{ translations['check_write'] }}</button>
-          </div>
-        </section>
-        <details class="tag-help">
-          <summary>{{ translations['tag_help'] }}</summary>
-          <p>{{ translations['tag_help_note'] }}</p>
-          <button id="refresh-reader" type="button" class="helper-button">{{ translations['check_reader'] }}</button>
-        </details>
-        <details class="selection-details">
-          <summary>{{ translations['selection_details'] }}</summary>
-          <code id="selected-uri"></code>
-          <button id="use-assignment" type="button" class="helper-button" disabled>{{ translations['use_assignment'] }}</button>
-        </details>
+        </div>
+        <div id="write-feedback-actions" class="button-row" hidden>
+          <button id="cancel-write" type="button" class="helper-button" hidden>{{ translations['cancel'] }}</button>
+          <button id="retry-write" type="button" class="helper-button" hidden>{{ translations['retry_music'] }}</button>
+          <button id="write-another" type="button" class="helper-button" hidden>{{ translations['write_another'] }}</button>
+          <button id="check-write" type="button" class="helper-button" hidden>{{ translations['check_write'] }}</button>
         </div>
       </section>
-    </main>
+      <details class="tag-help">
+        <summary>{{ translations['tag_help'] }}</summary>
+        <p>{{ translations['tag_help_note'] }}</p>
+        <button id="refresh-reader" type="button" class="helper-button">{{ translations['check_reader'] }}</button>
+      </details>
+      <details class="selection-details">
+        <summary>{{ translations['selection_details'] }}</summary>
+        <code id="selected-uri"></code>
+        <button id="use-assignment" type="button" class="helper-button" disabled>{{ translations['use_assignment'] }}</button>
+      </details>
+    </div>
+  </section>
+</div>
 
-    <details id="advanced-options" class="advanced-options"{% if saved %} open{% endif %}>
-      <summary>{{ translations['advanced_options'] }}</summary>
-    <section id="assignment" class="panel form-panel">
-      {% if saved %}
-        <div class="success-banner assignment-saved" role="status" aria-live="polite">
-          <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="m5 12 4 4 10-10"></path></svg>
-          <strong>{{ translations['saved'] }}</strong>
-        </div>
-      {% endif %}
-
-      <div class="assignment-heading manual-heading">
-        <div>
-          <h2 class="section-title">{{ translations['section_title'] }}</h2>
-        </div>
-        <p>{{ translations['manual_note'] }}</p>
+<details id="advanced-options" class="advanced-options"{% if saved %} open{% endif %}>
+  <summary>{{ translations['advanced_options'] }}</summary>
+  <section id="assignment" class="page-section">
+    {% if saved %}
+    <p class="notice" data-tone="success" role="status">{{ translations['saved'] }}</p>
+    {% endif %}
+    <h2 class="section-title">{{ translations['section_title'] }}</h2>
+    <p class="music-caption">{{ translations['manual_note'] }}</p>
+    <div class="button-row">
+      <span class="helper-label">{{ translations['quick_fill'] }}</span>
+      <button type="button" class="helper-button" data-value="spotify:playlist:37i9dQZF1DXcBWIGoYBM5M">{{ translations['helper_playlist'] }}</button>
+      <button type="button" class="helper-button" data-value="action:play_pause">{{ translations['helper_pause'] }}</button>
+      <button type="button" class="helper-button" data-value="action:next_track">{{ translations['helper_next'] }}</button>
+      <button type="button" class="helper-button" data-value="action:volume_up">{{ translations['helper_volume_up'] }}</button>
+      <button type="button" class="helper-button" data-value="action:volume_down">{{ translations['helper_volume_down'] }}</button>
+    </div>
+    <form class="form-grid" method="post" action="{{ form_action }}">
+      <div class="field">
+        <label for="uid">{{ translations['uid_label'] }}</label>
+        <input id="uid" name="uid" required autocomplete="off" spellcheck="false" placeholder="{{ translations['uid_placeholder'] }}">
       </div>
-      <div class="helper-row">
-        <span class="helper-label">{{ translations['quick_fill'] }}</span>
-        <button type="button" class="helper-button" data-value="spotify:playlist:37i9dQZF1DXcBWIGoYBM5M">{{ translations['helper_playlist'] }}</button>
-        <button type="button" class="helper-button" data-value="action:play_pause">{{ translations['helper_pause'] }}</button>
-        <button type="button" class="helper-button" data-value="action:next_track">{{ translations['helper_next'] }}</button>
-        <button type="button" class="helper-button" data-value="action:volume_up">{{ translations['helper_volume_up'] }}</button>
-        <button type="button" class="helper-button" data-value="action:volume_down">{{ translations['helper_volume_down'] }}</button>
+      <div class="field">
+        <label for="label">{{ translations['label_label'] }}</label>
+        <input id="label" name="label" autocomplete="off" placeholder="{{ translations['label_placeholder'] }}">
       </div>
+      <div class="field field-wide">
+        <label for="value">{{ translations['value_label'] }}</label>
+        <input id="value" name="value" required autocomplete="off" spellcheck="false" placeholder="{{ translations['value_placeholder'] }}">
+      </div>
+      <button class="save-button" type="submit">{{ translations['save'] }}</button>
+    </form>
+  </section>
 
-      <form method="post" action="{{ form_action }}">
-        <div class="form-grid">
-          <div class="field">
-            <label for="uid">{{ translations['uid_label'] }}</label>
-            <input id="uid" name="uid" required autocomplete="off" spellcheck="false" inputmode="text" placeholder="{{ translations['uid_placeholder'] }}">
-          </div>
-
-          <div class="field">
-            <label for="label">{{ translations['label_label'] }}</label>
-            <input id="label" name="label" autocomplete="off" placeholder="{{ translations['label_placeholder'] }}">
-          </div>
-
-          <div class="field">
-            <label for="value">{{ translations['value_label'] }}</label>
-            <input id="value" name="value" required autocomplete="off" spellcheck="false" placeholder="{{ translations['value_placeholder'] }}">
-          </div>
-        </div>
-
-        <div class="actions">
-          <button class="save-button" type="submit">{{ translations['save'] }}</button>
-        </div>
-      </form>
-    </section>
-
-    <section class="panel tags-panel">
-      <h2 class="section-title">{{ translations['assigned_tags'] }}</h2>
-      <p class="music-caption">{{ translations['assigned_note'] }}</p>
-      <ul class="tag-list">
-        {% for tag in tags %}
-          <li class="tag-card">
-            <div class="tag-meta">
-              <span class="pill {{ tag.tag_type }}">{{ tag.tag_type }}</span>
-            </div>
-            <div class="tag-uid">{{ tag.uid }}</div>
-            <div><span class="record-label">{{ translations['target'] }}</span><div class="tag-value">{{ tag.value }}</div></div>
-            <div class="tag-label">{% if tag.label %}<span class="record-label">{{ translations['label'] }}</span>{{ tag.label }}{% else %}<span class="record-label">{{ translations['label'] }}</span>{{ translations['unlabeled'] }}{% endif %}</div>
-          </li>
-        {% else %}
-          <li class="empty-state">{{ translations['empty'] }}</li>
-        {% endfor %}
-      </ul>
-    </section>
-    </details>
-  </div>
-
-  <script id="music-translations" type="application/json">{{ translations | tojson }}</script>
-  <script src="{{ url_for('static', filename='music.js') }}" defer></script>
-  <script>
-    document.querySelectorAll('[data-value]').forEach((button) => {
-      button.addEventListener('click', () => {
-        const input = document.getElementById('value');
-        input.value = button.dataset.value;
-        input.focus();
-      });
-    });
-  </script>
-</body>
-</html>
+  <section class="page-section">
+    <h2 class="section-title">{{ translations['assigned_tags'] }}</h2>
+    <p class="music-caption">{{ translations['assigned_note'] }}</p>
+    <ul class="tag-list">
+      {% for tag in tags %}
+      <li class="tag-card">
+        <span class="pill {{ tag.tag_type }}">{{ tag.tag_type }}</span>
+        <code class="tag-uid">{{ tag.uid }}</code>
+        <div><span class="record-label">{{ translations['target'] }}</span><code>{{ tag.value }}</code></div>
+        <div><span class="record-label">{{ translations['label'] }}</span>{{ tag.label or translations['unlabeled'] }}</div>
+      </li>
+      {% else %}
+      <li class="empty-state">{{ translations['empty'] }}</li>
+      {% endfor %}
+    </ul>
+  </section>
+</details>
+{% endblock %}
+{% block scripts %}
+<script id="music-translations" type="application/json">{{ translations | tojson }}</script>
+<script src="{{ url_for('static', filename='music.js') }}" defer></script>
+{% endblock %}

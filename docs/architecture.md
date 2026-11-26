@@ -1,149 +1,57 @@
-# Architecture and signal path
+# How TapTune works (for developers)
 
 [Documentation index](README.md)
 
-TapTune separates physical input, stored assignments, playback dispatch, and the web interface so each part can be tested independently.
-
 ```text
-NFC tag
-  ↓ UID over I2C
-PN532 reader
-  ↓ lookup
-SQLite tag mapping
-  ↓ Spotify URI or action
-playback dispatcher
-  ↓
-fake client or Spotify Connect
+NFC tag → PN532 reader (I2C) → Spotify link on the tag, or saved tag ID (SQLite)
+        → go-librespot local API (127.0.0.1:3678) → PipeWire → Bluetooth speaker
 ```
 
-The web assignment page and command-line simulator join the same storage and dispatch path without requiring the physical reader.
+TapTune is one Python (Flask) service, `raspi-spotify-nfc.service`. The Spotify
+receiver, go-librespot, runs as a separate user service,
+`taptune-go-librespot.service`, because it has its own sign-in and audio session.
 
-## Main components
+## Main parts
 
-| Component | Responsibility |
+| File | Role |
 | --- | --- |
-| `app/main.py` | Starts the Flask UI and optionally the PN532 polling loop. |
-| `app/config.py` | Reads and validates environment settings. |
-| `app/web.py` | Provides the bilingual music picker and assignment UI, music/write APIs, `/health`, `/ready`, `/assign`, and `/dispatch`. |
-| `app/spotify_browser.py` | Retrieves and normalizes Spotify collections/search, or explicitly labelled demo music. |
-| `app/tag_writer.py` | Coordinates one timed, cancellable write request consumed by the reader thread. |
-| `app/db.py` | Stores tag mappings and event records in SQLite. |
-| `app/activity.py` | Stores bounded, credential-redacted playback activity and app diagnostics for the searchable log page. |
-| `app/nfc_reader.py` | Reads PN532 UIDs and Type 2/4 NDEF memory; writes and verifies supported music tags. |
-| `app/type4_ndef.py` | Selects existing NFC Type 4 NDEF files and transfers bounded APDUs using advertised capacity and access permissions. |
-| `app/spotify_service.py` | Validates values and dispatches Spotify content or playback actions. |
-| `app/simulate.py` | Exercises mapping and dispatch without NFC hardware. |
-| `app/ndef.py` | Decodes supported NDEF URI/text records and encodes portable Spotify HTTPS URI records. |
-| `app/readiness.py` | Bounded startup checks, connection and one ready chime in the app process. |
-| `install.sh` | Safe preparation, then explicit selected-stack service configuration. |
+| `app/main.py` | Starts the web app and, if `NFC_READER_ENABLED=true`, the reader loop |
+| `app/web.py` | Music page, setup page, Activity log (`/logs`) with maintenance, APIs, `/health`, `/ready` |
+| `app/nfc_reader.py`, `app/type4_ndef.py`, `app/ndef.py` | Read tag IDs and links; write and verify tags |
+| `app/tag_writer.py` | One 60-second, cancellable write at a time |
+| `app/spotify_service.py`, `app/librespot.py` | Play tags and actions through go-librespot |
+| `app/spotify_browser.py` | Saved albums/playlists, What's playing, history, link previews |
+| `app/readiness.py`, `app/bluetooth.py` | Startup volume, speaker connection and chime |
+| `app/setup.py`, `app/speaker_pairing.py` | Setup page status and speaker pairing |
+| `app/wifi_setup.py`, `app/wifi_portal.py` | `TapTune-Setup` hotspot and Wi-Fi form |
+| `app/activity.py`, `app/db.py`, `data/schema.sql` | Activity log and tag database |
+| `install.sh`, `taptune`, `systemd/` | Installer, maintenance command, services |
 
-## Startup modes
+## Key behaviours
 
-`app.main` always starts the web UI and `/health`.
+- A Spotify link written on the tag wins over a saved tag ID. Blank, unsupported
+  or unreadable tags fall back to the saved tag ID.
+- A podcast show tag looks up the newest playable episode at each tap.
+- Spotify link previews (title, cover) use Spotify's public oEmbed service; no
+  account is needed. Saved albums and playlists come from go-librespot.
+- Writing: the reader thread is the only code touching NFC hardware. While a
+  write waits, taps don't play. The NDEF length is cleared first, written last,
+  and the whole tag is read back before reporting success. TapTune never formats
+  or unlocks tags, and only writes user memory (Type 2 pages, or the Type 4 NDEF
+  file). The Feiju profile is matched exactly (version `00 00 53 04 02 01 00 0F 03`,
+  capability container `E1 10 12 00`) and only pages 5–39 are written.
+- Startup: one bounded check (reader, receiver, speaker), then one chime at 10%.
+  Temporary failures (receiver not ready, network errors) are retried. No
+  background Bluetooth reconnect: only music taps reconnect the speaker.
+- The Activity log keeps the last 2,000 entries in SQLite, with Spotify secrets redacted.
+- The web pages have no authentication: trusted home network only. Wi-Fi
+  passwords are accepted only from the `TapTune-Setup` hotspot.
 
-- With `NFC_READER_ENABLED=false` (the default), no hardware library or reader is required.
-- With `NFC_READER_ENABLED=true`, the PN532 loop joins the service and dispatches saved mappings when a UID is presented.
+## Development
 
-Spotify uses a similar fallback:
+```bash
+python3 -m unittest discover -s tests -q
+node --test tests/test_music_ui.js
+```
 
-- when all three Spotify credential values are present, TapTune creates a live Spotipy client;
-- when any value is absent, it uses an in-process fake client.
-
-These boundaries make it possible to test most of the system on a regular computer.
-
-## Data and dispatch
-
-The SQLite schema lives in `data/schema.sql`. Tag mappings associate a UID with:
-
-- a validated Spotify URI;
-- a playback action;
-- a derived `content` or `action` type; and
-- an optional human-readable label.
-
-A dispatch can begin from:
-
-- the PN532 reader resolving a physical UID;
-- the `/dispatch` endpoint receiving a saved `uid`;
-- the `/dispatch` endpoint receiving a direct `value`; or
-- `app.simulate` saving and dispatching a test value.
-
-All paths reach `dispatch_tag_value`, which validates and translates the stored value into a fake or live Spotify operation.
-
-## Web music and writing
-
-`GET /api/music` returns saved albums, playlists, recent albums or typed search
-results, including podcast shows. Pagination uses offsets for library/search
-and a Spotify `before` cursor for history. Spotify credentials stay server-side.
-Missing credentials produce labelled demo music; upstream authentication,
-permissions, rate limits and network errors produce explicit errors instead of
-a demo fallback.
-
-`POST /api/tag-writes` accepts a Spotify URI as JSON and queues one 60-second
-write. Show URIs are stored on tags just like albums, playlists and tracks.
-When tapped, a show URI resolves to its newest playable episode and starts only
-that episode URI. `GET /api/tag-writes` reports reader availability and the
-latest job;
-`GET /api/tag-writes/<id>` polls a job and
-`POST /api/tag-writes/<id>/cancel` cancels a pending request. Mutation requests
-must be JSON and are rejected when explicitly cross-origin. These are trusted
-LAN endpoints, not an authenticated public API.
-
-Only the existing PN532 reader thread touches NFC hardware. While a write is
-pending, it consumes scans without dispatching playback. A supported tag is
-checked for capacity and lock bits, its NDEF length is invalidated, user-memory
-pages are updated, the length is committed last, and the written URI is read
-back. Scans stay suppressed until the tag is removed. Job state lives in
-process memory and is lost on restart; the written tag persists independently
-and does not require a database mapping.
-
-## Current boundaries
-
-`GET /logs` and `/fr/logs` provide a server-rendered activity view with search,
-type/error filters and 50-record pagination. The newest 2,000 entries persist
-in SQLite, separate from the original event records. NFC, web and simulator
-dispatches record outcomes; show playback includes the resolved episode.
-An app logging handler records INFO and higher diagnostics after main startup,
-without tracebacks. This is not a system journal viewer and has no public
-authentication; keep it on a trusted LAN.
-
-- The PN532 reads NDEF on Type 2 tags (such as NTAG21x) and standard NFC Type 4 tags. Supported embedded Spotify values or actions take precedence over UID mappings; blank, unsupported or unreadable memory falls back to the saved UID mapping.
-- Target discovery preserves the SAK protocol byte: ISO-DEP targets go directly to Type 4 APDUs, without NTAG `GET_VERSION` or Type 2 page reads. The upstream driver's UID-only API otherwise discards this protocol information.
-- Writing is limited to unlocked NTAG213/215/216 tags, the explicitly recognized Feiju 144-byte Type 2 profile, and existing, freely readable/writable Type 4 NDEF files with a two-byte length, using Spotify music links. It does not format or unlock tags or write playback actions. The Feiju profile also requires matching capability/Lock Control TLVs, preserves lock metadata, and limits writes to pages 5-39. Type 4 transfers use short APDUs bounded by advertised MLe/MLc and file capacity; NLEN is published last, and the UID and content are verified after writing.
-- A successful `/health` response does not prove that Spotify or the reader is healthy.
-- Live playback needs a Spotify Connect device. Use [Raspotify/BlueALSA on Lite](speaker-setup.md) or [Spotifyd/PipeWire on Desktop](speaker-setup-desktop.md), not both. TapTune keeps playback on Spotify's current device, even while paused, and otherwise targets the Pi by name (`SPOTIFY_DEVICE_NAME`).
-- Boot initializes the local receiver's volume but does not start music. A chime waits for TapTune's `/ready` check (live config and enabled reader thread), Spotify visibility and speaker audio. Lite uses ALSA; Desktop uses the dedicated audio user's PipeWire sink from the same app process. Other runtime problems are logged; there are no status LEDs.
-- One bounded boot connection/chime phase is followed by no periodic Bluetooth reconnect or keepalive. Only local music start/resume dispatch may reconnect; pause, volume and commands targeting another active Spotify device do not.
-
-## Why not one service?
-
-The Bluetooth reconnect and Desktop ready-sound services have been **merged
-into TapTune's app startup/dispatch path**. There is no background reconnect
-loop or separately restarting chime worker. Reconfiguration removes those
-obsolete units on an older installation.
-
-The remaining boundaries are intentional:
-
-| Route | TapTune-managed processes | OS audio dependencies |
-| --- | --- | --- |
-| Lite | System `raspi-spotify-nfc.service` and packaged `raspotify.service` | BlueZ, BlueALSA and ALSA |
-| Desktop | System `raspi-spotify-nfc.service` and audio-user `taptune-spotifyd.service` | BlueZ, lingering user PipeWire/PipeWire-Pulse and WirePlumber |
-| App-only | `raspi-spotify-nfc.service` only | Another authenticated Connect player; no installed local audio stack |
-
-The Spotify Connect receiver is a separate upstream program with its own
-authentication and lifecycle. Desktop audio lives behind a **user-session**
-boundary; lingering and WirePlumber configuration allow it to exist before
-login. TapTune's Desktop unit records that user for audio operations rather
-than starting a second system-wide audio server. BlueZ and the audio server
-are OS facilities, not duplicate TapTune workers. Folding all of these into
-one Python process would not remove their account/privilege requirements.
-
-The installer selects one receiver stack and disables known conflicting
-services; it does not remove packages or reconcile arbitrary other users'
-audio sessions. Never start Raspotify and Spotifyd together.
-
-## Further reading
-
-- [Getting started](getting-started.md)
-- [Using tags](tag-usage.md)
-- [Hardware setup](hardware-setup.md)
-- [Raspberry Pi service](raspberry-pi-service.md)
+Tests need no Pi, reader or Spotify account.

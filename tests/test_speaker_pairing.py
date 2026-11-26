@@ -131,51 +131,24 @@ class PairTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "invalid_mac")
 
 
-RASPOTIFY = (
-    "LIBRESPOT_QUIET=\n"
-    "# >>> TapTune >>>\n"
-    'LIBRESPOT_NAME="TapTune"\n'
-    'LIBRESPOT_DEVICE="bluealsa:DEV=11:22:33:44:55:66,PROFILE=a2dp"\n'
-    "# <<< TapTune <<<\n"
-)
-
-
 class SaveTests(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.dir.cleanup)
         self.env = Path(self.dir.name) / ".env"
-        self.env.write_text(f"SPOTIFY_CLIENT_SECRET=keep\nBLUETOOTH_SPEAKER_MAC={OLD}\n")
-        self.conf = Path(self.dir.name) / "conf"
-        self.conf.write_text(RASPOTIFY)
-        for p in (patch.object(config.settings, "BLUETOOTH_SPEAKER_MAC", OLD),
-                  patch.object(config.settings, "DESKTOP_AUDIO_USER", "")):
-            p.start()
-            self.addCleanup(p.stop)
+        self.env.write_text(f"SPOTIFY_DEVICE_NAME=Kitchen\nBLUETOOTH_SPEAKER_MAC={OLD}\n")
+        p = patch.object(config.settings, "BLUETOOTH_SPEAKER_MAC", OLD)
+        p.start()
+        self.addCleanup(p.stop)
 
-    def test_lite_saves_mac_switches_receiver_and_drops_old_speaker(self):
+    def test_saves_the_mac_uses_it_now_and_drops_the_old_speaker(self):
         bluez = FakeBluez(known={OLD: {"Name": "Old", "Connected": True}})
         bluetooth._output_volume_set[0] = True
-        self.assertEqual(speaker_pairing.save_speaker(MAC.lower(), self.env, self.conf, bluez), "updated")
-        self.assertEqual(self.env.read_text(), f"SPOTIFY_CLIENT_SECRET=keep\nBLUETOOTH_SPEAKER_MAC={MAC}\n")
+        self.assertIsNone(speaker_pairing.save_speaker(MAC.lower(), self.env, bluez))
+        self.assertEqual(self.env.read_text(), f"SPOTIFY_DEVICE_NAME=Kitchen\nBLUETOOTH_SPEAKER_MAC={MAC}\n")
         self.assertEqual(config.settings.BLUETOOTH_SPEAKER_MAC, MAC)
         self.assertFalse(bluetooth._output_volume_set[0])
-        self.assertEqual(self.conf.read_text(), RASPOTIFY.replace(OLD, MAC))
-        self.assertIn(["sudo", "-n", "systemctl", "--no-block", "restart", "raspotify.service"], bluez.commands)
         self.assertFalse(bluez.known[OLD]["Connected"])
-        self.assertEqual(speaker_pairing.update_lite_receiver(MAC, self.conf, bluez), "unchanged")
-
-    def test_desktop_and_custom_outputs_leave_raspotify_alone(self):
-        with patch.object(config.settings, "DESKTOP_AUDIO_USER", "pi"):
-            self.assertEqual(speaker_pairing.save_speaker(MAC, self.env, self.conf, FakeBluez()), "absent")
-        self.assertEqual(self.conf.read_text(), RASPOTIFY)
-        self.conf.write_text(RASPOTIFY.replace("bluealsa:DEV=11:22:33:44:55:66,PROFILE=a2dp", "hw:1"))
-        self.assertEqual(speaker_pairing.update_lite_receiver(MAC, self.conf, FakeBluez()), "absent")
-        self.assertEqual(speaker_pairing.update_lite_receiver(MAC, Path(self.dir.name) / "none", FakeBluez()), "absent")
-
-    def test_rejected_raspotify_restart_is_reported(self):
-        failing = lambda command, **kwargs: done(code=1)  # noqa: E731
-        self.assertEqual(speaker_pairing.update_lite_receiver(MAC, self.conf, failing), "failed")
 
 
 class RouteTests(unittest.TestCase):
@@ -189,9 +162,9 @@ class RouteTests(unittest.TestCase):
         with patch("app.speaker_pairing.scan_speakers", return_value=[{"mac": MAC, "name": "JBL"}]):
             self.assertEqual(self.post("/api/setup/speaker/scan").get_json()["speakers"][0]["mac"], MAC)
         with patch("app.speaker_pairing.pair_speaker", return_value={"mac": MAC, "name": "JBL"}) as pair, \
-                patch("app.speaker_pairing.save_speaker", return_value="absent") as save:
-            response = self.post("/api/setup/speaker/pair", {"mac": MAC, "SPOTIFY_CLIENT_ID": "x"})
-        self.assertEqual(response.get_json(), {"speaker": {"mac": MAC, "name": "JBL"}, "receiver": "absent"})
+                patch("app.speaker_pairing.save_speaker") as save:
+            response = self.post("/api/setup/speaker/pair", {"mac": MAC, "SPOTIFY_DEVICE_NAME": "x"})
+        self.assertEqual(response.get_json(), {"speaker": {"mac": MAC, "name": "JBL"}})
         pair.assert_called_once_with(MAC)
         save.assert_called_once_with(MAC)
 

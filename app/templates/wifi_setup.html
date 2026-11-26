@@ -1,23 +1,23 @@
 <div class="wifi-portal">
-  <h1>{{ 'Connecter TapTune au Wi-Fi' if fr else 'Connect TapTune to Wi-Fi' }}</h1>
+  <h1 class="page-title">{{ 'Connecter TapTune au Wi-Fi' if fr else 'Connect TapTune to Wi-Fi' }}</h1>
   {% if wifi.state == 'offline' %}
-  <p role="alert">{{ 'Le point d’accès n’est plus actif. Rejoignez TapTune-Setup et rechargez la page.' if fr else 'The setup hotspot is no longer active. Rejoin TapTune-Setup and reload the page.' }}</p>
+  <p class="notice" data-tone="error" role="alert">{{ 'Le point d’accès n’est plus actif. Rejoignez TapTune-Setup et rechargez la page.' if fr else 'The setup hotspot is no longer active. Rejoin TapTune-Setup and reload the page.' }}</p>
   {% elif wifi.state == 'connecting' %}
-  <div role="status">
-    <h2>{{ 'Tentative de connexion…' if fr else 'Trying to connect…' }}</h2>
+  <div class="notice" role="status">
+    <h2 class="section-title">{{ 'Tentative de connexion…' if fr else 'Trying to connect…' }}</h2>
     <p>{{ 'Le réseau de configuration va disparaître. Reconnectez votre téléphone au réseau choisi, puis ouvrez :' if fr else 'The setup network will disappear. Rejoin the Wi-Fi you selected on your phone, then open:' }}</p>
     <p><a href="{{ wifi.lan_url }}">{{ wifi.lan_url }}</a></p>
     {% if wifi.lan_fallback %}
     <p>{{ 'Si cette adresse ne répond pas, essayez' if fr else 'If that address does not respond, try' }} <a href="{{ wifi.lan_fallback }}">{{ wifi.lan_fallback }}</a>.</p>
     {% endif %}
-    <p>{{ 'Si le Pi ne se connecte pas, rejoignez de nouveau le réseau TapTune-Setup et réessayez.' if fr else 'If the Pi cannot connect, the TapTune-Setup network will return. Rejoin it and try again.' }}</p>
+    <p>{{ 'Si le Pi ne se connecte pas, le réseau TapTune-Setup reviendra. Rejoignez-le et réessayez.' if fr else 'If the Pi cannot connect, the TapTune-Setup network will return. Rejoin it and try again.' }}</p>
   </div>
   {% else %}
   <p>{{ 'Votre téléphone est connecté à TapTune-Setup. Choisissez le réseau que le Pi doit utiliser.' if fr else 'Your phone is on TapTune-Setup. Choose the network the Pi should use.' }}</p>
   {% if wifi.state == 'failed' %}
-  <p role="alert"><strong>{{ 'Connexion impossible.' if fr else 'Could not connect.' }}</strong> {{ 'Vérifiez le nom et le mot de passe du réseau, puis réessayez.' if fr else 'Check the network name and password, then try again.' }}</p>
+  <p class="notice" data-tone="error" role="alert"><strong>{{ 'Connexion impossible.' if fr else 'Could not connect.' }}</strong> {{ 'Vérifiez le nom et le mot de passe du réseau, puis réessayez.' if fr else 'Check the network name and password, then try again.' }}</p>
   {% elif wifi.state == 'invalid' %}
-  <p role="alert"><strong>{{ 'Vérifiez les champs.' if fr else 'Check your entries.' }}</strong> {{ 'Choisissez ou saisissez un nom de réseau valide (32 octets maximum) et vérifiez le mot de passe (8 à 63 octets, ou 64 chiffres hexadécimaux).' if fr else 'Choose or enter a valid network name (up to 32 bytes) and check the password (8–63 bytes or 64 hexadecimal digits).' }}</p>
+  <p class="notice" data-tone="error" role="alert"><strong>{{ 'Vérifiez les champs.' if fr else 'Check your entries.' }}</strong> {{ 'Choisissez ou saisissez un nom de réseau valide (32 octets maximum) et vérifiez le mot de passe (8 à 63 octets, ou 64 chiffres hexadécimaux).' if fr else 'Choose or enter a valid network name (up to 32 bytes) and check the password (8–63 bytes or 64 hexadecimal digits).' }}</p>
   {% endif %}
   <form class="setup-form" method="post" action="{{ action }}">
     <input type="hidden" name="token" value="{{ wifi.token }}">
@@ -43,7 +43,7 @@
     <div class="field">
       <label for="wifi-password">{{ 'Mot de passe Wi-Fi' if fr else 'Wi-Fi password' }}</label>
       <input id="wifi-password" name="password" type="password" maxlength="64" autocomplete="off" aria-describedby="wifi-password-note">
-      <small id="wifi-password-note">{{ 'Laissez ce champ vide pour un réseau ouvert.' if fr else 'Leave blank for an open network.' }}</small>
+      <small id="wifi-password-note" class="music-caption">{{ 'Laissez ce champ vide pour un réseau ouvert.' if fr else 'Leave blank for an open network.' }}</small>
     </div>
     <p>{{ 'Après la tentative, reconnectez votre téléphone au réseau choisi et ouvrez ' if fr else 'After TapTune tries to connect, rejoin your chosen Wi-Fi on your phone and open ' }}<strong>{{ wifi.lan_url }}</strong>.</p>
     <button class="save-button" type="submit">{{ 'Connecter TapTune' if fr else 'Connect TapTune' }}</button>

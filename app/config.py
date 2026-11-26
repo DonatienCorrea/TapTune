@@ -1,10 +1,30 @@
 import os
 from pathlib import Path
 
-from dotenv import load_dotenv
-
 BASE_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(BASE_DIR / ".env", override=False)
+
+
+def load_env(path: Path) -> None:
+    """Read simple KEY=value lines into os.environ without overriding real variables."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for line in lines:
+        line = line.strip()
+        if line.startswith("export "):
+            line = line[7:].lstrip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = (part.strip() for part in line.split("=", 1))
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        elif " #" in value:
+            value = value.split(" #", 1)[0].rstrip()
+        os.environ.setdefault(key, value)
+
+
+load_env(BASE_DIR / ".env")
 
 
 def parse_port(value: str) -> int:
@@ -30,16 +50,6 @@ def parse_bool(value: str, name: str = "NFC_READER_ENABLED") -> bool:
     )
 
 
-SPOTIFY_RECEIVERS = ("go-librespot", "legacy")
-
-
-def parse_receiver(value: str) -> str:
-    receiver = value.strip().lower() or "legacy"
-    if receiver not in SPOTIFY_RECEIVERS:
-        raise ValueError(f"SPOTIFY_RECEIVER must be go-librespot or legacy; got {value!r}")
-    return receiver
-
-
 def parse_volume(value: str) -> int:
     try:
         volume = int(value)
@@ -55,25 +65,15 @@ class Settings:
     APP_PORT = parse_port(os.getenv("APP_PORT", "5000"))
     TAPTUNE_HTTP_PORT_80 = parse_bool(os.getenv("TAPTUNE_HTTP_PORT_80", "false"), "TAPTUNE_HTTP_PORT_80")
     DATABASE_PATH = os.getenv("DATABASE_PATH", str(BASE_DIR / "data" / "raspi_spotify_nfc.db"))
-    SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID", "")
-    SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET", "")
-    SPOTIFY_REDIRECT_URI = os.getenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8888/callback")
-    SPOTIFY_REFRESH_TOKEN = os.getenv("SPOTIFY_REFRESH_TOKEN", "")
     NFC_READER_ENABLED = parse_bool(os.getenv("NFC_READER_ENABLED", "false"))
-    # Name of the Spotify Connect receiver running on the Pi (raspotify/librespot).
-    # Leave empty to only ever play on an already active device.
+    # Name of the go-librespot Spotify Connect receiver running on the Pi.
     SPOTIFY_DEVICE_NAME = os.getenv("SPOTIFY_DEVICE_NAME", "TapTune").strip()
-    # go-librespot: TapTune drives the Pi's receiver through its local API (no Spotify
-    # developer app needed). legacy (default when absent, so existing installs keep
-    # working): Raspotify on Lite or Spotifyd on Desktop, driven by the Web API.
-    SPOTIFY_RECEIVER = parse_receiver(os.getenv("SPOTIFY_RECEIVER", "legacy"))
     LIBRESPOT_API_URL = os.getenv("LIBRESPOT_API_URL", "http://127.0.0.1:3678").strip().rstrip("/")
     SPOTIFY_INITIAL_VOLUME = parse_volume(os.getenv("SPOTIFY_INITIAL_VOLUME", "10"))
     BLUETOOTH_SPEAKER_MAC = os.getenv("BLUETOOTH_SPEAKER_MAC", "").strip()
-    # Set by `install-service.sh --desktop` in the systemd unit (not in .env): the
-    # user whose PipeWire session plays Spotifyd. Empty on Lite (BlueALSA).
+    # Set by install-service.sh in the systemd unit (not in .env): the user whose
+    # PipeWire session plays go-librespot and the ready sound.
     DESKTOP_AUDIO_USER = os.getenv("DESKTOP_AUDIO_USER", "").strip()
-    AUDIO_OUTPUT_DEVICE = os.getenv("AUDIO_OUTPUT_DEVICE", "bluealsa").strip()
     # Set to true to disable the first-run redirect from / to /setup.
     SETUP_SKIP = parse_bool(os.getenv("SETUP_SKIP", "false"), "SETUP_SKIP")
     TAPTUNE_WIFI_SETUP = parse_bool(os.getenv("TAPTUNE_WIFI_SETUP", "false"), "TAPTUNE_WIFI_SETUP")

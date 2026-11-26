@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
-# Shared by the installers; never source .env as executable shell code.
+# Shared by the installers and the taptune command; never source .env as shell code.
+
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}"
+# Seconds before the first retry (doubles each time); tests set 0.
+RETRY_DELAY="${TAPTUNE_RETRY_DELAY:-5}"
+
+die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 run() {
   if [ "$DRY_RUN" -eq 1 ]; then
@@ -9,6 +15,46 @@ run() {
     LAST_RUN="$*"
     "$@"
   fi
+}
+
+# Network steps (apt, pip, git, downloads): 3 attempts, then the last error status.
+retry() {
+  local attempt=1 delay="$RETRY_DELAY" status
+  while true; do
+    run "$@" && return 0 || status=$?
+    [ "$attempt" -lt 3 ] || return "$status"
+    printf 'warning: "%s" failed; retrying in %s s\n' "$*" "$delay" >&2
+    sleep "$delay"
+    attempt=$((attempt + 1))
+    delay=$((delay * 2))
+  done
+}
+
+apt_install() {
+  retry sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"
+}
+
+# The systemd/*.sh installers accept only --dry-run (preview without changes).
+parse_dry_run() {
+  local arg
+  DRY_RUN=0
+  for arg in "$@"; do
+    [ "$arg" = --dry-run ] || die "unknown argument '$arg'"
+    DRY_RUN=1
+  done
+}
+
+require_normal_user() {
+  if [ "$DRY_RUN" -eq 0 ] && [ "$(id -u)" -eq 0 ]; then
+    die "run as your normal user, without sudo; it asks for sudo when needed"
+  fi
+}
+
+# Real runs need what ./install.sh prepares: .venv and .env.
+require_prepared() {
+  [ "$DRY_RUN" -eq 0 ] || return 0
+  [ -x "$REPO_DIR/.venv/bin/python" ] || die "$REPO_DIR/.venv not found; run ./install.sh first"
+  [ -f "$REPO_DIR/.env" ] || die "$REPO_DIR/.env not found; run ./install.sh first"
 }
 
 env_value() {
@@ -23,138 +69,51 @@ env_value() {
   printf '%s' "$value"
 }
 
-initial_volume() {
-  local volume
-  volume="$(env_value SPOTIFY_INITIAL_VOLUME)"
-  volume="${volume:-10}"
-  if ! printf '%s' "$volume" | grep -Eq '^(100|[1-9]?[0-9])$'; then
-    echo "error: SPOTIFY_INITIAL_VOLUME must be an integer from 0 to 100" >&2
-    return 1
-  fi
-  printf '%s' "$volume"
+is_mac() {
+  printf '%s' "$1" | grep -Eq '^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$'
 }
 
-unit_path() {
-  local value="$1"
-  value="${value//\\/\\\\}"
-  value="${value//\"/\\\"}"
-  value="${value// /\\x20}"
-  value="${value//%/%%}"
-  if [ "${2:-}" = "exec" ]; then
-    value="${value//\$/\$\$}"
-    printf '"%s"' "$value"
-  else
-    printf '%s' "$value"
-  fi
-}
-
-render_unit() {
-  local line
-  while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in
-      WorkingDirectory=*) printf 'WorkingDirectory=%s\n' "$(unit_path "$REPO_DIR")" ;;
-      EnvironmentFile=*) printf 'EnvironmentFile=%s\n' "$(unit_path "$REPO_DIR/.env")" ;;
-      ExecStart=*) printf 'ExecStart=%s%s\n' "$(unit_path "$2" exec)" "${3:-}" ;;
-      *) printf '%s\n' "$line" ;;
-    esac
-  done < "$1"
-}
-
-# Mode switches and upgrades: stop services that compete with this setup or that
-# TapTune no longer uses. Only units that are actually installed are touched, and
-# a failure to stop one stops the installer instead of leaving two stacks running.
-system_unit_installed() {
-  systemctl list-unit-files --no-legend "$1" 2>/dev/null | grep -q "^$1[[:space:]]"
-}
-
-user_unit_installed() {
-  systemctl --user list-unit-files --no-legend "$1" 2>/dev/null | grep -q "^$1[[:space:]]"
-}
-
-disable_system_unit() {
-  local unit="$1" reason="$2"
-  if [ "$DRY_RUN" -eq 1 ]; then
-    printf '# if %s is installed (%s):\n' "$unit" "$reason"
-    run sudo systemctl disable --now "$unit"
-  elif system_unit_installed "$unit"; then
-    echo "Stopping and disabling $unit: $reason."
-    run sudo systemctl disable --now "$unit"
-  fi
+# go-librespot, this user's PipeWire, then the TapTune app service.
+install_services() {
+  run bash "$SCRIPT_DIR/install-go-librespot.sh" "$@"
+  run bash "$SCRIPT_DIR/install-service.sh" "$@"
 }
 
 user_manager_available() {
   systemctl --user show-environment >/dev/null 2>&1
 }
 
-# Stops a user unit; also deletes its file when TapTune installed it.
-disable_user_unit() {
-  local unit="$1" reason="$2" owned_file="${3:-}"
+# One-time cleanup on Pis installed before go-librespot became the only receiver
+# (Raspotify/BlueALSA, Spotifyd, periodic reconnect and ready-sound services).
+# Only units that are actually installed are touched.
+remove_legacy_units() {
+  local unit
   if [ "$DRY_RUN" -eq 1 ]; then
-    printf '# if user unit %s is installed (%s):\n' "$unit" "$reason"
-    run systemctl --user disable --now "$unit"
-    [ -z "$owned_file" ] || run rm -f "$owned_file"
-    return
+    echo "# stop and remove old Raspotify, Spotifyd, BlueALSA and TapTune helper units if present"
+    return 0
   fi
-  if ! user_manager_available; then
-    if [ -n "$owned_file" ] && [ -f "$owned_file" ]; then
-      echo "error: $owned_file exists but this user's systemd manager is not reachable to stop it." >&2
-      echo "Log in as $(id -un) (not with sudo/su) and rerun, or run: systemctl --user disable --now $unit" >&2
-      return 1
+  for unit in raspotify.service spotifyd.service bluealsa-aplay.service bluealsa.service taptune-bluetooth.service; do
+    if systemctl list-unit-files --no-legend "$unit" 2>/dev/null | grep -q "^${unit}[[:space:]]"; then
+      echo "Removing old service $unit (no longer used by TapTune)."
+      run sudo systemctl disable --now "$unit"
     fi
-    return 0
-  fi
-  if user_unit_installed "$unit"; then
-    echo "Stopping and disabling user service $unit: $reason."
-    run systemctl --user disable --now "$unit"
-  fi
-  if [ -n "$owned_file" ] && [ -f "$owned_file" ]; then
-    run rm -f "$owned_file"
-  fi
-}
-
-exclude_desktop_greeter_audio() {
-  local unit_dir="${1:-/etc/systemd/user}" runtime_root="${2:-/run/user}"
-  local dropin="$unit_dir/wireplumber.service.d" uid runtime
-  run sudo mkdir -p "$dropin"
-  run sudo install -m 644 "$SCRIPT_DIR/wireplumber-taptune.conf" "$dropin/90-taptune-no-greeter.conf"
-
-  if [ "$DRY_RUN" -eq 1 ]; then
-    echo "# If LightDM's user manager is running (UID resolved with id -u lightdm):"
-    uid="<lightdm-uid>"
-  elif ! uid="$(id -u lightdm 2>/dev/null)"; then
-    return 0
-  fi
-  runtime="$runtime_root/$uid"
-  if [ "$DRY_RUN" -eq 1 ] || [ -S "$runtime/bus" ]; then
-    run sudo -u lightdm env "XDG_RUNTIME_DIR=$runtime" "DBUS_SESSION_BUS_ADDRESS=unix:path=$runtime/bus" \
-      systemctl --user daemon-reload
-    run sudo -u lightdm env "XDG_RUNTIME_DIR=$runtime" "DBUS_SESSION_BUS_ADDRESS=unix:path=$runtime/bus" \
-      systemctl --user stop wireplumber.service
-  fi
-}
-
-# Before this version a reconnect loop ran every 10 s; TapTune now connects
-# the speaker itself at boot and when a tag starts or resumes music.
-remove_legacy_system_units() {
-  local unit_dir="${1:-/etc/systemd/system}"
-  local unit="$unit_dir/taptune-bluetooth.service"
-  if [ "$DRY_RUN" -eq 1 ] || [ -f "$unit" ]; then
-    [ "$DRY_RUN" -eq 0 ] || echo "# if $unit exists (replaced by on-demand reconnect in TapTune):"
-    [ "$DRY_RUN" -eq 1 ] || echo "Removing the obsolete periodic Bluetooth reconnect service."
-    run sudo systemctl disable --now taptune-bluetooth.service
-    run sudo rm -f "$unit"
-    run sudo systemctl daemon-reload
-  fi
-}
-
-remove_legacy_user_units() {
-  local config="${XDG_CONFIG_HOME:-$HOME/.config}"
-  disable_user_unit taptune-bluetooth.service "replaced by on-demand reconnect in TapTune" \
-    "$config/systemd/user/taptune-bluetooth.service" || return 1
-  disable_user_unit taptune-ready-sound.service "the TapTune app now plays the ready sound" \
-    "$config/systemd/user/taptune-ready-sound.service" || return 1
-  run rm -f "$HOME/.local/lib/taptune/taptune-bluetooth.sh" "$config/taptune/bluetooth.env"
-  if [ "$DRY_RUN" -eq 0 ]; then
-    rmdir "$HOME/.local/lib/taptune" "$config/taptune" 2>/dev/null || true
-  fi
+  done
+  run sudo rm -f /etc/systemd/system/raspotify.service.d/taptune.conf /etc/systemd/system/taptune-bluetooth.service
+  for unit in spotifyd.service taptune-spotifyd.service taptune-bluetooth.service taptune-ready-sound.service; do
+    local file="$CONFIG_DIR/systemd/user/$unit"
+    [ "$unit" != spotifyd.service ] || file=""
+    if ! user_manager_available; then
+      if [ -n "$file" ] && [ -f "$file" ]; then
+        die "log in as $(id -un) (not with sudo/su) and rerun: the old $unit must be stopped first"
+      fi
+      continue
+    fi
+    if systemctl --user list-unit-files --no-legend "$unit" 2>/dev/null | grep -q "^${unit}[[:space:]]"; then
+      echo "Removing old user service $unit (no longer used by TapTune)."
+      run systemctl --user disable --now "$unit"
+    fi
+    [ -z "$file" ] || run rm -f "$file"
+  done
+  run rm -f "$HOME/.local/lib/taptune/taptune-bluetooth.sh" "$CONFIG_DIR/taptune/bluetooth.env"
+  rmdir "$HOME/.local/lib/taptune" "$CONFIG_DIR/taptune" 2>/dev/null || true
 }

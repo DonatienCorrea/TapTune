@@ -1,6 +1,6 @@
-import subprocess
 import os
 import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,127 +10,58 @@ SCRIPT_PATH = REPO_ROOT / "systemd" / "install-service.sh"
 
 
 class InstallServiceScriptTests(unittest.TestCase):
-    def run_dry_run(self, cwd: Path) -> str:
-        result = subprocess.run(
-            ["bash", str(SCRIPT_PATH), "--dry-run"],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            check=True,
+    def run_dry_run(self, script=SCRIPT_PATH, *args, check=True):
+        return subprocess.run(
+            ["bash", str(script), *args, "--dry-run"], capture_output=True, text=True, check=check,
         )
-        return result.stdout
 
-    def test_dry_run_rewrites_paths_to_repo_root(self):
-        output = self.run_dry_run(REPO_ROOT)
+    def test_dry_run_rewrites_paths_and_needs_no_venv_or_env(self):
+        output = self.run_dry_run().stdout
         path = str(REPO_ROOT).replace(" ", "\\x20")
-
         self.assertIn(f"WorkingDirectory={path}", output)
         self.assertIn(f'ExecStart="{path}/.venv/bin/python" -m app.main', output)
         self.assertIn(f"EnvironmentFile={path}/.env", output)
         self.assertNotIn("/home/pi/TapTune", output)
 
-    def test_dry_run_does_not_require_venv_or_env_file(self):
-        # --dry-run must work even before `.venv`/`.env` exist so it can be
-        # used to preview the unit ahead of installing.
-        output = self.run_dry_run(REPO_ROOT)
-        self.assertIn("[Service]", output)
+    def test_app_plays_through_the_users_pipewire_with_port_80_and_wifi_setup(self):
+        output = self.run_dry_run().stdout
+        path = str(REPO_ROOT).replace(" ", "\\x20")
+        self.assertIn("Wants=network-online.target\n", output)
+        self.assertIn("After=network-online.target bluetooth.service\n", output)
+        self.assertRegex(output, r"\nEnvironment=DESKTOP_AUDIO_USER=[a-z_][a-z0-9_-]*\n")
+        self.assertIn("Environment=TAPTUNE_HTTP_PORT_80=true", output)
+        self.assertIn("Environment=TAPTUNE_WIFI_SETUP=true", output)
+        self.assertIn(f'ExecStopPost=-"{path}/.venv/bin/python" -m app.wifi_setup cleanup', output)
+        for removed in ("raspotify", "bluealsa", "spotifyd", "qrencode"):
+            self.assertNotIn(removed, output)
 
-    def test_installer_enables_avahi_without_touching_hostname_or_hosts(self):
+    def test_installer_does_not_touch_hostname_or_hosts(self):
         script = SCRIPT_PATH.read_text()
-        self.assertIn("avahi-daemon", script)
         self.assertNotIn("hostnamectl", script)
         self.assertNotIn("/etc/hosts", script)
 
-    def test_rejects_unknown_argument(self):
-        result = subprocess.run(
-            ["bash", str(SCRIPT_PATH), "--bogus"],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-        )
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("unknown argument", result.stderr)
-
-    def test_desktop_does_not_start_competing_lite_audio_services(self):
-        result = subprocess.run(
-            ["bash", str(SCRIPT_PATH), "--desktop", "--dry-run"],
-            capture_output=True, text=True, check=True,
-        )
-        self.assertIn("Wants=network-online.target\n", result.stdout)
-        self.assertIn("After=network-online.target bluetooth.service\n", result.stdout)
-        self.assertNotIn("raspotify", result.stdout)
-        self.assertNotIn("bluealsa", result.stdout)
-        self.assertNotIn("READY_SOUND_ENABLED", result.stdout)
-        self.assertRegex(result.stdout, r"\nEnvironment=DESKTOP_AUDIO_USER=[a-z_][a-z0-9_-]*\n")
-
-    def test_app_only_is_the_default_and_never_pulls_receivers(self):
-        for args in ([], ["--app-only"]):
-            with self.subTest(args=args):
-                result = subprocess.run(
-                    ["bash", str(SCRIPT_PATH), *args, "--dry-run"], capture_output=True, text=True, check=True,
-                )
-                self.assertIn("# app-only setup:", result.stdout)
-                self.assertIn("Wants=network-online.target\n", result.stdout)
-                self.assertNotIn("raspotify", result.stdout)
-                self.assertNotIn("bluealsa", result.stdout)
-                self.assertNotIn("DESKTOP_AUDIO_USER", result.stdout)
-
-    def test_lite_orders_the_app_after_its_receiver(self):
-        with tempfile.TemporaryDirectory() as directory:
-            repo = Path(directory)
-            shutil.copytree(REPO_ROOT / "systemd", repo / "systemd")
-            (repo / ".env").write_text("SPOTIFY_RECEIVER=legacy\n")
-            result = subprocess.run(
-                ["bash", str(repo / "systemd/install-service.sh"), "--lite", "--dry-run"],
-                capture_output=True, text=True, check=True,
-            )
-        self.assertIn("Wants=network-online.target raspotify.service\n", result.stdout)
-        self.assertIn("After=network-online.target bluetooth.service bluealsa.service raspotify.service\n", result.stdout)
-        self.assertNotIn("DESKTOP_AUDIO_USER", result.stdout)
-
-    def test_only_pi_install_modes_provision_wifi_fallback(self):
-        path = str(REPO_ROOT).replace(" ", "\\x20")
-        for mode in ("lite", "desktop", "app-only"):
-            with self.subTest(mode=mode):
-                output = subprocess.run(
-                    ["bash", str(SCRIPT_PATH), f"--{mode}", "--dry-run"],
-                    capture_output=True, text=True, check=True,
-                ).stdout
-                if mode == "app-only":
-                    self.assertNotIn("TAPTUNE_HTTP_PORT_80", output)
-                    self.assertNotIn("TAPTUNE_WIFI_SETUP", output)
-                    self.assertNotIn("TapTune-Setup", output)
-                    self.assertNotIn("qrencode", output)
-                else:
-                    self.assertIn("Environment=TAPTUNE_HTTP_PORT_80=true", output)
-                    self.assertIn("Environment=TAPTUNE_WIFI_SETUP=true", output)
-                    self.assertIn(f'ExecStopPost=-"{path}/.venv/bin/python" -m app.wifi_setup cleanup', output)
-                    self.assertIn("Provision a private TapTune-Setup profile", output)
-                    self.assertIn("Install qrencode", output)
-
-    def test_dry_run_shows_removal_of_the_periodic_reconnect_service(self):
-        output = self.run_dry_run(REPO_ROOT)
-        self.assertIn("sudo systemctl disable --now taptune-bluetooth.service", output)
-        self.assertIn("sudo rm -f /etc/systemd/system/taptune-bluetooth.service", output)
+    def test_rejects_unknown_or_removed_arguments(self):
+        for arg in ("--bogus", "--lite", "--desktop"):
+            with self.subTest(arg=arg):
+                result = self.run_dry_run(SCRIPT_PATH, arg, check=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("unknown argument", result.stderr)
 
     def test_paths_escape_systemd_specifiers_and_exec_environment_variables(self):
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory) / 'Pi music & # 100% $HOME "quotes" \\path'
             shutil.copytree(REPO_ROOT / "systemd", repo / "systemd")
-            result = subprocess.run(
-                ["bash", str(repo / "systemd/install-service.sh"), "--dry-run"],
-                capture_output=True, text=True, check=True,
-            )
+            output = self.run_dry_run(repo / "systemd/install-service.sh").stdout
             path = (
                 str(repo).replace("\\", "\\\\").replace('"', '\\"')
                 .replace(" ", "\\x20").replace("%", "%%")
             )
-            self.assertIn(f"WorkingDirectory={path}", result.stdout)
-            self.assertIn(f"EnvironmentFile={path}/.env", result.stdout)
+            self.assertIn(f"WorkingDirectory={path}", output)
+            self.assertIn(f"EnvironmentFile={path}/.env", output)
             exec_path = path.replace("$", "$$")
-            self.assertIn(f'ExecStart="{exec_path}/.venv/bin/python"', result.stdout)
+            self.assertIn(f'ExecStart="{exec_path}/.venv/bin/python"', output)
 
-    def test_reinstall_adds_missing_qr_encoder_on_pi_even_without_active_network_manager(self):
+    def test_real_install_enables_wifi_setup_only_with_network_manager(self):
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory) / "TapTune"
             shutil.copytree(REPO_ROOT / "systemd", repo / "systemd")
@@ -138,7 +69,7 @@ class InstallServiceScriptTests(unittest.TestCase):
             python.parent.mkdir(parents=True)
             python.write_text("#!/bin/sh\nexit 0\n")
             python.chmod(0o755)
-            (repo / ".env").write_text("NFC_READER_ENABLED=false\n")
+            (repo / ".env").write_text("NFC_READER_ENABLED=true\n")
             log = Path(directory) / "calls"
             bin_dir = Path(directory) / "bin"
             bin_dir.mkdir()
@@ -147,42 +78,31 @@ class InstallServiceScriptTests(unittest.TestCase):
             for tool, script in (
                 ("id", 'if [ "$1" = -u ]; then echo 1000; else echo pi; fi'),
                 ("nmcli", "exit 0"),
-                ("systemctl", "exit 3"),
+                ("systemctl", 'exit "$NM_STATUS"'),
                 ("sudo", 'printf "%s\\n" "$*" >> "$CALL_LOG"\n'
                          'if [ "$1" = tee ]; then cat >/dev/null; fi'),
             ):
                 executable = bin_dir / tool
                 executable.write_text(f"#!/bin/sh\n{script}\n")
                 executable.chmod(0o755)
-            env = dict(os.environ, PATH=str(bin_dir), CALL_LOG=str(log))
-            for mode, install_qr in (("app-only", False), ("lite", True), ("desktop", True)):
-                with self.subTest(mode=mode):
+            for nm_status, wifi in (("3", False), ("0", True)):
+                with self.subTest(network_manager_active=wifi):
                     log.write_text("")
-                    subprocess.run(
-                        [shutil.which("bash"), str(repo / "systemd/install-service.sh"), f"--{mode}"],
+                    env = dict(os.environ, PATH=str(bin_dir), CALL_LOG=str(log), NM_STATUS=nm_status,
+                               TAPTUNE_RETRY_DELAY="0")
+                    result = subprocess.run(
+                        [shutil.which("bash"), str(repo / "systemd/install-service.sh")],
                         env=env, capture_output=True, text=True, check=True,
                     )
-                    calls = log.read_text().splitlines()
-                    self.assertEqual("apt-get install -y qrencode" in calls, install_qr)
+                    calls = log.read_text()
+                    self.assertEqual("apt-get install -y dnsmasq-base nftables" in calls, wifi)
+                    self.assertEqual("-m app.wifi_setup provision" in calls, wifi)
+                    self.assertEqual("NetworkManager is not running" in result.stderr, not wifi)
+                    self.assertNotIn("qrencode", calls)
                     self.assertIn("systemctl enable raspi-spotify-nfc.service", calls)
                     self.assertIn("systemctl restart raspi-spotify-nfc.service", calls)
+                    self.assertIn("ln -sfn", calls)
 
 
 if __name__ == "__main__":
     unittest.main()
-
-
-class GoLibrespotServiceTests(unittest.TestCase):
-    def test_lite_with_go_librespot_plays_through_the_users_pipewire(self):
-        with tempfile.TemporaryDirectory() as directory:
-            repo = Path(directory) / "TapTune"
-            shutil.copytree(REPO_ROOT / "systemd", repo / "systemd")
-            (repo / ".env").write_text("SPOTIFY_RECEIVER=go-librespot\n")
-            result = subprocess.run(
-                ["bash", str(repo / "systemd" / "install-service.sh"), "--lite", "--dry-run"],
-                capture_output=True, text=True, check=True,
-            )
-        self.assertIn("# desktop setup:", result.stdout)
-        self.assertRegex(result.stdout, r"\nEnvironment=DESKTOP_AUDIO_USER=[a-z_][a-z0-9_-]*\n")
-        self.assertNotIn("raspotify", result.stdout)
-        self.assertNotIn("bluealsa", result.stdout)
