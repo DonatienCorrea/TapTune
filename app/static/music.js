@@ -3,7 +3,8 @@
   const t = JSON.parse(document.getElementById("music-translations").textContent);
   const el = (id) => document.getElementById(id);
   const results = el("music-results");
-  let collection = "albums";
+  let category = "recent";
+  let collection = "recent";
   let nextPage = null;
   let requestNumber = 0;
   let selected = null;
@@ -190,11 +191,15 @@
     nextPage = null;
     el("load-more").hidden = true;
     el("retry-music").hidden = true;
-    el("link-view").hidden = collection !== "link";
-    el("recent-note").hidden = collection !== "recent";
-    el("music-view-heading").textContent = t[collection];
+    el("link-view").hidden = category === "recent";
+    el("music-source-view").hidden = category !== "music";
+    el("spotify-connection").hidden = category !== "music";
+    el("recent-note").hidden = category !== "recent";
+    el("spotify-search-query").placeholder = category === "podcasts" ? t.podcast_query : t.spotify_search_placeholder;
+    el("music-link").placeholder = category === "podcasts" ? "https://open.spotify.com/show/…" : t.spotify_link_placeholder;
+    el("music-view-heading").textContent = t[category];
     document.querySelectorAll("[data-collection]").forEach((button) => {
-      button.setAttribute("aria-pressed", String(button.dataset.collection === collection));
+      button.setAttribute("aria-pressed", String(button.dataset.collection === category));
     });
     message("music-status", "");
     return requestNumber;
@@ -208,7 +213,7 @@
     try {
       const data = await api(`/api/music?${new URLSearchParams({ collection, ...page })}`);
       if (number !== requestNumber) return;
-      connection(t.connection_live, t.connection_note);
+      if (category === "music") connection(t.connection_live, t.connection_note);
       data.items.forEach(addItem);
       updateSelection();
       nextPage = data.next;
@@ -217,8 +222,8 @@
       updateControls();
     } catch (error) {
       if (number !== requestNumber) return;
-      message("music-status", "");
-      connection(t.connection_blocked, errorText(error), true);
+      message("music-status", errorText(error), true);
+      if (category === "music") connection(t.connection_blocked, errorText(error), true);
       el("retry-music").hidden = false;
       // Keep the failed page retryable without losing already loaded music.
       nextPage = page;
@@ -317,14 +322,13 @@
 
   document.querySelectorAll("[data-collection]").forEach((button) => {
     button.addEventListener("click", () => {
-      collection = button.dataset.collection;
-      if (collection !== "link") {
-        loadMusic();
-        return;
-      }
-      showView(false);
-      results.setAttribute("aria-busy", "false");
-      el("spotify-search-query").focus();
+      category = button.dataset.collection;
+      collection = category === "music" ? el("music-source-select").value : category;
+      loadMusic();
+    });
+    el("music-source-select").addEventListener("change", () => {
+      collection = el("music-source-select").value;
+      loadMusic();
     });
   });
   el("music-link-import").addEventListener("submit", async (event) => {
@@ -354,7 +358,8 @@
     event.preventDefault();
     const query = el("spotify-search-query").value.trim();
     if (!query) return;
-    window.open(`https://open.spotify.com/search/${encodeURIComponent(query)}`, "_blank", "noopener,noreferrer");
+    const suffix = category === "podcasts" ? "/podcasts" : "";
+    window.open(`https://open.spotify.com/search/${encodeURIComponent(query)}${suffix}`, "_blank", "noopener,noreferrer");
   });
   el("load-more").addEventListener("click", () => loadMusic(true));
   el("retry-music").addEventListener("click", () => loadMusic());

@@ -4,21 +4,28 @@
 {% block main %}
 <h1 class="page-title">{{ translations['browse_title'] }}</h1>
 <div id="music-picker" class="music-panel">
-  <details id="spotify-connection" class="connection-panel">
+  <details id="spotify-connection" class="connection-panel" hidden>
     <summary><strong id="connection-title" role="status">{{ translations['connection_checking'] }}</strong></summary>
     <p id="connection-note">{{ translations['connection_note'] }}</p>
   </details>
   <h2 id="choose-heading" class="sr-only" tabindex="-1">{{ translations['choose_title'] }}</h2>
   <section class="spotify-browser" aria-labelledby="music-view-heading">
-    <h3 id="music-view-heading" class="sr-only">{{ translations['albums'] }}</h3>
+    <h3 id="music-view-heading" class="sr-only">{{ translations['recent'] }}</h3>
     <div class="music-browser-header">
       <nav class="collection-nav" aria-label="{{ translations['choose_title'] }}">
-        {% for collection in ['albums', 'playlists', 'playing', 'recent', 'link'] %}
-        <button type="button" class="helper-button" data-collection="{{ collection }}" aria-pressed="{{ 'true' if collection == 'albums' else 'false' }}">{{ translations[collection] }}</button>
+        {% for collection in ['recent', 'music', 'podcasts'] %}
+        <button type="button" class="helper-button" data-collection="{{ collection }}" aria-pressed="{{ 'true' if collection == 'recent' else 'false' }}">{{ translations[collection] }}</button>
         {% endfor %}
       </nav>
       <a class="music-source" href="https://open.spotify.com/" target="_blank" rel="noopener noreferrer">Spotify <span aria-hidden="true">↗</span></a>
     </div>
+    <label id="music-source-view" hidden>{{ translations['music_source'] }}
+      <select id="music-source-select">
+        {% for source in ['albums', 'playlists', 'playing'] %}
+        <option value="{{ source }}">{{ translations[source] }}</option>
+        {% endfor %}
+      </select>
+    </label>
     <div id="link-view" class="link-view" hidden>
       <form id="spotify-external-search" class="music-search" role="search">
         <label for="spotify-search-query" class="sr-only">{{ translations['spotify_search_label'] }}</label>
@@ -32,7 +39,7 @@
         <button type="submit" class="save-button">{{ translations['spotify_link_button'] }}</button>
       </form>
     </div>
-    <p id="recent-note" class="music-caption" hidden>{{ translations['recent_note'] }}</p>
+    <p id="recent-note" class="music-caption">{{ translations['recent_note'] }}</p>
     <p id="music-status" role="status" aria-live="polite"></p>
     <button id="retry-music" type="button" class="helper-button" hidden>{{ translations['retry_music'] }}</button>
     <ul id="music-results" class="music-results" aria-busy="false"></ul>

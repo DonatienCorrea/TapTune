@@ -75,6 +75,12 @@ async function picker(job = null, items = []) {
     pending_selection: "Restored music",
   });
   const scenario = { available: true, job, items, failPoll: false, failState: false, failStart: false };
+  const categories = ["recent", "music", "podcasts"].map((name) => {
+    const button = el(name);
+    button.dataset.collection = name;
+    return button;
+  });
+  el("music-source-select").value = "albums";
   const opened = [];
   const timers = new Map();
   let timerId = 0;
@@ -82,7 +88,7 @@ async function picker(job = null, items = []) {
   vm.runInNewContext(script, {
     document: {
       getElementById: el,
-      querySelectorAll: () => [],
+      querySelectorAll: (selector) => selector === "[data-collection]" ? categories : [],
       createElement: (tag) => new Element(tag),
       createElementNS: (_, tag) => new Element(tag),
     },
@@ -135,10 +141,11 @@ const waiting = { id: "restored", status: "waiting", value: "spotify:album:abc",
 
 test("credential-free search opens Spotify to find a podcast to share", async () => {
   const ui = await picker();
+  ui.el("podcasts").click();
   ui.el("spotify-search-query").value = "science & stories";
   ui.el("spotify-external-search").listeners.submit({ preventDefault() {} });
   assert.deepEqual(ui.opened[0], [
-    "https://open.spotify.com/search/science%20%26%20stories", "_blank", "noopener,noreferrer",
+    "https://open.spotify.com/search/science%20%26%20stories/podcasts", "_blank", "noopener,noreferrer",
   ]);
 });
 
@@ -268,7 +275,14 @@ test("reader failures offer status checking rather than a disabled retry", async
 
 test("library views only request a collection from the API", async () => {
   const ui = await picker();
-  assert.deepEqual(ui.scenario.musicPaths, ["/api/music?collection=albums"]);
+  assert.deepEqual(ui.scenario.musicPaths, ["/api/music?collection=recent"]);
+  ui.el("music").click();
+  ui.el("music-source-select").value = "playlists";
+  ui.el("music-source-select").listeners.change();
+  ui.el("podcasts").click();
+  assert.deepEqual(ui.scenario.musicPaths.slice(1), [
+    "/api/music?collection=albums", "/api/music?collection=playlists", "/api/music?collection=podcasts",
+  ]);
 });
 
 const maintenanceScript = readFileSync(join(__dirname, "../app/static/maintenance.js"), "utf8");

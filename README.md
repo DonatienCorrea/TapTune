@@ -21,9 +21,9 @@ wiring the reader to pairing the speaker and writing your first tag.
 
 ## What it does
 
-- **Music page**: pick from your saved albums and playlists, What's playing,
-  TapTune history, or paste any Spotify link (album, playlist, song, podcast),
-  then write it to a tag with the Pi's reader. No Spotify developer account.
+- **Music page**: choose **Recently played**, **Music**, or **Podcasts**. Browse
+  albums and playlists or paste a Spotify share link, then write a tag with
+  the Pi's reader. No Spotify developer account.
 - **Control tags**: play/pause, next song, volume +10 / −10.
 - **Setup page** (`/setup`): Wi-Fi, speaker and Spotify status; pair a new speaker.
 - **TapTune-Setup Wi-Fi**: move the Pi to a new network from a phone.
