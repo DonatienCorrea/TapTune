@@ -122,7 +122,11 @@
       return undefined;
     }
     if (action === "update") return followUpdate();
-    return waitForReturn(action === "reboot" ? t.rebooting : t.restarting, action === "reboot" ? 20 : 4);
+    if (action === "poweroff") {
+      say(t.powered_off, "success");
+      return undefined;
+    }
+    return waitForReturn(t.rebooting, 20);
   }
 
   buttons.forEach((button) => {

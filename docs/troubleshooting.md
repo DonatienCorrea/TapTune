@@ -12,8 +12,8 @@ taptune logs --save       # save status + logs to a file to share
 
 No screen or terminal? Open **Activity log** on the music page
 (`http://taptune.local/logs`). It lists taps, played music and messages (last
-2,000 entries, times in UTC). Its **Maintenance** section can update or restart
-TapTune, restart the Pi, and **Download diagnostic logs** to share when asking
+2,000 entries, times in UTC). Its **Maintenance** section can update
+TapTune, restart or power off the Pi, and **Download diagnostic logs** to share when asking
 for help.
 
 | Problem | What to do |
@@ -28,7 +28,7 @@ for help.
 | No chime after boot | Check `READY_SOUND_ENABLED=true` and `taptune logs`. Fix the cause, then `taptune restart`. Music never starts by itself at boot. |
 | A tag does nothing | Does diagnostics show `NFC reader: ready`? If not, check the wiring. Check `taptune logs` for an unknown-tag message, then write the tag again or use [manual setup](tag-usage.md#manual-setup). |
 | A tag can't be written | Use an unlocked NTAG213/215/216 and the Pi's reader. Keep the tag still until **Verified**. See [supported tags](tag-usage.md#supported-tags). |
-| Something fails just after boot | Wait a minute: TapTune retries by itself while the Spotify receiver starts. If it lasts, use **Restart TapTune** on the Activity log page. |
+| Something fails just after boot | Wait a minute: TapTune retries by itself while the Spotify receiver starts. If it lasts, use **Restart the Pi** on the Activity log page. |
 | No albums or playlists on the music page | First check the Spotify sign-in on the [setup page](raspberry-pi-service.md#4-finish-setup-on-your-phone). |
 | A podcast starts from its first episode | Choose TapTune in Spotify → Devices once more, then tap again. |
 | Reader not found | See [Hardware setup](hardware-setup.md#if-it-doesnt-work). |

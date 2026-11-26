@@ -87,7 +87,7 @@ TRANSLATIONS = {
         "write_instruction": "Place the tag on the Pi reader, not your phone.",
         "write_warning": "Replaces existing tag content.",
         "tag_help": "Reader help",
-        "tag_help_note": "Use an unlocked NTAG213/215/216, a supported Feiju 144-byte Type 2 tag, or a writable NFC Type 4 NDEF tag. If the reader stays unavailable, use Restart TapTune on the Maintenance page.",
+        "tag_help_note": "Use an unlocked NTAG213/215/216, a supported Feiju 144-byte Type 2 tag, or a writable NFC Type 4 NDEF tag. If the reader stays unavailable, use Restart the Pi on the Maintenance page.",
         "writer_disabled": "Reader unavailable · See Reader help",
         "writer_ready": "Reader ready",
         "check_reader": "Check reader",
@@ -114,7 +114,7 @@ TRANSLATIONS = {
         "spotify_unavailable": "Spotify is not answering. Check the Pi's internet connection, then try again.",
         "spotify_not_signed_in": "The Pi is not signed in to Spotify yet. Open Spotify on a phone on the same Wi-Fi, tap Devices and choose TapTune once, then retry.",
         "invalid_music_request": "This view could not load. Reload the page.",
-        "reader_unavailable": "The Pi's reader is unavailable. Check its cable, then use Restart TapTune on the Maintenance page.",
+        "reader_unavailable": "The Pi's reader is unavailable. Check its cable, then use Restart the Pi on the Maintenance page.",
         "writer_busy": "Another tag write is pending. Wait for it to finish or expire.",
         "write_timeout": "No tag was written within 60 seconds. Remove any tag and try again.",
         "tag_changed": "The tag was removed or changed. Keep one tag on the reader and try again.",
@@ -199,7 +199,7 @@ TRANSLATIONS = {
         "write_instruction": "Posez le tag sur le lecteur du Pi, pas sur votre téléphone.",
         "write_warning": "Remplace le contenu existant du tag.",
         "tag_help": "Aide du lecteur",
-        "tag_help_note": "Utilisez un NTAG213/215/216 non verrouillé, un tag Feiju Type 2 de 144 octets pris en charge ou un tag NFC Type 4 NDEF accessible en écriture. Si le lecteur reste indisponible, utilisez Redémarrer TapTune sur la page Maintenance.",
+        "tag_help_note": "Utilisez un NTAG213/215/216 non verrouillé, un tag Feiju Type 2 de 144 octets pris en charge ou un tag NFC Type 4 NDEF accessible en écriture. Si le lecteur reste indisponible, utilisez Redémarrer le Pi sur la page Maintenance.",
         "writer_disabled": "Lecteur indisponible · Voir Aide du lecteur",
         "writer_ready": "Lecteur prêt",
         "check_reader": "Vérifier le lecteur",
@@ -226,7 +226,7 @@ TRANSLATIONS = {
         "spotify_unavailable": "Spotify ne répond pas. Vérifiez la connexion Internet du Pi, puis réessayez.",
         "spotify_not_signed_in": "Le Pi n’est pas encore connecté à Spotify. Ouvrez Spotify sur un téléphone connecté au même Wi-Fi, touchez Appareils et choisissez TapTune une fois, puis réessayez.",
         "invalid_music_request": "Cette vue n’a pas pu se charger. Rechargez la page.",
-        "reader_unavailable": "Le lecteur du Pi est indisponible. Vérifiez son câble, puis utilisez Redémarrer TapTune sur la page Maintenance.",
+        "reader_unavailable": "Le lecteur du Pi est indisponible. Vérifiez son câble, puis utilisez Redémarrer le Pi sur la page Maintenance.",
         "writer_busy": "Une autre écriture est en attente. Attendez sa fin ou son expiration.",
         "write_timeout": "Aucun tag écrit dans les 60 secondes. Retirez tout tag et réessayez.",
         "tag_changed": "Le tag a été retiré ou remplacé. Gardez un seul tag sur le lecteur et réessayez.",
@@ -475,9 +475,9 @@ def create_app() -> Flask:
         record_activity("diagnostic", "WARNING", "web", "Update requested from the web page.")
         return api_response({"status": "started"}, 202)
 
-    @app.post("/api/system/restart")
-    def system_restart():
-        return system_action("Restart", system.restart_app)
+    @app.post("/api/system/poweroff")
+    def system_poweroff():
+        return system_action("Power off", system.poweroff)
 
     @app.post("/api/system/reboot")
     def system_reboot():

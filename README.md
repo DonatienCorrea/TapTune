@@ -27,7 +27,7 @@ wiring the reader to pairing the speaker and writing your first tag.
 - **Control tags**: play/pause, next song, volume +10 / −10.
 - **Setup page** (`/setup`): Wi-Fi, speaker and Spotify status; pair a new speaker.
 - **TapTune-Setup Wi-Fi**: move the Pi to a new network from a phone.
-- **Activity log** (`/logs`): what happened, plus update, restart and
+- **Activity log** (`/logs`): what happened, plus update, restart, power off and
   diagnostic logs from the browser.
 - Quiet by design: starts at 10% volume and never starts music by itself.
 

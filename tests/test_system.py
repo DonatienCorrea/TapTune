@@ -65,14 +65,21 @@ class SystemRouteTests(unittest.TestCase):
         })
 
     def test_actions_need_a_same_origin_json_request(self):
-        with patch.object(system, "restart_app") as restart:
-            self.assertEqual(self.client.post("/api/system/restart").status_code, 403)
-            self.assertEqual(self.client.post("/api/system/restart", json={},
+        with patch.object(system, "poweroff") as poweroff:
+            self.assertEqual(self.client.post("/api/system/poweroff").status_code, 403)
+            self.assertEqual(self.client.post("/api/system/poweroff", json={},
                                               headers={"Origin": "http://evil.example"}).status_code, 403)
-            restart.assert_not_called()
-            response = self.client.post("/api/system/restart", json={}, headers=SAME_ORIGIN)
+            poweroff.assert_not_called()
+            response = self.client.post("/api/system/poweroff", json={}, headers=SAME_ORIGIN)
         self.assertEqual(response.status_code, 202)
-        restart.assert_called_once_with()
+        poweroff.assert_called_once_with()
+
+    def test_app_restart_is_not_offered(self):
+        response = self.client.post("/api/system/restart", json={}, headers=SAME_ORIGIN)
+        self.assertEqual(response.status_code, 404)
+        page = self.client.get("/logs").get_data(as_text=True)
+        self.assertIn('data-system-action="poweroff"', page)
+        self.assertNotIn('data-system-action="restart"', page)
 
     def test_update_already_running_is_a_conflict(self):
         with patch.object(system, "start_update", side_effect=system.UpdateRunning()):

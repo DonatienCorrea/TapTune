@@ -294,12 +294,13 @@ async function maintenance(system) {
     return elements.get(id);
   };
   el("maintenance-text").textContent = JSON.stringify({
-    confirm: { update: ["Update?", "", "Update"], restart: ["Restart?", "", "Restart"] },
-    updating: "Updating…", restarting: "Restarting…", updated: "Update finished.",
+    confirm: { update: ["Update?", "", "Update"], reboot: ["Reboot?", "", "Reboot"], poweroff: ["Off?", "", "Off"] },
+    updating: "Updating…", restarting: "Restarting…", rebooting: "Rebooting…", powered_off: "Shutting down.",
+    updated: "Update finished.",
     update_failed: "Update failed.", error: "Could not start.", not_back: "Still down.",
     unknown_version: "unknown",
   });
-  const buttons = ["update", "restart"].map((action) => {
+  const buttons = ["update", "reboot", "poweroff"].map((action) => {
     const button = new Element("button");
     button.dataset.systemAction = action;
     return button;
@@ -349,15 +350,26 @@ test("update keeps polling through the restart and reports the new version", asy
   assert.equal(ui.buttons[1].disabled, false);
 });
 
-test("restart reloads the page once TapTune answers again", async () => {
+test("reboot reloads the page once TapTune answers again", async () => {
   const ui = await maintenance({ version: "v1", update: { state: "idle", log: "" } });
   ui.buttons[1].listeners.click();
   await ui.settle();
-  assert.deepEqual(ui.scenario.posts, ["/api/system/restart"]);
+  assert.deepEqual(ui.scenario.posts, ["/api/system/reboot"]);
+  assert.equal(ui.el("maintenance-status").textContent, "Rebooting…");
   ui.scenario.down = true;
   await ui.tick();
   assert.equal(ui.scenario.reloaded, false);
   ui.scenario.down = false;
   await ui.tick();
   assert.equal(ui.scenario.reloaded, true);
+});
+
+test("power off says so and keeps the actions disabled", async () => {
+  const ui = await maintenance({ version: "v1", update: { state: "idle", log: "" } });
+  ui.buttons[2].listeners.click();
+  await ui.settle();
+  assert.deepEqual(ui.scenario.posts, ["/api/system/poweroff"]);
+  assert.equal(ui.el("maintenance-status").textContent, "Shutting down.");
+  assert.equal(ui.buttons[0].disabled, true);
+  assert.equal(ui.scenario.reloaded, false);
 });

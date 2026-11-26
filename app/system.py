@@ -1,4 +1,4 @@
-"""Update, restart, reboot and diagnostics for the web page (the Pi has no screen).
+"""Update, reboot, power off and diagnostics for the web page (the Pi has no screen).
 
 TapTune runs as root. The update runs as the checkout owner in its own transient
 systemd unit, so it survives the app restart it triggers.
@@ -117,15 +117,15 @@ def _later(args, runner: Callable, delay: float) -> None:
     threading.Thread(target=run, name="taptune-system-action", daemon=True).start()
 
 
-def restart_app(runner: Callable = subprocess.run, delay: float = ACTION_DELAY_SECONDS) -> None:
-    """Restart TapTune shortly after the HTTP answer is sent."""
-    logger.warning("Restart requested from the web page.")
-    _later(["systemctl", "--no-block", "restart", APP_UNIT], runner, delay)
-
-
 def reboot(runner: Callable = subprocess.run, delay: float = ACTION_DELAY_SECONDS) -> None:
+    """Reboot the Pi shortly after the HTTP answer is sent."""
     logger.warning("Reboot requested from the web page.")
     _later(["systemctl", "reboot"], runner, delay)
+
+
+def poweroff(runner: Callable = subprocess.run, delay: float = ACTION_DELAY_SECONDS) -> None:
+    logger.warning("Power off requested from the web page.")
+    _later(["systemctl", "poweroff"], runner, delay)
 
 
 def journal(runner: Callable = subprocess.run, lines: int = 500) -> str:
