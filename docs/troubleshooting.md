@@ -29,11 +29,11 @@ for help.
 | A tag does nothing | Does diagnostics show `NFC reader: ready`? If not, check the wiring. Check `taptune logs` for an unknown-tag message, then write the tag again or use [manual setup](tag-usage.md#manual-setup). |
 | A tag can't be written | Use an unlocked NTAG213/215/216 and the Pi's reader. Keep the tag still until **Verified**. See [supported tags](tag-usage.md#supported-tags). |
 | Something fails just after boot | Wait a minute: TapTune retries by itself while the Spotify receiver starts. If it lasts, use **Restart TapTune** on the Activity log page. |
-| No albums or playlists on the music page | Spotify isn't signed in yet: see step 5 of the [installation guide](raspberry-pi-service.md#5-speaker-and-spotify-web-setup). |
+| No albums or playlists on the music page | First check the Spotify sign-in on the [setup page](raspberry-pi-service.md#4-finish-setup-on-your-phone). |
 | A podcast starts from its first episode | Choose TapTune in Spotify → Devices once more, then tap again. |
 | Reader not found | See [Hardware setup](hardware-setup.md#if-it-doesnt-work). |
 | `TapTune-Setup` Wi-Fi doesn't appear | It appears only when no known network works, about a minute after boot. Check `TAPTUNE_WIFI_SETUP` isn't `false`. |
-| Install fails with `.env is accessible to other users` | Run `chmod 600 .env`. |
+| Install says `.env` can be read by other users | Run `chmod 600 .env` from the TapTune folder. |
 | `ModuleNotFoundError` | Use `.venv/bin/python`, or rerun `./install.sh`. |
 | An update failed | Download diagnostic logs from the Activity log page, or run `taptune update` over SSH to see the failing step. Backups are in `data/backups/`. |
 | Tests print tracebacks but end with `OK` | Normal: some tests check error handling. |

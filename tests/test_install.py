@@ -94,23 +94,25 @@ fi
                 self.assertIn("unknown argument", self.run_install(flag, ok=False).stderr)
         self.assertEqual(self.commands(), "")
 
-    def test_prepare_creates_private_env_without_services(self):
-        self.run_install()
+    def test_fresh_install_creates_private_env_and_starts_services_in_order(self):
+        result = self.run_install()
         self.assertEqual((self.root / ".env").read_bytes(), (self.root / ".env.example").read_bytes())
         self.assertEqual(stat.S_IMODE((self.root / ".env").stat().st_mode), 0o600)
         self.assertIn("requirements.txt -r", self.commands())
         self.assertIn("requirements-pi.txt", self.commands())
-        self.assertNotIn("install-", self.commands())
+        calls = self.commands()
+        self.assertLess(calls.index("-m pip install"), calls.index("install-go-librespot.sh"))
+        self.assertLess(calls.index("install-go-librespot.sh"), calls.index("install-service.sh"))
+        self.assertIn(".local/setup on a phone", result.stdout)
 
-    def test_prepare_rerun_preserves_env_permissions_and_reuses_venv(self):
+    def test_install_rerun_preserves_private_env_and_reuses_venv(self):
         self.run_install()
         path = self.root / ".env"
         path.write_text("# user's configuration\nSPOTIFY_DEVICE_NAME=keep-me\n")
-        path.chmod(0o640)
         self.log.unlink()
         self.assertIn("Keeping your existing .env", self.run_install().stdout)
         self.assertEqual(path.read_text(), "# user's configuration\nSPOTIFY_DEVICE_NAME=keep-me\n")
-        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o640)
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
         self.assertNotIn("-m venv", self.commands())
 
     def test_root_is_rejected_before_changes(self):
@@ -133,10 +135,14 @@ fi
                 self.assertFalse((self.root / ".env").exists())
                 self.assertFalse((self.root / ".venv").exists())
                 self.assertEqual(self.commands(), "")
+                if options:
+                    self.assertNotIn("-m pip install", result.stdout)
 
-    def test_configure_dry_run_previews_both_installers(self):
-        out = self.run_install("--configure", "--dry-run").stdout
-        self.assertLess(out.index("install-go-librespot.sh --dry-run"), out.index("install-service.sh --dry-run"))
+    def test_dry_run_previews_dependencies_and_services_in_order(self):
+        out = self.run_install("--dry-run").stdout
+        setup = "install-go-librespot.sh --dry-run"
+        self.assertLess(out.index("-m pip install"), out.index(setup))
+        self.assertLess(out.index(setup), out.index("install-service.sh --dry-run"))
 
     def test_configure_requires_preparation(self):
         self.assertIn("./install.sh first", self.run_install("--configure", ok=False).stderr)
@@ -153,7 +159,7 @@ fi
         self.live_config(BLUETOOTH_SPEAKER_MAC="")
         result = self.run_install("--configure")
         self.assertEqual(self.commands(), "install-go-librespot.sh \ninstall-service.sh \n")
-        self.assertIn("choose TapTune", result.stdout)
+        self.assertIn(".local/setup on a phone", result.stdout)
         self.assertNotIn("-m pip", self.commands())
 
     def test_failed_dependency_install_is_retried_then_stops_without_creating_env(self):
@@ -167,6 +173,7 @@ if [ "$1" = "-m" ] && [ "$2" = "pip" ]; then exit 23; fi
         self.assertIn("retrying", result.stderr)
         self.assertIn("installation stopped", result.stderr)
         self.assertFalse((self.root / ".env").exists())
+        self.assertNotIn("install-service.sh", self.commands())
 
     def test_failed_speaker_installer_does_not_start_app(self):
         self.live_config()
@@ -174,7 +181,7 @@ if [ "$1" = "-m" ] && [ "$2" = "pip" ]; then exit 23; fi
         result = self.run_install("--configure", ok=False)
         self.assertEqual(result.returncode, 42)
         self.assertEqual(self.commands(), "")
-        self.assertNotIn("installed and running", result.stdout)
+        self.assertNotIn(".local/setup", result.stdout)
 
     def test_env_is_not_executed_as_shell(self):
         self.live_config()

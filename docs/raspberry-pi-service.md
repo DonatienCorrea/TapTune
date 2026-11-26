@@ -2,8 +2,7 @@
 
 [Documentation index](README.md) · [Wi-Fi en français](fr/wi-fi.md)
 
-One path, start to finish: **Raspberry Pi OS Lite + the setup page**. TapTune runs
-without a screen; once installed, everything is done from a phone.
+Install once over SSH, then finish setup from a phone. No screen is needed on the Pi.
 
 ## What you need
 
@@ -21,64 +20,53 @@ In [Raspberry Pi Imager](https://www.raspberrypi.com/software/), choose
 - your user name and password, and **enable SSH**
 - your Wi-Fi name, password and country
 
-Start the Pi, then connect from a computer on the same Wi-Fi: `ssh <user>@taptune.local`.
+## 2. Connect the reader
 
-## 2. Download TapTune
+With the Pi powered off, insert the SD card and [wire the PN532](hardware-setup.md#wire-the-reader).
 
-Install the required system packages with `sudo`:
+## 3. Install TapTune
+
+Power on the Pi. From a computer on the same Wi-Fi, run `ssh <user>@taptune.local`,
+replacing `<user>` with the name you set in Imager. If `taptune.local` doesn't
+resolve, use the Pi's IP address from your router instead.
+
+Enable I2C for the reader, then install the system packages:
 
 ```bash
-sudo apt update
-sudo apt install -y git python3-venv sqlite3
+sudo raspi-config nonint do_i2c 0
+sudo apt update && sudo apt install -y git python3-venv sqlite3
 ```
 
-Then download TapTune and run its installer as your normal user (without `sudo`):
+Download TapTune and run the installer as your normal user (**no `sudo`**):
 
 ```bash
-cd ~
-git clone https://github.com/DonatienCorrea/TapTune.git
-cd TapTune
+cd ~ && git clone https://github.com/DonatienCorrea/TapTune.git &&
+cd TapTune &&
 ./install.sh
 ```
 
-This prepares TapTune and creates a private `.env` settings file. It starts nothing.
-`./install.sh --help` lists the options.
+The installer starts TapTune and asks for `sudo` only for system changes. No
+settings file to edit: TapTune detects the reader automatically. Save the private
+hotspot password shown at installation if you plan to [move to another Wi-Fi](#move-to-another-wi-fi).
 
-## 3. Connect the reader
+## 4. Finish setup on your phone
 
-Follow [Hardware setup](hardware-setup.md) to wire the PN532 and read a first tag.
-TapTune finds the reader by itself; nothing to set.
-
-## 4. Install the services
-
-```bash
-./install.sh --configure
-```
-
-This installs the Spotify receiver (go-librespot), PipeWire audio, the TapTune
-service and the `taptune` command. It asks for your password (`sudo`) only for
-system changes. It also prints the `TapTune-Setup` Wi-Fi QR code and password:
-keep them private (see [Move to another Wi-Fi](#move-to-another-wi-fi)).
-
-## 5. Speaker and Spotify (web setup)
-
-Open `http://taptune.local/setup` on a phone on the **same Wi-Fi**:
+On the **same Wi-Fi**, open `http://taptune.local/setup`. If that doesn't open, try
+`http://taptune.local:5000/setup` or `http://<pi-ip>:5000/setup`.
 
 - **Bluetooth speaker**: put the speaker in pairing mode, tap
   **Search for speakers** and choose it.
 - **Spotify**: in the Spotify app, tap **Devices** and choose **TapTune**.
   TapTune never asks for your Spotify password and stays signed in after restarts.
 
-Each step turns to *done* by itself.
+To check or replace a paired speaker later, use **Play a test sound** or
+**Change speaker** on the same page. For French, use `/fr/setup`.
 
-## 6. Write your first tag
+## 5. Write your first tag
 
-Open `http://taptune.local/`, choose music and write it to a tag
-([Using tags](tag-usage.md)). Then reboot with the speaker on: wait for the short
-chime and tap the tag. Sound should come from the speaker.
-
-If `http://taptune.local/` doesn't answer, use `http://taptune.local:5000/` or
-`http://<pi-ip>:5000/`.
+Once setup is complete, choose **Make a tag** and follow [Using tags](tag-usage.md#write-music-to-a-tag).
+Tap it to play; no reboot is needed. If TapTune can't find the reader, use the
+[reader checks](hardware-setup.md#if-it-doesnt-work).
 
 ## How it behaves
 
@@ -93,20 +81,13 @@ If `http://taptune.local/` doesn't answer, use `http://taptune.local:5000/` or
 - The web pages have no login: keep the Pi on your home network and never
   expose it to the internet. Never share `.env` or backups; they contain account secrets.
 
-## The setup page
-
-`http://taptune.local/setup` (French: `/fr/setup`) shows the status of Wi-Fi,
-the speaker and Spotify. Until all three have been done once, the home page
-opens the setup page instead. Under **Bluetooth speaker**, **Change speaker** →
-**Search for speakers** pairs a new speaker and saves it; **Play a test sound**
-checks it.
-
 ## Move to another Wi-Fi
 
 If the Pi finds no known network about 60 seconds after starting, it opens its
 own Wi-Fi called **TapTune-Setup** (password-protected, unique to this Pi).
 
-1. Before moving the Pi, run `taptune setup-wifi` to show its QR code and password.
+1. If you haven't saved the password, run `taptune setup-wifi` before moving the Pi.
+   It also shows a QR code if `qrencode` is installed.
 2. At the new place, on your phone, scan the QR code or join `TapTune-Setup`
    with the password. Stay connected if the phone says "no internet".
 3. The setup page opens. If not, go to `http://10.42.66.1/setup` (`http://`, not `https://`).
@@ -143,7 +124,7 @@ usually fixes itself.
 | `taptune logs` | Logs of all TapTune services (`-f` follow, `-b -1` previous boot, `--since "10 min ago"`, `--save` to a file) |
 | `taptune restart` | Restart everything and replay the startup check |
 | `taptune update` | Back up, download the latest version, test, reinstall and restart |
-| `taptune setup-wifi` | Show the `TapTune-Setup` QR code and password |
+| `taptune setup-wifi` | Show the `TapTune-Setup` password (and QR code if available) |
 | `taptune reset` | Make the Pi like new (see below) |
 
 `taptune update` backs up `.env` and the tag database to `data/backups/` (last
@@ -170,7 +151,8 @@ the Pi up again from a phone. (Over Ethernet, open `http://taptune.local/setup`.
 
 ## Settings (`.env`)
 
-Edit `.env` in the TapTune folder, then run `./install.sh --configure` again.
+If you need to change an advanced setting, edit `.env` in the TapTune folder,
+then run `./install.sh --configure` to apply it.
 Never copy `.env.example` over an existing `.env`.
 
 | Setting | Default | Meaning |

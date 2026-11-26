@@ -48,8 +48,7 @@ Tags written with a phone app (NFC Tools…) as a URL or text record also work.
 For control tags (play/pause, next, volume) or tags TapTune can't write, link
 the tag's ID instead:
 
-1. Read the tag's ID with the [reader test](hardware-setup.md#read-a-first-tag)
-   (TapTune must be stopped), for example `04A7B2F1`.
+1. Read the tag's ID with the [reader test](hardware-setup.md#read-a-first-tag).
 2. On the music page, open **Manual setup**, enter the ID and a value (or use the
    **Volume +10%** / **Volume -10%** shortcuts), then **Save tag**.
 
