@@ -72,7 +72,6 @@ fi
 
     def live_config(self, **overrides):
         values = {
-            "NFC_READER_ENABLED": "true",
             "SPOTIFY_DEVICE_NAME": "TapTune",
             "BLUETOOTH_SPEAKER_MAC": "AA:BB:CC:DD:EE:FF",
         }
@@ -150,15 +149,8 @@ fi
         self.assertIn("chmod 600", result.stderr)
         self.assertEqual(self.commands(), "")
 
-    def test_configure_requires_reader(self):
-        for value in ("false", ""):
-            with self.subTest(value=value):
-                self.live_config(NFC_READER_ENABLED=value)
-                self.assertIn("first-card", self.run_install("--configure", ok=False).stderr)
-        self.assertEqual(self.commands(), "")
-
     def test_configure_installs_speaker_before_app_without_a_paired_speaker(self):
-        self.live_config(NFC_READER_ENABLED="Yes", BLUETOOTH_SPEAKER_MAC="")
+        self.live_config(BLUETOOTH_SPEAKER_MAC="")
         result = self.run_install("--configure")
         self.assertEqual(self.commands(), "install-go-librespot.sh \ninstall-service.sh \n")
         self.assertIn("choose TapTune", result.stdout)

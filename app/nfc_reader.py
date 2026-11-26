@@ -45,6 +45,11 @@ except (ImportError, NotImplementedError):  # pragma: no cover - Pi-only depende
     board = None  # type: ignore
     PN532_I2C = None  # type: ignore
 
+def reader_supported() -> bool:
+    """True on a Pi with the PN532 libraries installed (requirements-pi.txt)."""
+    return PN532_I2C is not None and board is not None
+
+
 PN532_LIBRARY_UNAVAILABLE_MESSAGE = (
     "PN532 support is not available; install requirements-pi.txt on the Pi."
 )

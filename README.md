@@ -29,12 +29,12 @@ sudo apt update && sudo apt install -y git python3-venv
 git clone https://github.com/DonatienCorrea/TapTune.git
 cd TapTune
 ./install.sh
-# connect the reader, pair the speaker (see the guide)
+# wire the reader (see the guide)
 ./install.sh --configure
 ```
 
-Then, in Spotify on your phone, tap **Devices** → **TapTune**, and open
-`http://taptune.local/` to write your first tag.
+Then open `http://taptune.local/setup` to pair the speaker and pick **TapTune**
+in Spotify → **Devices**, and write your first tag.
 
 ## What it does
 

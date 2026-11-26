@@ -8,6 +8,7 @@ from .db import get_tag_by_uid, list_tags, upsert_tag
 from .spotify_service import dispatch_tag_value, get_tag_type
 from . import spotify_service
 from .spotify_browser import LinkPreviewUnavailable, browse_music, import_spotify_link
+from .nfc_reader import reader_supported
 from .tag_writer import TagWriter, WriterBusy
 from . import setup as setup_state
 from . import speaker_pairing
@@ -241,7 +242,7 @@ def create_app() -> Flask:
         thread = app.config.get("NFC_READER_THREAD")
         ready = getattr(thread, "reader_ready", None)
         return bool(
-            settings.NFC_READER_ENABLED and thread is not None and thread.is_alive()
+            thread is not None and thread.is_alive()
             and isinstance(ready, threading.Event) and ready.is_set()
         )
 
@@ -482,7 +483,7 @@ def create_app() -> Flask:
         text = (
             f"TapTune {system.code_version()}\n"
             f"Receiver: {settings.SPOTIFY_DEVICE_NAME}\nSpeaker: {settings.BLUETOOTH_SPEAKER_MAC or '(none)'}\n"
-            f"NFC reader: {'enabled' if settings.NFC_READER_ENABLED else 'disabled'}\n"
+            f"NFC reader: {'ready' if reader_available() else 'not found'}\n"
             f"Setup: {[(step['id'], step['state'], step.get('reason')) for step in setup_state.setup_steps()]}\n\n"
             f"== Last update ==\n{system.update_status()['log']}\n\n"
             f"== Activity (newest first) ==\n{activity}\n\n"
@@ -501,7 +502,8 @@ def create_app() -> Flask:
     def ready():
         reader = app.config.get("NFC_READER_THREAD")
         reader_event = getattr(reader, "reader_ready", None)
-        reader_ready = not settings.NFC_READER_ENABLED or (
+        # Without the PN532 libraries (not a Pi) no reader thread is started.
+        reader_ready = not reader_supported() or (
             reader is not None and reader.is_alive()
             and (not isinstance(reader_event, threading.Event) or reader_event.is_set())
         )

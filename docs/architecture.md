@@ -15,7 +15,7 @@ receiver, go-librespot, runs as a separate user service,
 
 | File | Role |
 | --- | --- |
-| `app/main.py` | Starts the web app and, if `NFC_READER_ENABLED=true`, the reader loop |
+| `app/main.py` | Starts the web app and the reader loop (it waits for the PN532 if absent) |
 | `app/web.py` | Music page, setup page, Activity log (`/logs`) with maintenance, APIs, `/health`, `/ready` |
 | `app/nfc_reader.py`, `app/type4_ndef.py`, `app/ndef.py` | Read tag IDs and links; write and verify tags |
 | `app/tag_writer.py` | One 60-second, cancellable write at a time |

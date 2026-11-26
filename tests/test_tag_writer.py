@@ -400,6 +400,7 @@ class TagWriterTests(unittest.TestCase):
 
     def test_supervisor_fails_pending_job_when_reader_breaks(self):
         self.writer.start("spotify:album:abc")
-        with patch.object(main._thread, "interrupt_main"), self.assertLogs(main.logger, level="ERROR"):
-            main.run_reader_supervisor(Mock(side_effect=OSError("bus")), writer=self.writer, max_failures=1)
+        with patch.object(main, "run_reader_loop", side_effect=OSError("bus")), \
+                patch.object(main._thread, "interrupt_main"), self.assertLogs(main.logger, level="ERROR"):
+            main.run_reader_supervisor(Mock(return_value=object()), writer=self.writer, max_failures=1)
         self.assertEqual(self.writer.snapshot()["error"], "reader_unavailable")

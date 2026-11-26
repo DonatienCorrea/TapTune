@@ -26,14 +26,13 @@ for help.
 | `speaker_not_ready` | Spotify can't see TapTune. Sign in again (Spotify → Devices → TapTune) and check `SPOTIFY_DEVICE_NAME`. |
 | Sound is mono or very poor | `taptune status` should show an `a2dp-sink` profile, not `headset-head-unit`. Turn the speaker off and on, then tap a music tag. Unpair other devices that grab the speaker. |
 | No chime after boot | Check `READY_SOUND_ENABLED=true` and `taptune logs`. Fix the cause, then `taptune restart`. Music never starts by itself at boot. |
-| A tag does nothing | Was TapTune started with `NFC_READER_ENABLED=true`? Check `taptune logs` for an unknown-tag message, then write the tag again or use [manual setup](tag-usage.md#manual-setup). |
+| A tag does nothing | Does diagnostics show `NFC reader: ready`? If not, check the wiring. Check `taptune logs` for an unknown-tag message, then write the tag again or use [manual setup](tag-usage.md#manual-setup). |
 | A tag can't be written | Use an unlocked NTAG213/215/216 and the Pi's reader. Keep the tag still until **Verified**. See [supported tags](tag-usage.md#supported-tags). |
 | Something fails just after boot | Wait a minute: TapTune retries by itself while the Spotify receiver starts. If it lasts, use **Restart TapTune** on the Activity log page. |
-| No albums or playlists on the music page | Spotify isn't signed in yet: see step 6 of the [installation guide](raspberry-pi-service.md#6-sign-in-to-spotify). |
+| No albums or playlists on the music page | Spotify isn't signed in yet: see step 5 of the [installation guide](raspberry-pi-service.md#5-speaker-and-spotify-web-setup). |
 | A podcast starts from its first episode | Choose TapTune in Spotify → Devices once more, then tap again. |
 | Reader not found | See [Hardware setup](hardware-setup.md#if-it-doesnt-work). |
 | `TapTune-Setup` Wi-Fi doesn't appear | It appears only when no known network works, about a minute after boot. Check `TAPTUNE_WIFI_SETUP` isn't `false`. |
-| Install fails with `pair the Bluetooth speaker first` | Pair and trust the speaker ([step 4](raspberry-pi-service.md#4-pair-the-speaker)) and set `BLUETOOTH_SPEAKER_MAC`. |
 | Install fails with `.env is accessible to other users` | Run `chmod 600 .env`. |
 | `ModuleNotFoundError` | Use `.venv/bin/python`, or rerun `./install.sh`. |
 | An update failed | Download diagnostic logs from the Activity log page, or run `taptune update` over SSH to see the failing step. Backups are in `data/backups/`. |

@@ -69,7 +69,7 @@ class InstallServiceScriptTests(unittest.TestCase):
             python.parent.mkdir(parents=True)
             python.write_text("#!/bin/sh\nexit 0\n")
             python.chmod(0o755)
-            (repo / ".env").write_text("NFC_READER_ENABLED=true\n")
+            (repo / ".env").write_text("SPOTIFY_DEVICE_NAME=TapTune\n")
             log = Path(directory) / "calls"
             bin_dir = Path(directory) / "bin"
             bin_dir.mkdir()

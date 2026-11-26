@@ -66,13 +66,9 @@ if [ "$DRY_RUN" -eq 0 ]; then
   command -v systemctl >/dev/null || die "systemd is required"
   [ "$(ls -ld "$REPO_DIR/.env" | cut -c5-10)" = ------ ] ||
     die ".env can be read by other users; run: chmod 600 .env"
-  case "$(env_value NFC_READER_ENABLED | tr '[:upper:]' '[:lower:]')" in
-    true|1|yes|on) ;;
-    *) die "test the NFC reader with the first-card check, then set NFC_READER_ENABLED=true in .env" ;;
-  esac
   install_services
 else
-  echo "# check .env (private, NFC_READER_ENABLED=true)"
+  echo "# check .env is private"
   install_services --dry-run
 fi
 

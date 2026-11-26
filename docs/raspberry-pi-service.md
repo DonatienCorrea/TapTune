@@ -25,11 +25,16 @@ Start the Pi, then connect from a computer on the same Wi-Fi: `ssh <user>@taptun
 
 ## 2. Download TapTune
 
-Run as your normal user, **not with `sudo`**:
+Install the required system packages with `sudo`:
 
 ```bash
 sudo apt update
 sudo apt install -y git python3-venv sqlite3
+```
+
+Then download TapTune and run its installer as your normal user (without `sudo`):
+
+```bash
 cd ~
 git clone https://github.com/DonatienCorrea/TapTune.git
 cd TapTune
@@ -42,41 +47,9 @@ This prepares TapTune and creates a private `.env` settings file. It starts noth
 ## 3. Connect the reader
 
 Follow [Hardware setup](hardware-setup.md) to wire the PN532 and read a first tag.
-Then edit `.env` (`nano .env`) and set:
+TapTune finds the reader by itself; nothing to set.
 
-```dotenv
-NFC_READER_ENABLED=true
-```
-
-## 4. Pair the speaker
-
-Put the speaker in pairing mode, then:
-
-```bash
-bluetoothctl
-```
-
-```text
-power on
-agent on
-default-agent
-scan on
-pair AA:BB:CC:DD:EE:FF
-trust AA:BB:CC:DD:EE:FF
-scan off
-quit
-```
-
-Replace `AA:BB:CC:DD:EE:FF` with your speaker's address from the scan list, and
-save the same address in `.env`:
-
-```dotenv
-BLUETOOTH_SPEAKER_MAC=AA:BB:CC:DD:EE:FF
-```
-
-Later you can change speaker from the setup page without a terminal.
-
-## 5. Install the services
+## 4. Install the services
 
 ```bash
 ./install.sh --configure
@@ -87,16 +60,18 @@ service and the `taptune` command. It asks for your password (`sudo`) only for
 system changes. It also prints the `TapTune-Setup` Wi-Fi QR code and password:
 keep them private (see [Move to another Wi-Fi](#move-to-another-wi-fi)).
 
-## 6. Sign in to Spotify
+## 5. Speaker and Spotify (web setup)
 
-On a phone on the **same Wi-Fi**, open Spotify, tap **Devices** and choose
-**TapTune**. That's it: TapTune never asks for your Spotify password, and the
-Pi stays signed in after restarts.
+Open `http://taptune.local/setup` on a phone on the **same Wi-Fi**:
 
-Open `http://taptune.local/setup`. It shows Wi-Fi, speaker and Spotify; each
-step turns to *done* by itself.
+- **Bluetooth speaker**: put the speaker in pairing mode, tap
+  **Search for speakers** and choose it.
+- **Spotify**: in the Spotify app, tap **Devices** and choose **TapTune**.
+  TapTune never asks for your Spotify password and stays signed in after restarts.
 
-## 7. Write your first tag
+Each step turns to *done* by itself.
+
+## 6. Write your first tag
 
 Open `http://taptune.local/`, choose music and write it to a tag
 ([Using tags](tag-usage.md)). Then reboot with the speaker on: wait for the short
@@ -199,7 +174,6 @@ Never copy `.env.example` over an existing `.env`.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `NFC_READER_ENABLED` | `false` | Set `true` once the reader works |
 | `BLUETOOTH_SPEAKER_MAC` | empty | Speaker address (the setup page can set it) |
 | `SPOTIFY_DEVICE_NAME` | `TapTune` | Name shown in Spotify → Devices |
 | `SPOTIFY_INITIAL_VOLUME` | `10` | Volume (%) set at startup |
